@@ -1,0 +1,56 @@
+{
+  "project": "Contexpect Doctor",
+  "mode": "new",
+  "created_at": "2026-09-04T13:14:53",
+  "status": "final",
+  "viewport_targets": [
+    "desktop-1440x900"
+  ],
+  "source_context": {
+    "repo": "/Users/wangyixiao/WorkSpace/ContextView",
+    "user_screenshots": [],
+    "browser_screenshots": []
+  },
+  "final_images": [
+    {
+      "path": "images/10-context-doctor-final.png",
+      "screen": "Context Doctor Final",
+      "viewport": "desktop-1440x900",
+      "purpose": "Generated final design image",
+      "source_prompt": "04-image-prompts.md#final-scope-validation-patch--actual-prompt",
+      "sha256": "2a52574112698ed59226f370f2de2478db3f9b533e27fef97ae0686bb1e15b0a"
+    }
+  ],
+  "review_rounds": [
+    {
+      "round": 1,
+      "image": "reviews/round-1-context-doctor.png",
+      "decision": "Revise product entry, evidence semantics, and six-facet visibility"
+    },
+    {
+      "round": 2,
+      "image": "reviews/round-2-context-doctor.png",
+      "decision": "Revise coordinate, navigation, evidence-first CTA, and treatment gate"
+    },
+    {
+      "round": 3,
+      "image": "reviews/round-3-pre-validation.png",
+      "decision": "Architecture accepted; semantic validation required before final"
+    },
+    {
+      "round": "agent-validation",
+      "image": "reviews/post-agent-validation-scope13.png",
+      "decision": "Resolved wording and pass-like evidence icon issues corrected"
+    },
+    {
+      "round": "scope-validation",
+      "image": "images/10-context-doctor-final.png",
+      "decision": "18-family coverage reconciled with local and web research"
+    }
+  ],
+  "implementation": {
+    "target_repo": "/Users/wangyixiao/WorkSpace/ContextView",
+    "handoff_prompt": "handoff-prompt.md"
+  },
+  "updated_at": "2026-09-04T13:51:59"
+}
