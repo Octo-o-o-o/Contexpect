@@ -7,7 +7,7 @@
     "desktop-1440x900"
   ],
   "source_context": {
-    "repo": "/Users/wangyixiao/WorkSpace/ContextView",
+    "repo": ".",
     "user_screenshots": [],
     "browser_screenshots": []
   },
@@ -49,7 +49,7 @@
     }
   ],
   "implementation": {
-    "target_repo": "/Users/wangyixiao/WorkSpace/ContextView",
+    "target_repo": ".",
     "handoff_prompt": "handoff-prompt.md"
   },
   "updated_at": "2026-09-04T13:51:59"

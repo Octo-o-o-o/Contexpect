@@ -1,7 +1,7 @@
 # 2026-09-04 本机调研环境 Receipt
 
 > 捕获时间：2026-09-04T12:33:58+08:00  
-> 工作目录：`/Users/wangyixiao/WorkSpace/ContextView`  
+> 工作目录：`.`
 > 性质：本会话只读探测的原始输出摘录；不是未来产品的正式 Context Receipt。
 
 ## OS 与架构
@@ -118,8 +118,8 @@ $ codex debug prompt-input 'context inspection probe' | jq <structure-only-query
 
 ```text
 opencode       /opt/homebrew/bin/opencode                1.18.21
-kimi           /Users/wangyixiao/.kimi-code/bin/kimi     0.40.1
-kimi-cli       /Users/wangyixiao/.local/bin/kimi-cli     1.49.0
+kimi           $HOME/.kimi-code/bin/kimi     0.40.1
+kimi-cli       $HOME/.local/bin/kimi-cli     1.49.0
 goose          /opt/homebrew/bin/goose                   1.37.0
 gemini         /opt/homebrew/bin/gemini                  0.55.1
 qwen           /opt/homebrew/bin/qwen                    0.18.0

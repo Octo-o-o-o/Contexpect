@@ -1,0 +1,2 @@
+## always
+Visible ASCII only.

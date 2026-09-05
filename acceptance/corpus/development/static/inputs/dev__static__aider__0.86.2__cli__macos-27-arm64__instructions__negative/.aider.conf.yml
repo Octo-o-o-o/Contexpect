@@ -1,0 +1,4 @@
+auto-commits: false
+read: []
+ignore:
+  - CONVENTIONS.md

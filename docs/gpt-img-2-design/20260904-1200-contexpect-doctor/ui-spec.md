@@ -3,7 +3,7 @@
 ## Source Files
 
 - Existing UI spec: 无；本文件是初始 canonical UI spec。
-- Product requirements: `/Users/wangyixiao/WorkSpace/ContextView/docs/requirements/2026-09-04-contexpect-complete-product-requirements.md`
+- Product requirements: `./docs/requirements/2026-09-04-contexpect-complete-product-requirements.md`
 - Token/theme files: 尚无代码。
 - Component files: 尚无代码。
 - Screenshots: 三轮 image generation 产生。

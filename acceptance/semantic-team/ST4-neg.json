@@ -1,0 +1,1077 @@
+{
+  "covers": [
+    "ST4-neg"
+  ],
+  "cutoff": "2026-09-04T23:59:59+08:00",
+  "digest": "33c27c03fd771cf1cb7d1ddfc7695369059b1d5215f5a50dc3cdc5f7e9aa5982",
+  "expected_gate_result": "fail",
+  "expected_violations": [
+    "unsigned-standard",
+    "missing-signature",
+    "secret-in-standard",
+    "rollback-unsafe-standard",
+    "member-key-as-publisher",
+    "incomplete-publisher"
+  ],
+  "id": "ST4-neg",
+  "kind": "semantic-team-fixture",
+  "license": "Apache-2.0",
+  "live_tested": false,
+  "notes": "Unsigned, secret-bearing, rollback-unsafe, member-signed, or incomplete-publisher standard must fail.",
+  "payload": {
+    "canonical_intents": [],
+    "claimed_alignment": null,
+    "documentation_only": false,
+    "effective_policies": [],
+    "equivalence_bindings": [],
+    "exceptions": [],
+    "expected_violations": [],
+    "layer_assignments": [],
+    "leader_view": null,
+    "lifecycle": null,
+    "loss_reports": [],
+    "member_disclosure": null,
+    "overlays": [],
+    "policy_evals": [],
+    "projections": [],
+    "receipts": [],
+    "rollback_plan": null,
+    "scenario": "ST4-neg",
+    "team_standard": null,
+    "trust_state": null,
+    "variants": [
+      {
+        "canonical_intents": [
+          {
+            "activation": {
+              "mode": "required-instruction",
+              "trigger": "javascript-test-paths"
+            },
+            "authority": {
+              "id": "contexpect-native",
+              "kind": "contexpect-native"
+            },
+            "dependencies": [],
+            "desired_outcome": "Each target harness encodes the Vitest requirement in its native instruction/rule primitive",
+            "id": "intent.tests-must-use-vitest",
+            "lifecycle": "active",
+            "meaning": {
+              "constraints": [
+                "Do not introduce Jest as the project test runner"
+              ],
+              "goal": "JavaScript unit and component tests must use Vitest",
+              "non_goals": [
+                "Do not rewrite existing non-JavaScript tests"
+              ]
+            },
+            "owner": "syn-publisher-team-lead",
+            "permission_security_boundary": "instructions-are-not-sandbox-policy",
+            "precedence": {
+              "policy": "team-required-over-personal-recommended",
+              "rank": "team",
+              "shadows_lower": true
+            },
+            "provenance": {
+              "digest_sha256": "daf468fb9bb08e61cd55dae67d9018916862606ccb72178f33fdc424990ab149",
+              "recorded_at": "2026-09-04T12:00:00+08:00",
+              "source": "synthetic-acceptance-fixture"
+            },
+            "required_capability": "instructions",
+            "scope": {
+              "kind": "project",
+              "paths": [
+                "packages/**",
+                "apps/**"
+              ],
+              "target": "javascript-tests"
+            }
+          }
+        ],
+        "claimed_alignment": null,
+        "documentation_only": false,
+        "effective_policies": [],
+        "equivalence_bindings": [],
+        "exceptions": [],
+        "expected_violations": [
+          "unsigned-standard",
+          "missing-signature"
+        ],
+        "layer_assignments": [],
+        "leader_view": null,
+        "lifecycle": null,
+        "loss_reports": [],
+        "member_disclosure": null,
+        "overlays": [],
+        "policy_evals": [],
+        "projections": [],
+        "receipts": [],
+        "rollback_plan": null,
+        "scenario": "",
+        "team_standard": {
+          "canonical_intent_set": [
+            "intent.tests-must-use-vitest"
+          ],
+          "channel": "git-file-local",
+          "compatibility_floors": {
+            "ctxpect_schema": 1,
+            "harness": {
+              "claude-code": "2.1.259",
+              "codex": "0.147.0",
+              "cursor": "3.19.7",
+              "grok-build": "1.0.13"
+            }
+          },
+          "content_digest_manifest": [
+            {
+              "digest_sha256": "917851f908b1fe3278547b25a591ab6279e4d5e699940aaab43bea7381254600",
+              "path": "canonical_intent_set/intent.tests-must-use-vitest"
+            },
+            {
+              "digest_sha256": "10bbca2f5a52cec1bd86df9d7b6af83d2c5731da2957e9e8942ca4dbe6e63a2c",
+              "path": "policy_rules/policy.vitest-required"
+            }
+          ],
+          "expiry": "2026-12-31T23:59:59+08:00",
+          "lifecycle_metadata": {
+            "expires_at": "2026-12-31T23:59:59+08:00",
+            "published_at": "2026-09-04T12:00:00+08:00",
+            "state": "publish"
+          },
+          "lineage": {
+            "current_floor": 1,
+            "history": [
+              {
+                "digest_sha256": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+                "revision": 0
+              }
+            ],
+            "previous_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+            "previous_revision": 0
+          },
+          "members": [
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead",
+              "key_id": "syn-publisher-team-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead-rotated",
+              "key_id": "syn-publisher-team-lead-rotated",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "approve-exception",
+              "id": "syn-approver-lead",
+              "key_id": "syn-approver-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "request-exception",
+              "id": "syn-member",
+              "key_id": "syn-member",
+              "role": "member",
+              "trust_state": "trusted"
+            }
+          ],
+          "migration": {
+            "from_revision": 0,
+            "strategy": "adopt-then-project"
+          },
+          "policy_rules": [
+            {
+              "honesty": "enforceable",
+              "id": "policy.vitest-required",
+              "intent_ids": [
+                "intent.tests-must-use-vitest"
+              ],
+              "layer": "team",
+              "mode": "required",
+              "text": "JavaScript tests must use Vitest"
+            }
+          ],
+          "publisher": {
+            "authorization": "publish-team-standard",
+            "display_name": "Synthetic Team Lead",
+            "id": "syn-publisher-team-lead",
+            "key_id": "syn-publisher-team-lead",
+            "role": "team-lead",
+            "signing_identity": "syn-publisher-team-lead",
+            "trust_state": "trusted"
+          },
+          "release_notes": "Synthetic Team Context Standard for the Vitest instruction. Git/file local-first; encrypted cloud is optional transport only.",
+          "revision": 1,
+          "rollback": {
+            "last_known_good_revision": 0,
+            "preserves_unrelated_personal_files": true,
+            "safe": true,
+            "transaction": {
+              "audit_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "authorized": false,
+              "receipt_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "target_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+              "target_is_last_known_good": true,
+              "target_revision": 0
+            }
+          },
+          "semantic_version": "1.0.0",
+          "signatures": [],
+          "stable_id": "tcs.vitest-standard",
+          "target_harness_coordinates": [
+            "codex/0.147.0/cli/macos-27-arm64",
+            "claude-code/2.1.259/cli/macos-27-arm64",
+            "cursor/3.19.7/ide/macos-27-arm64",
+            "grok-build/1.0.13/cli/macos-27-arm64"
+          ],
+          "transport": {
+            "encrypted_cloud_is_optional": true,
+            "kind": "git-file-local",
+            "local_first": true
+          },
+          "trust": {
+            "publisher_key_id": "syn-publisher-team-lead",
+            "state": "trusted",
+            "verified_key_id": "syn-publisher-team-lead"
+          }
+        },
+        "trust_state": null,
+        "variants": []
+      },
+      {
+        "canonical_intents": [
+          {
+            "activation": {
+              "mode": "required-instruction",
+              "trigger": "javascript-test-paths"
+            },
+            "authority": {
+              "id": "contexpect-native",
+              "kind": "contexpect-native"
+            },
+            "dependencies": [],
+            "desired_outcome": "Each target harness encodes the Vitest requirement in its native instruction/rule primitive",
+            "id": "intent.tests-must-use-vitest",
+            "lifecycle": "active",
+            "meaning": {
+              "constraints": [
+                "Do not introduce Jest as the project test runner"
+              ],
+              "goal": "JavaScript unit and component tests must use Vitest",
+              "non_goals": [
+                "Do not rewrite existing non-JavaScript tests"
+              ]
+            },
+            "owner": "syn-publisher-team-lead",
+            "permission_security_boundary": "instructions-are-not-sandbox-policy",
+            "precedence": {
+              "policy": "team-required-over-personal-recommended",
+              "rank": "team",
+              "shadows_lower": true
+            },
+            "provenance": {
+              "digest_sha256": "daf468fb9bb08e61cd55dae67d9018916862606ccb72178f33fdc424990ab149",
+              "recorded_at": "2026-09-04T12:00:00+08:00",
+              "source": "synthetic-acceptance-fixture"
+            },
+            "required_capability": "instructions",
+            "scope": {
+              "kind": "project",
+              "paths": [
+                "packages/**",
+                "apps/**"
+              ],
+              "target": "javascript-tests"
+            }
+          }
+        ],
+        "claimed_alignment": null,
+        "documentation_only": false,
+        "effective_policies": [],
+        "equivalence_bindings": [],
+        "exceptions": [],
+        "expected_violations": [
+          "secret-in-standard"
+        ],
+        "layer_assignments": [],
+        "leader_view": null,
+        "lifecycle": null,
+        "loss_reports": [],
+        "member_disclosure": null,
+        "overlays": [],
+        "policy_evals": [],
+        "projections": [],
+        "receipts": [],
+        "rollback_plan": null,
+        "scenario": "",
+        "team_standard": {
+          "api_token": "synthetic-forbidden-secret-field",
+          "canonical_intent_set": [
+            "intent.tests-must-use-vitest"
+          ],
+          "channel": "git-file-local",
+          "compatibility_floors": {
+            "ctxpect_schema": 1,
+            "harness": {
+              "claude-code": "2.1.259",
+              "codex": "0.147.0",
+              "cursor": "3.19.7",
+              "grok-build": "1.0.13"
+            }
+          },
+          "content_digest_manifest": [
+            {
+              "digest_sha256": "917851f908b1fe3278547b25a591ab6279e4d5e699940aaab43bea7381254600",
+              "path": "canonical_intent_set/intent.tests-must-use-vitest"
+            },
+            {
+              "digest_sha256": "10bbca2f5a52cec1bd86df9d7b6af83d2c5731da2957e9e8942ca4dbe6e63a2c",
+              "path": "policy_rules/policy.vitest-required"
+            }
+          ],
+          "expiry": "2026-12-31T23:59:59+08:00",
+          "lifecycle_metadata": {
+            "expires_at": "2026-12-31T23:59:59+08:00",
+            "published_at": "2026-09-04T12:00:00+08:00",
+            "state": "publish"
+          },
+          "lineage": {
+            "current_floor": 1,
+            "history": [
+              {
+                "digest_sha256": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+                "revision": 0
+              }
+            ],
+            "previous_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+            "previous_revision": 0
+          },
+          "members": [
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead",
+              "key_id": "syn-publisher-team-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead-rotated",
+              "key_id": "syn-publisher-team-lead-rotated",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "approve-exception",
+              "id": "syn-approver-lead",
+              "key_id": "syn-approver-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "request-exception",
+              "id": "syn-member",
+              "key_id": "syn-member",
+              "role": "member",
+              "trust_state": "trusted"
+            }
+          ],
+          "migration": {
+            "from_revision": 0,
+            "strategy": "adopt-then-project"
+          },
+          "policy_rules": [
+            {
+              "honesty": "enforceable",
+              "id": "policy.vitest-required",
+              "intent_ids": [
+                "intent.tests-must-use-vitest"
+              ],
+              "layer": "team",
+              "mode": "required",
+              "text": "JavaScript tests must use Vitest"
+            }
+          ],
+          "publisher": {
+            "authorization": "publish-team-standard",
+            "display_name": "Synthetic Team Lead",
+            "id": "syn-publisher-team-lead",
+            "key_id": "syn-publisher-team-lead",
+            "role": "team-lead",
+            "signing_identity": "syn-publisher-team-lead",
+            "trust_state": "trusted"
+          },
+          "release_notes": "Synthetic Team Context Standard for the Vitest instruction. Git/file local-first; encrypted cloud is optional transport only.",
+          "revision": 1,
+          "rollback": {
+            "last_known_good_revision": 0,
+            "preserves_unrelated_personal_files": true,
+            "safe": true,
+            "transaction": {
+              "audit_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "authorized": false,
+              "receipt_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "target_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+              "target_is_last_known_good": true,
+              "target_revision": 0
+            }
+          },
+          "semantic_version": "1.0.0",
+          "signatures": [
+            {
+              "alg": "hmac-sha256-synthetic",
+              "key_id": "syn-publisher-team-lead",
+              "live_tested": false,
+              "note": "offline synthetic fixture key; not a user token",
+              "signature": "ffb8a53f2d623b9c47048d9d6ca3969c31bbf7dfff0713c404617687f56460f0"
+            }
+          ],
+          "stable_id": "tcs.vitest-standard",
+          "target_harness_coordinates": [
+            "codex/0.147.0/cli/macos-27-arm64",
+            "claude-code/2.1.259/cli/macos-27-arm64",
+            "cursor/3.19.7/ide/macos-27-arm64",
+            "grok-build/1.0.13/cli/macos-27-arm64"
+          ],
+          "transport": {
+            "encrypted_cloud_is_optional": true,
+            "kind": "git-file-local",
+            "local_first": true
+          },
+          "trust": {
+            "publisher_key_id": "syn-publisher-team-lead",
+            "state": "trusted",
+            "verified_key_id": "syn-publisher-team-lead"
+          }
+        },
+        "trust_state": null,
+        "variants": []
+      },
+      {
+        "canonical_intents": [
+          {
+            "activation": {
+              "mode": "required-instruction",
+              "trigger": "javascript-test-paths"
+            },
+            "authority": {
+              "id": "contexpect-native",
+              "kind": "contexpect-native"
+            },
+            "dependencies": [],
+            "desired_outcome": "Each target harness encodes the Vitest requirement in its native instruction/rule primitive",
+            "id": "intent.tests-must-use-vitest",
+            "lifecycle": "active",
+            "meaning": {
+              "constraints": [
+                "Do not introduce Jest as the project test runner"
+              ],
+              "goal": "JavaScript unit and component tests must use Vitest",
+              "non_goals": [
+                "Do not rewrite existing non-JavaScript tests"
+              ]
+            },
+            "owner": "syn-publisher-team-lead",
+            "permission_security_boundary": "instructions-are-not-sandbox-policy",
+            "precedence": {
+              "policy": "team-required-over-personal-recommended",
+              "rank": "team",
+              "shadows_lower": true
+            },
+            "provenance": {
+              "digest_sha256": "daf468fb9bb08e61cd55dae67d9018916862606ccb72178f33fdc424990ab149",
+              "recorded_at": "2026-09-04T12:00:00+08:00",
+              "source": "synthetic-acceptance-fixture"
+            },
+            "required_capability": "instructions",
+            "scope": {
+              "kind": "project",
+              "paths": [
+                "packages/**",
+                "apps/**"
+              ],
+              "target": "javascript-tests"
+            }
+          }
+        ],
+        "claimed_alignment": null,
+        "documentation_only": false,
+        "effective_policies": [],
+        "equivalence_bindings": [],
+        "exceptions": [],
+        "expected_violations": [
+          "rollback-unsafe-standard"
+        ],
+        "layer_assignments": [],
+        "leader_view": null,
+        "lifecycle": null,
+        "loss_reports": [],
+        "member_disclosure": null,
+        "overlays": [],
+        "policy_evals": [],
+        "projections": [],
+        "receipts": [],
+        "rollback_plan": null,
+        "scenario": "",
+        "team_standard": {
+          "canonical_intent_set": [
+            "intent.tests-must-use-vitest"
+          ],
+          "channel": "git-file-local",
+          "compatibility_floors": {
+            "ctxpect_schema": 1,
+            "harness": {
+              "claude-code": "2.1.259",
+              "codex": "0.147.0",
+              "cursor": "3.19.7",
+              "grok-build": "1.0.13"
+            }
+          },
+          "content_digest_manifest": [
+            {
+              "digest_sha256": "917851f908b1fe3278547b25a591ab6279e4d5e699940aaab43bea7381254600",
+              "path": "canonical_intent_set/intent.tests-must-use-vitest"
+            },
+            {
+              "digest_sha256": "10bbca2f5a52cec1bd86df9d7b6af83d2c5731da2957e9e8942ca4dbe6e63a2c",
+              "path": "policy_rules/policy.vitest-required"
+            }
+          ],
+          "expiry": "2026-12-31T23:59:59+08:00",
+          "lifecycle_metadata": {
+            "expires_at": "2026-12-31T23:59:59+08:00",
+            "published_at": "2026-09-04T12:00:00+08:00",
+            "state": "publish"
+          },
+          "lineage": {
+            "current_floor": 1,
+            "history": [
+              {
+                "digest_sha256": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+                "revision": 0
+              }
+            ],
+            "previous_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+            "previous_revision": 0
+          },
+          "members": [
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead",
+              "key_id": "syn-publisher-team-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead-rotated",
+              "key_id": "syn-publisher-team-lead-rotated",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "approve-exception",
+              "id": "syn-approver-lead",
+              "key_id": "syn-approver-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "request-exception",
+              "id": "syn-member",
+              "key_id": "syn-member",
+              "role": "member",
+              "trust_state": "trusted"
+            }
+          ],
+          "migration": {
+            "from_revision": 0,
+            "strategy": "adopt-then-project"
+          },
+          "policy_rules": [
+            {
+              "honesty": "enforceable",
+              "id": "policy.vitest-required",
+              "intent_ids": [
+                "intent.tests-must-use-vitest"
+              ],
+              "layer": "team",
+              "mode": "required",
+              "text": "JavaScript tests must use Vitest"
+            }
+          ],
+          "publisher": {
+            "authorization": "publish-team-standard",
+            "display_name": "Synthetic Team Lead",
+            "id": "syn-publisher-team-lead",
+            "key_id": "syn-publisher-team-lead",
+            "role": "team-lead",
+            "signing_identity": "syn-publisher-team-lead",
+            "trust_state": "trusted"
+          },
+          "release_notes": "Synthetic Team Context Standard for the Vitest instruction. Git/file local-first; encrypted cloud is optional transport only.",
+          "revision": 1,
+          "rollback": {
+            "last_known_good_revision": 0,
+            "preserves_unrelated_personal_files": false,
+            "safe": false,
+            "transaction": {
+              "audit_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "authorized": false,
+              "receipt_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "target_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+              "target_is_last_known_good": true,
+              "target_revision": 0
+            }
+          },
+          "semantic_version": "1.0.0",
+          "signatures": [
+            {
+              "alg": "hmac-sha256-synthetic",
+              "key_id": "syn-publisher-team-lead",
+              "live_tested": false,
+              "note": "offline synthetic fixture key; not a user token",
+              "signature": "ffb8a53f2d623b9c47048d9d6ca3969c31bbf7dfff0713c404617687f56460f0"
+            }
+          ],
+          "stable_id": "tcs.vitest-standard",
+          "target_harness_coordinates": [
+            "codex/0.147.0/cli/macos-27-arm64",
+            "claude-code/2.1.259/cli/macos-27-arm64",
+            "cursor/3.19.7/ide/macos-27-arm64",
+            "grok-build/1.0.13/cli/macos-27-arm64"
+          ],
+          "transport": {
+            "encrypted_cloud_is_optional": true,
+            "kind": "git-file-local",
+            "local_first": true
+          },
+          "trust": {
+            "publisher_key_id": "syn-publisher-team-lead",
+            "state": "trusted",
+            "verified_key_id": "syn-publisher-team-lead"
+          }
+        },
+        "trust_state": null,
+        "variants": []
+      },
+      {
+        "canonical_intents": [
+          {
+            "activation": {
+              "mode": "required-instruction",
+              "trigger": "javascript-test-paths"
+            },
+            "authority": {
+              "id": "contexpect-native",
+              "kind": "contexpect-native"
+            },
+            "dependencies": [],
+            "desired_outcome": "Each target harness encodes the Vitest requirement in its native instruction/rule primitive",
+            "id": "intent.tests-must-use-vitest",
+            "lifecycle": "active",
+            "meaning": {
+              "constraints": [
+                "Do not introduce Jest as the project test runner"
+              ],
+              "goal": "JavaScript unit and component tests must use Vitest",
+              "non_goals": [
+                "Do not rewrite existing non-JavaScript tests"
+              ]
+            },
+            "owner": "syn-publisher-team-lead",
+            "permission_security_boundary": "instructions-are-not-sandbox-policy",
+            "precedence": {
+              "policy": "team-required-over-personal-recommended",
+              "rank": "team",
+              "shadows_lower": true
+            },
+            "provenance": {
+              "digest_sha256": "daf468fb9bb08e61cd55dae67d9018916862606ccb72178f33fdc424990ab149",
+              "recorded_at": "2026-09-04T12:00:00+08:00",
+              "source": "synthetic-acceptance-fixture"
+            },
+            "required_capability": "instructions",
+            "scope": {
+              "kind": "project",
+              "paths": [
+                "packages/**",
+                "apps/**"
+              ],
+              "target": "javascript-tests"
+            }
+          }
+        ],
+        "claimed_alignment": null,
+        "documentation_only": false,
+        "effective_policies": [],
+        "equivalence_bindings": [],
+        "exceptions": [],
+        "expected_violations": [
+          "member-key-as-publisher"
+        ],
+        "layer_assignments": [],
+        "leader_view": null,
+        "lifecycle": null,
+        "loss_reports": [],
+        "member_disclosure": null,
+        "overlays": [],
+        "policy_evals": [],
+        "projections": [],
+        "receipts": [],
+        "rollback_plan": null,
+        "scenario": "",
+        "team_standard": {
+          "canonical_intent_set": [
+            "intent.tests-must-use-vitest"
+          ],
+          "channel": "git-file-local",
+          "compatibility_floors": {
+            "ctxpect_schema": 1,
+            "harness": {
+              "claude-code": "2.1.259",
+              "codex": "0.147.0",
+              "cursor": "3.19.7",
+              "grok-build": "1.0.13"
+            }
+          },
+          "content_digest_manifest": [
+            {
+              "digest_sha256": "917851f908b1fe3278547b25a591ab6279e4d5e699940aaab43bea7381254600",
+              "path": "canonical_intent_set/intent.tests-must-use-vitest"
+            },
+            {
+              "digest_sha256": "10bbca2f5a52cec1bd86df9d7b6af83d2c5731da2957e9e8942ca4dbe6e63a2c",
+              "path": "policy_rules/policy.vitest-required"
+            }
+          ],
+          "expiry": "2026-12-31T23:59:59+08:00",
+          "lifecycle_metadata": {
+            "expires_at": "2026-12-31T23:59:59+08:00",
+            "published_at": "2026-09-04T12:00:00+08:00",
+            "state": "publish"
+          },
+          "lineage": {
+            "current_floor": 1,
+            "history": [
+              {
+                "digest_sha256": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+                "revision": 0
+              }
+            ],
+            "previous_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+            "previous_revision": 0
+          },
+          "members": [
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead",
+              "key_id": "syn-publisher-team-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead-rotated",
+              "key_id": "syn-publisher-team-lead-rotated",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "approve-exception",
+              "id": "syn-approver-lead",
+              "key_id": "syn-approver-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "request-exception",
+              "id": "syn-member",
+              "key_id": "syn-member",
+              "role": "member",
+              "trust_state": "trusted"
+            }
+          ],
+          "migration": {
+            "from_revision": 0,
+            "strategy": "adopt-then-project"
+          },
+          "policy_rules": [
+            {
+              "honesty": "enforceable",
+              "id": "policy.vitest-required",
+              "intent_ids": [
+                "intent.tests-must-use-vitest"
+              ],
+              "layer": "team",
+              "mode": "required",
+              "text": "JavaScript tests must use Vitest"
+            }
+          ],
+          "publisher": {
+            "authorization": "publish-team-standard",
+            "display_name": "Synthetic Team Lead",
+            "id": "syn-publisher-team-lead",
+            "key_id": "syn-publisher-team-lead",
+            "role": "team-lead",
+            "signing_identity": "syn-publisher-team-lead",
+            "trust_state": "trusted"
+          },
+          "release_notes": "Synthetic Team Context Standard for the Vitest instruction. Git/file local-first; encrypted cloud is optional transport only.",
+          "revision": 1,
+          "rollback": {
+            "last_known_good_revision": 0,
+            "preserves_unrelated_personal_files": true,
+            "safe": true,
+            "transaction": {
+              "audit_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "authorized": false,
+              "receipt_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "target_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+              "target_is_last_known_good": true,
+              "target_revision": 0
+            }
+          },
+          "semantic_version": "1.0.0",
+          "signatures": [
+            {
+              "alg": "hmac-sha256-synthetic",
+              "key_id": "syn-member",
+              "live_tested": false,
+              "note": "offline synthetic fixture key; not a user token",
+              "signature": "d1d1b896c158b3b79459c1d740c717a06102e40052efc66986f40f44dc5e2185"
+            }
+          ],
+          "stable_id": "tcs.vitest-standard",
+          "target_harness_coordinates": [
+            "codex/0.147.0/cli/macos-27-arm64",
+            "claude-code/2.1.259/cli/macos-27-arm64",
+            "cursor/3.19.7/ide/macos-27-arm64",
+            "grok-build/1.0.13/cli/macos-27-arm64"
+          ],
+          "transport": {
+            "encrypted_cloud_is_optional": true,
+            "kind": "git-file-local",
+            "local_first": true
+          },
+          "trust": {
+            "publisher_key_id": "syn-publisher-team-lead",
+            "state": "trusted",
+            "verified_key_id": "syn-publisher-team-lead"
+          }
+        },
+        "trust_state": null,
+        "variants": []
+      },
+      {
+        "canonical_intents": [
+          {
+            "activation": {
+              "mode": "required-instruction",
+              "trigger": "javascript-test-paths"
+            },
+            "authority": {
+              "id": "contexpect-native",
+              "kind": "contexpect-native"
+            },
+            "dependencies": [],
+            "desired_outcome": "Each target harness encodes the Vitest requirement in its native instruction/rule primitive",
+            "id": "intent.tests-must-use-vitest",
+            "lifecycle": "active",
+            "meaning": {
+              "constraints": [
+                "Do not introduce Jest as the project test runner"
+              ],
+              "goal": "JavaScript unit and component tests must use Vitest",
+              "non_goals": [
+                "Do not rewrite existing non-JavaScript tests"
+              ]
+            },
+            "owner": "syn-publisher-team-lead",
+            "permission_security_boundary": "instructions-are-not-sandbox-policy",
+            "precedence": {
+              "policy": "team-required-over-personal-recommended",
+              "rank": "team",
+              "shadows_lower": true
+            },
+            "provenance": {
+              "digest_sha256": "daf468fb9bb08e61cd55dae67d9018916862606ccb72178f33fdc424990ab149",
+              "recorded_at": "2026-09-04T12:00:00+08:00",
+              "source": "synthetic-acceptance-fixture"
+            },
+            "required_capability": "instructions",
+            "scope": {
+              "kind": "project",
+              "paths": [
+                "packages/**",
+                "apps/**"
+              ],
+              "target": "javascript-tests"
+            }
+          }
+        ],
+        "claimed_alignment": null,
+        "documentation_only": false,
+        "effective_policies": [],
+        "equivalence_bindings": [],
+        "exceptions": [],
+        "expected_violations": [
+          "incomplete-publisher"
+        ],
+        "layer_assignments": [],
+        "leader_view": null,
+        "lifecycle": null,
+        "loss_reports": [],
+        "member_disclosure": null,
+        "overlays": [],
+        "policy_evals": [],
+        "projections": [],
+        "receipts": [],
+        "rollback_plan": null,
+        "scenario": "",
+        "team_standard": {
+          "canonical_intent_set": [
+            "intent.tests-must-use-vitest"
+          ],
+          "channel": "git-file-local",
+          "compatibility_floors": {
+            "ctxpect_schema": 1,
+            "harness": {
+              "claude-code": "2.1.259",
+              "codex": "0.147.0",
+              "cursor": "3.19.7",
+              "grok-build": "1.0.13"
+            }
+          },
+          "content_digest_manifest": [
+            {
+              "digest_sha256": "917851f908b1fe3278547b25a591ab6279e4d5e699940aaab43bea7381254600",
+              "path": "canonical_intent_set/intent.tests-must-use-vitest"
+            },
+            {
+              "digest_sha256": "10bbca2f5a52cec1bd86df9d7b6af83d2c5731da2957e9e8942ca4dbe6e63a2c",
+              "path": "policy_rules/policy.vitest-required"
+            }
+          ],
+          "expiry": "2026-12-31T23:59:59+08:00",
+          "lifecycle_metadata": {
+            "expires_at": "2026-12-31T23:59:59+08:00",
+            "published_at": "2026-09-04T12:00:00+08:00",
+            "state": "publish"
+          },
+          "lineage": {
+            "current_floor": 1,
+            "history": [
+              {
+                "digest_sha256": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+                "revision": 0
+              }
+            ],
+            "previous_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+            "previous_revision": 0
+          },
+          "members": [
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead",
+              "key_id": "syn-publisher-team-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead-rotated",
+              "key_id": "syn-publisher-team-lead-rotated",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "approve-exception",
+              "id": "syn-approver-lead",
+              "key_id": "syn-approver-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "request-exception",
+              "id": "syn-member",
+              "key_id": "syn-member",
+              "role": "member",
+              "trust_state": "trusted"
+            }
+          ],
+          "migration": {
+            "from_revision": 0,
+            "strategy": "adopt-then-project"
+          },
+          "policy_rules": [
+            {
+              "honesty": "enforceable",
+              "id": "policy.vitest-required",
+              "intent_ids": [
+                "intent.tests-must-use-vitest"
+              ],
+              "layer": "team",
+              "mode": "required",
+              "text": "JavaScript tests must use Vitest"
+            }
+          ],
+          "publisher": {
+            "display_name": "Synthetic Team Lead",
+            "id": "syn-publisher-team-lead"
+          },
+          "release_notes": "Synthetic Team Context Standard for the Vitest instruction. Git/file local-first; encrypted cloud is optional transport only.",
+          "revision": 1,
+          "rollback": {
+            "last_known_good_revision": 0,
+            "preserves_unrelated_personal_files": true,
+            "safe": true,
+            "transaction": {
+              "audit_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "authorized": false,
+              "receipt_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "target_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+              "target_is_last_known_good": true,
+              "target_revision": 0
+            }
+          },
+          "semantic_version": "1.0.0",
+          "signatures": [
+            {
+              "alg": "hmac-sha256-synthetic",
+              "key_id": "syn-publisher-team-lead",
+              "live_tested": false,
+              "note": "offline synthetic fixture key; not a user token",
+              "signature": "ffb8a53f2d623b9c47048d9d6ca3969c31bbf7dfff0713c404617687f56460f0"
+            }
+          ],
+          "stable_id": "tcs.vitest-standard",
+          "target_harness_coordinates": [
+            "codex/0.147.0/cli/macos-27-arm64",
+            "claude-code/2.1.259/cli/macos-27-arm64",
+            "cursor/3.19.7/ide/macos-27-arm64",
+            "grok-build/1.0.13/cli/macos-27-arm64"
+          ],
+          "transport": {
+            "encrypted_cloud_is_optional": true,
+            "kind": "git-file-local",
+            "local_first": true
+          },
+          "trust": {
+            "publisher_key_id": "syn-publisher-team-lead",
+            "state": "trusted",
+            "verified_key_id": "syn-publisher-team-lead"
+          }
+        },
+        "trust_state": null,
+        "variants": []
+      }
+    ]
+  },
+  "polarity": "negative",
+  "scenario": "ST4-neg",
+  "schema_version": 1
+}

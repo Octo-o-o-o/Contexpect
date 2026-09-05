@@ -1,0 +1,1 @@
+{"capability_id":"skills","class":"include","family_id":"qwen-code","kind":"static-fixture","native_paths":[".qwen/skills/fixture-skill/SKILL.md","scripts/run.sh"],"polarity":"positive","schema_version":1}

@@ -124,7 +124,7 @@
 
 ## 5. 本机会话核验
 
-2026-09-04 在当前设备和目录 `/Users/wangyixiao/WorkSpace/ContextView` 执行了只读命令。完整命令与输出已固定在[本机调研环境 Receipt](2026-09-04-local-environment-receipt.md)：
+2026-09-04 在当前设备和目录 `.` 执行了只读命令。完整命令与输出已固定在[本机调研环境 Receipt](2026-09-04-local-environment-receipt.md)：
 
 ```text
 codex --version

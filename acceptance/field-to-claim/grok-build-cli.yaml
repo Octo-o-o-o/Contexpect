@@ -1,0 +1,19 @@
+{
+  "artifact": "field-to-claim",
+  "cutoff": "2026-09-04T23:59:59+08:00",
+  "family_id": "grok-build",
+  "fields": [
+    {
+      "claim_kind": "observed",
+      "coverage": "partial-declared-surface",
+      "lifecycle_stage": "discoverable",
+      "minimum_evidence": "native-runtime",
+      "native_field": "inspect --json discovered configuration",
+      "notes": "Discovered configuration does not automatically mean model-visible."
+    }
+  ],
+  "live_tested": false,
+  "schema_version": 1,
+  "surface": "cli",
+  "version": "1.0.13"
+}

@@ -4,8 +4,8 @@
 
 必须完整阅读：
 
-1. `/Users/wangyixiao/WorkSpace/ContextView/docs/research/2026-09-04-context-management-research-ledger.md`
-2. `/Users/wangyixiao/WorkSpace/ContextView/docs/requirements/2026-09-04-contexpect-complete-product-requirements.md`
+1. `./docs/research/2026-09-04-context-management-research-ledger.md`
+2. `./docs/requirements/2026-09-04-contexpect-complete-product-requirements.md`
 
 用户的验收意图：
 

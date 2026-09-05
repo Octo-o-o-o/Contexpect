@@ -1,0 +1,615 @@
+{
+  "covers": [
+    "ST6-neg"
+  ],
+  "cutoff": "2026-09-04T23:59:59+08:00",
+  "digest": "f11c12087d0949f3bf225721c1e893e6960bf2ce102b4af89c0972079dcdb481",
+  "expected_gate_result": "fail",
+  "expected_violations": [
+    "unbounded-exception",
+    "expired-exception-pass",
+    "revoked-exception-pass",
+    "stale-offline-exception-pass"
+  ],
+  "id": "ST6-neg",
+  "kind": "semantic-team-fixture",
+  "license": "Apache-2.0",
+  "live_tested": false,
+  "notes": "Unbounded or expired/stale/revoked exceptions cannot pass required policy. Offline stale fails closed while inspection/export remains allowed.",
+  "payload": {
+    "canonical_intents": [],
+    "claimed_alignment": null,
+    "documentation_only": false,
+    "effective_policies": [],
+    "equivalence_bindings": [],
+    "exceptions": [],
+    "expected_violations": [],
+    "layer_assignments": [],
+    "leader_view": null,
+    "lifecycle": null,
+    "loss_reports": [],
+    "member_disclosure": null,
+    "overlays": [],
+    "policy_evals": [],
+    "projections": [],
+    "receipts": [],
+    "rollback_plan": null,
+    "scenario": "ST6-neg",
+    "team_standard": null,
+    "trust_state": null,
+    "variants": [
+      {
+        "canonical_intents": [
+          {
+            "activation": {
+              "mode": "required-instruction",
+              "trigger": "javascript-test-paths"
+            },
+            "authority": {
+              "id": "contexpect-native",
+              "kind": "contexpect-native"
+            },
+            "dependencies": [],
+            "desired_outcome": "Each target harness encodes the Vitest requirement in its native instruction/rule primitive",
+            "id": "intent.tests-must-use-vitest",
+            "lifecycle": "active",
+            "meaning": {
+              "constraints": [
+                "Do not introduce Jest as the project test runner"
+              ],
+              "goal": "JavaScript unit and component tests must use Vitest",
+              "non_goals": [
+                "Do not rewrite existing non-JavaScript tests"
+              ]
+            },
+            "owner": "syn-publisher-team-lead",
+            "permission_security_boundary": "instructions-are-not-sandbox-policy",
+            "precedence": {
+              "policy": "team-required-over-personal-recommended",
+              "rank": "team",
+              "shadows_lower": true
+            },
+            "provenance": {
+              "digest_sha256": "daf468fb9bb08e61cd55dae67d9018916862606ccb72178f33fdc424990ab149",
+              "recorded_at": "2026-09-04T12:00:00+08:00",
+              "source": "synthetic-acceptance-fixture"
+            },
+            "required_capability": "instructions",
+            "scope": {
+              "kind": "project",
+              "paths": [
+                "packages/**",
+                "apps/**"
+              ],
+              "target": "javascript-tests"
+            }
+          }
+        ],
+        "claimed_alignment": null,
+        "documentation_only": false,
+        "effective_policies": [],
+        "equivalence_bindings": [],
+        "exceptions": [
+          {
+            "approver": "syn-approver-lead",
+            "audit_chain": [
+              {
+                "actor": "syn-member",
+                "at": "2026-09-04T10:00:00+08:00",
+                "digest": "9cd04fa3f1872f89719c89cd2cd8fc19a0dd7faa8b4cd8f7c0be3839826d2245",
+                "event": "request",
+                "previous_digest": "genesis",
+                "sequence": 1
+              },
+              {
+                "actor": "syn-approver-lead",
+                "at": "2026-09-04T12:00:00+08:00",
+                "digest": "3e6617be243730ce4424cf3cfc6c6fb6cfbb9bb8f1fb9a845d3f75adcf98a757",
+                "event": "approval",
+                "previous_digest": "9cd04fa3f1872f89719c89cd2cd8fc19a0dd7faa8b4cd8f7c0be3839826d2245",
+                "sequence": 2
+              }
+            ],
+            "freshness": "current",
+            "id": "exc.scoped-vitest-jest-migration",
+            "intent_ids": [
+              "intent.tests-must-use-vitest"
+            ],
+            "overlay_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+            "overlay_lifecycle": "preview-apply-rollback",
+            "policy_ids": [
+              "policy.vitest-required"
+            ],
+            "reason": "legacy package still on Jest during a bounded migration window",
+            "requester": "syn-member",
+            "scope": {
+              "device": "*",
+              "harness": "*",
+              "member": "*",
+              "project": "*"
+            },
+            "signature": {
+              "alg": "hmac-sha256-synthetic",
+              "key_id": "syn-approver-lead",
+              "live_tested": false,
+              "note": "offline synthetic fixture key; not a user token",
+              "signature": "7ea566a14198f562089da455116ee23a36f7194cdd05e22f5fe36ce00e99d564"
+            },
+            "signing_identity": "syn-approver-lead",
+            "state": "approval",
+            "time_limit": {
+              "from": null,
+              "until": null
+            },
+            "timestamps": {
+              "approved_at": "2026-09-04T12:00:00+08:00",
+              "expires_at": "2026-09-04T23:59:59+08:00",
+              "issued_at": "2026-09-04T11:00:00+08:00",
+              "requested_at": "2026-09-04T10:00:00+08:00"
+            },
+            "use_limit": null
+          }
+        ],
+        "expected_violations": [
+          "unbounded-exception"
+        ],
+        "layer_assignments": [],
+        "leader_view": null,
+        "lifecycle": null,
+        "loss_reports": [],
+        "member_disclosure": null,
+        "overlays": [],
+        "policy_evals": [
+          {
+            "covered_by_exception": "exc.scoped-vitest-jest-migration",
+            "inspection_export_allowed": true,
+            "mode": "required",
+            "policy_id": "policy.vitest-required",
+            "result": "pass"
+          }
+        ],
+        "projections": [],
+        "receipts": [],
+        "rollback_plan": null,
+        "scenario": "",
+        "team_standard": null,
+        "trust_state": null,
+        "variants": []
+      },
+      {
+        "canonical_intents": [
+          {
+            "activation": {
+              "mode": "required-instruction",
+              "trigger": "javascript-test-paths"
+            },
+            "authority": {
+              "id": "contexpect-native",
+              "kind": "contexpect-native"
+            },
+            "dependencies": [],
+            "desired_outcome": "Each target harness encodes the Vitest requirement in its native instruction/rule primitive",
+            "id": "intent.tests-must-use-vitest",
+            "lifecycle": "active",
+            "meaning": {
+              "constraints": [
+                "Do not introduce Jest as the project test runner"
+              ],
+              "goal": "JavaScript unit and component tests must use Vitest",
+              "non_goals": [
+                "Do not rewrite existing non-JavaScript tests"
+              ]
+            },
+            "owner": "syn-publisher-team-lead",
+            "permission_security_boundary": "instructions-are-not-sandbox-policy",
+            "precedence": {
+              "policy": "team-required-over-personal-recommended",
+              "rank": "team",
+              "shadows_lower": true
+            },
+            "provenance": {
+              "digest_sha256": "daf468fb9bb08e61cd55dae67d9018916862606ccb72178f33fdc424990ab149",
+              "recorded_at": "2026-09-04T12:00:00+08:00",
+              "source": "synthetic-acceptance-fixture"
+            },
+            "required_capability": "instructions",
+            "scope": {
+              "kind": "project",
+              "paths": [
+                "packages/**",
+                "apps/**"
+              ],
+              "target": "javascript-tests"
+            }
+          }
+        ],
+        "claimed_alignment": null,
+        "documentation_only": false,
+        "effective_policies": [],
+        "equivalence_bindings": [],
+        "exceptions": [
+          {
+            "approver": "syn-approver-lead",
+            "audit_chain": [
+              {
+                "actor": "syn-member",
+                "at": "2026-09-04T10:00:00+08:00",
+                "digest": "9cd04fa3f1872f89719c89cd2cd8fc19a0dd7faa8b4cd8f7c0be3839826d2245",
+                "event": "request",
+                "previous_digest": "genesis",
+                "sequence": 1
+              },
+              {
+                "actor": "syn-approver-lead",
+                "at": "2026-09-04T12:00:00+08:00",
+                "digest": "3e6617be243730ce4424cf3cfc6c6fb6cfbb9bb8f1fb9a845d3f75adcf98a757",
+                "event": "approval",
+                "previous_digest": "9cd04fa3f1872f89719c89cd2cd8fc19a0dd7faa8b4cd8f7c0be3839826d2245",
+                "sequence": 2
+              },
+              {
+                "actor": "syn-approver-lead",
+                "at": "2026-09-04T23:59:59+08:00",
+                "digest": "613af0460948839af8c47ebb66182de07247ae5c6916ac65650e3aba3230141d",
+                "event": "expiry",
+                "previous_digest": "3e6617be243730ce4424cf3cfc6c6fb6cfbb9bb8f1fb9a845d3f75adcf98a757",
+                "sequence": 3
+              }
+            ],
+            "freshness": "expired",
+            "id": "exc.scoped-vitest-jest-migration",
+            "intent_ids": [
+              "intent.tests-must-use-vitest"
+            ],
+            "overlay_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+            "overlay_lifecycle": "preview-apply-rollback",
+            "policy_ids": [
+              "policy.vitest-required"
+            ],
+            "reason": "legacy package still on Jest during a bounded migration window",
+            "requester": "syn-member",
+            "scope": {
+              "device": "device-a",
+              "harness": "cursor",
+              "member": "syn-member",
+              "project": "packages/legacy"
+            },
+            "signature": {
+              "alg": "hmac-sha256-synthetic",
+              "key_id": "syn-approver-lead",
+              "live_tested": false,
+              "note": "offline synthetic fixture key; not a user token",
+              "signature": "f140f3051e8d2960007d5d92a57274017739071f81424616cef72062d0edaa4d"
+            },
+            "signing_identity": "syn-approver-lead",
+            "state": "expiry",
+            "time_limit": {
+              "from": "2026-08-01T00:00:00+08:00",
+              "until": "2026-08-01T00:00:00+08:00"
+            },
+            "timestamps": {
+              "approved_at": "2026-09-04T12:00:00+08:00",
+              "expires_at": "2026-09-04T23:59:59+08:00",
+              "issued_at": "2026-09-04T11:00:00+08:00",
+              "requested_at": "2026-09-04T10:00:00+08:00"
+            },
+            "use_limit": 3
+          }
+        ],
+        "expected_violations": [
+          "expired-exception-pass"
+        ],
+        "layer_assignments": [],
+        "leader_view": null,
+        "lifecycle": null,
+        "loss_reports": [],
+        "member_disclosure": null,
+        "overlays": [],
+        "policy_evals": [
+          {
+            "covered_by_exception": "exc.scoped-vitest-jest-migration",
+            "inspection_export_allowed": true,
+            "mode": "required",
+            "policy_id": "policy.vitest-required",
+            "result": "pass"
+          }
+        ],
+        "projections": [],
+        "receipts": [],
+        "rollback_plan": null,
+        "scenario": "",
+        "team_standard": null,
+        "trust_state": null,
+        "variants": []
+      },
+      {
+        "canonical_intents": [
+          {
+            "activation": {
+              "mode": "required-instruction",
+              "trigger": "javascript-test-paths"
+            },
+            "authority": {
+              "id": "contexpect-native",
+              "kind": "contexpect-native"
+            },
+            "dependencies": [],
+            "desired_outcome": "Each target harness encodes the Vitest requirement in its native instruction/rule primitive",
+            "id": "intent.tests-must-use-vitest",
+            "lifecycle": "active",
+            "meaning": {
+              "constraints": [
+                "Do not introduce Jest as the project test runner"
+              ],
+              "goal": "JavaScript unit and component tests must use Vitest",
+              "non_goals": [
+                "Do not rewrite existing non-JavaScript tests"
+              ]
+            },
+            "owner": "syn-publisher-team-lead",
+            "permission_security_boundary": "instructions-are-not-sandbox-policy",
+            "precedence": {
+              "policy": "team-required-over-personal-recommended",
+              "rank": "team",
+              "shadows_lower": true
+            },
+            "provenance": {
+              "digest_sha256": "daf468fb9bb08e61cd55dae67d9018916862606ccb72178f33fdc424990ab149",
+              "recorded_at": "2026-09-04T12:00:00+08:00",
+              "source": "synthetic-acceptance-fixture"
+            },
+            "required_capability": "instructions",
+            "scope": {
+              "kind": "project",
+              "paths": [
+                "packages/**",
+                "apps/**"
+              ],
+              "target": "javascript-tests"
+            }
+          }
+        ],
+        "claimed_alignment": null,
+        "documentation_only": false,
+        "effective_policies": [],
+        "equivalence_bindings": [],
+        "exceptions": [
+          {
+            "approver": "syn-approver-lead",
+            "audit_chain": [
+              {
+                "actor": "syn-member",
+                "at": "2026-09-04T10:00:00+08:00",
+                "digest": "9cd04fa3f1872f89719c89cd2cd8fc19a0dd7faa8b4cd8f7c0be3839826d2245",
+                "event": "request",
+                "previous_digest": "genesis",
+                "sequence": 1
+              },
+              {
+                "actor": "syn-approver-lead",
+                "at": "2026-09-04T12:00:00+08:00",
+                "digest": "3e6617be243730ce4424cf3cfc6c6fb6cfbb9bb8f1fb9a845d3f75adcf98a757",
+                "event": "approval",
+                "previous_digest": "9cd04fa3f1872f89719c89cd2cd8fc19a0dd7faa8b4cd8f7c0be3839826d2245",
+                "sequence": 2
+              },
+              {
+                "actor": "syn-approver-lead",
+                "at": "2026-09-04T12:00:00+08:00",
+                "digest": "40fb09b5350625367b6e9ae306e5b9e62848cdc21a521c3b1c9d185720e115b0",
+                "event": "revocation",
+                "previous_digest": "3e6617be243730ce4424cf3cfc6c6fb6cfbb9bb8f1fb9a845d3f75adcf98a757",
+                "sequence": 3
+              }
+            ],
+            "freshness": "revoked",
+            "id": "exc.scoped-vitest-jest-migration",
+            "intent_ids": [
+              "intent.tests-must-use-vitest"
+            ],
+            "overlay_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+            "overlay_lifecycle": "preview-apply-rollback",
+            "policy_ids": [
+              "policy.vitest-required"
+            ],
+            "reason": "legacy package still on Jest during a bounded migration window",
+            "requester": "syn-member",
+            "scope": {
+              "device": "device-a",
+              "harness": "cursor",
+              "member": "syn-member",
+              "project": "packages/legacy"
+            },
+            "signature": {
+              "alg": "hmac-sha256-synthetic",
+              "key_id": "syn-approver-lead",
+              "live_tested": false,
+              "note": "offline synthetic fixture key; not a user token",
+              "signature": "e1761829d7a9fecb2f07c2a9f0cf65ee9e426292541fa9b5269f292180218278"
+            },
+            "signing_identity": "syn-approver-lead",
+            "state": "revocation",
+            "time_limit": {
+              "from": "2026-09-04T10:00:00+08:00",
+              "until": "2026-09-04T23:59:59+08:00"
+            },
+            "timestamps": {
+              "approved_at": "2026-09-04T12:00:00+08:00",
+              "expires_at": "2026-09-04T23:59:59+08:00",
+              "issued_at": "2026-09-04T11:00:00+08:00",
+              "requested_at": "2026-09-04T10:00:00+08:00",
+              "revoked_at": "2026-09-04T12:00:00+08:00"
+            },
+            "use_limit": 3
+          }
+        ],
+        "expected_violations": [
+          "revoked-exception-pass"
+        ],
+        "layer_assignments": [],
+        "leader_view": null,
+        "lifecycle": null,
+        "loss_reports": [],
+        "member_disclosure": null,
+        "overlays": [],
+        "policy_evals": [
+          {
+            "covered_by_exception": "exc.scoped-vitest-jest-migration",
+            "inspection_export_allowed": true,
+            "mode": "required",
+            "policy_id": "policy.vitest-required",
+            "result": "pass"
+          }
+        ],
+        "projections": [],
+        "receipts": [],
+        "rollback_plan": null,
+        "scenario": "",
+        "team_standard": null,
+        "trust_state": null,
+        "variants": []
+      },
+      {
+        "canonical_intents": [
+          {
+            "activation": {
+              "mode": "required-instruction",
+              "trigger": "javascript-test-paths"
+            },
+            "authority": {
+              "id": "contexpect-native",
+              "kind": "contexpect-native"
+            },
+            "dependencies": [],
+            "desired_outcome": "Each target harness encodes the Vitest requirement in its native instruction/rule primitive",
+            "id": "intent.tests-must-use-vitest",
+            "lifecycle": "active",
+            "meaning": {
+              "constraints": [
+                "Do not introduce Jest as the project test runner"
+              ],
+              "goal": "JavaScript unit and component tests must use Vitest",
+              "non_goals": [
+                "Do not rewrite existing non-JavaScript tests"
+              ]
+            },
+            "owner": "syn-publisher-team-lead",
+            "permission_security_boundary": "instructions-are-not-sandbox-policy",
+            "precedence": {
+              "policy": "team-required-over-personal-recommended",
+              "rank": "team",
+              "shadows_lower": true
+            },
+            "provenance": {
+              "digest_sha256": "daf468fb9bb08e61cd55dae67d9018916862606ccb72178f33fdc424990ab149",
+              "recorded_at": "2026-09-04T12:00:00+08:00",
+              "source": "synthetic-acceptance-fixture"
+            },
+            "required_capability": "instructions",
+            "scope": {
+              "kind": "project",
+              "paths": [
+                "packages/**",
+                "apps/**"
+              ],
+              "target": "javascript-tests"
+            }
+          }
+        ],
+        "claimed_alignment": null,
+        "documentation_only": false,
+        "effective_policies": [],
+        "equivalence_bindings": [],
+        "exceptions": [
+          {
+            "approver": "syn-approver-lead",
+            "audit_chain": [
+              {
+                "actor": "syn-member",
+                "at": "2026-09-04T10:00:00+08:00",
+                "digest": "9cd04fa3f1872f89719c89cd2cd8fc19a0dd7faa8b4cd8f7c0be3839826d2245",
+                "event": "request",
+                "previous_digest": "genesis",
+                "sequence": 1
+              },
+              {
+                "actor": "syn-approver-lead",
+                "at": "2026-09-04T12:00:00+08:00",
+                "digest": "3e6617be243730ce4424cf3cfc6c6fb6cfbb9bb8f1fb9a845d3f75adcf98a757",
+                "event": "approval",
+                "previous_digest": "9cd04fa3f1872f89719c89cd2cd8fc19a0dd7faa8b4cd8f7c0be3839826d2245",
+                "sequence": 2
+              }
+            ],
+            "freshness": "stale-offline",
+            "id": "exc.scoped-vitest-jest-migration",
+            "intent_ids": [
+              "intent.tests-must-use-vitest"
+            ],
+            "overlay_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+            "overlay_lifecycle": "preview-apply-rollback",
+            "policy_ids": [
+              "policy.vitest-required"
+            ],
+            "reason": "legacy package still on Jest during a bounded migration window",
+            "requester": "syn-member",
+            "scope": {
+              "device": "device-a",
+              "harness": "cursor",
+              "member": "syn-member",
+              "project": "packages/legacy"
+            },
+            "signature": {
+              "alg": "hmac-sha256-synthetic",
+              "key_id": "syn-approver-lead",
+              "live_tested": false,
+              "note": "offline synthetic fixture key; not a user token",
+              "signature": "7ea566a14198f562089da455116ee23a36f7194cdd05e22f5fe36ce00e99d564"
+            },
+            "signing_identity": "syn-approver-lead",
+            "state": "approval",
+            "time_limit": {
+              "from": "2026-09-04T10:00:00+08:00",
+              "until": "2026-09-04T23:59:59+08:00"
+            },
+            "timestamps": {
+              "approved_at": "2026-09-04T12:00:00+08:00",
+              "expires_at": "2026-09-04T23:59:59+08:00",
+              "issued_at": "2026-09-04T11:00:00+08:00",
+              "requested_at": "2026-09-04T10:00:00+08:00"
+            },
+            "use_limit": 3
+          }
+        ],
+        "expected_violations": [
+          "stale-offline-exception-pass"
+        ],
+        "layer_assignments": [],
+        "leader_view": null,
+        "lifecycle": null,
+        "loss_reports": [],
+        "member_disclosure": null,
+        "overlays": [],
+        "policy_evals": [
+          {
+            "covered_by_exception": "exc.scoped-vitest-jest-migration",
+            "inspection_export_allowed": true,
+            "mode": "required",
+            "policy_id": "policy.vitest-required",
+            "result": "pass"
+          }
+        ],
+        "projections": [],
+        "receipts": [],
+        "rollback_plan": null,
+        "scenario": "",
+        "team_standard": null,
+        "trust_state": null,
+        "variants": []
+      }
+    ]
+  },
+  "polarity": "negative",
+  "scenario": "ST6-neg",
+  "schema_version": 1
+}

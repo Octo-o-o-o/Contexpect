@@ -1,0 +1,6 @@
+---
+description: scoped rule
+globs: "src/**"
+alwaysApply: true
+---
+Do not commit secrets.

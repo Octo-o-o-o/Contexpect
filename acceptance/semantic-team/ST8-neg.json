@@ -1,0 +1,1316 @@
+{
+  "covers": [
+    "ST8-neg"
+  ],
+  "cutoff": "2026-09-04T23:59:59+08:00",
+  "digest": "b0dd3aa293b719cc5a416b0f50ee97bf685f20b8dc249f5b12683f55a60856fd",
+  "expected_gate_result": "fail",
+  "expected_violations": [
+    "documentation-only-claim",
+    "fork-conflict-silent-merge",
+    "rollback-deletes-personal",
+    "revoked-key-still-trusted",
+    "update-without-preview",
+    "update-without-disclosure",
+    "invalid-key-rotation"
+  ],
+  "id": "ST8-neg",
+  "kind": "semantic-team-fixture",
+  "license": "Apache-2.0",
+  "live_tested": false,
+  "notes": "Documentation-only claim, update without preview/disclosure, silent fork merge, rollback that deletes personal files, revoked key still trusted, or invalid key rotation must fail.",
+  "payload": {
+    "canonical_intents": [],
+    "claimed_alignment": null,
+    "documentation_only": false,
+    "effective_policies": [],
+    "equivalence_bindings": [],
+    "exceptions": [],
+    "expected_violations": [],
+    "layer_assignments": [],
+    "leader_view": null,
+    "lifecycle": null,
+    "loss_reports": [],
+    "member_disclosure": null,
+    "overlays": [],
+    "policy_evals": [],
+    "projections": [],
+    "receipts": [],
+    "rollback_plan": null,
+    "scenario": "ST8-neg",
+    "team_standard": null,
+    "trust_state": null,
+    "variants": [
+      {
+        "canonical_intents": [],
+        "claimed_alignment": {
+          "method": "readme-prose",
+          "treated_as_semantic_equivalence": true
+        },
+        "documentation_only": true,
+        "effective_policies": [],
+        "equivalence_bindings": [],
+        "exceptions": [],
+        "expected_violations": [
+          "documentation-only-claim"
+        ],
+        "layer_assignments": [],
+        "leader_view": null,
+        "lifecycle": null,
+        "loss_reports": [],
+        "member_disclosure": null,
+        "overlays": [],
+        "policy_evals": [],
+        "projections": [],
+        "receipts": [],
+        "rollback_plan": null,
+        "scenario": "",
+        "team_standard": null,
+        "trust_state": null,
+        "variants": []
+      },
+      {
+        "canonical_intents": [
+          {
+            "activation": {
+              "mode": "required-instruction",
+              "trigger": "javascript-test-paths"
+            },
+            "authority": {
+              "id": "contexpect-native",
+              "kind": "contexpect-native"
+            },
+            "dependencies": [],
+            "desired_outcome": "Each target harness encodes the Vitest requirement in its native instruction/rule primitive",
+            "id": "intent.tests-must-use-vitest",
+            "lifecycle": "active",
+            "meaning": {
+              "constraints": [
+                "Do not introduce Jest as the project test runner"
+              ],
+              "goal": "JavaScript unit and component tests must use Vitest",
+              "non_goals": [
+                "Do not rewrite existing non-JavaScript tests"
+              ]
+            },
+            "owner": "syn-publisher-team-lead",
+            "permission_security_boundary": "instructions-are-not-sandbox-policy",
+            "precedence": {
+              "policy": "team-required-over-personal-recommended",
+              "rank": "team",
+              "shadows_lower": true
+            },
+            "provenance": {
+              "digest_sha256": "daf468fb9bb08e61cd55dae67d9018916862606ccb72178f33fdc424990ab149",
+              "recorded_at": "2026-09-04T12:00:00+08:00",
+              "source": "synthetic-acceptance-fixture"
+            },
+            "required_capability": "instructions",
+            "scope": {
+              "kind": "project",
+              "paths": [
+                "packages/**",
+                "apps/**"
+              ],
+              "target": "javascript-tests"
+            }
+          }
+        ],
+        "claimed_alignment": null,
+        "documentation_only": false,
+        "effective_policies": [],
+        "equivalence_bindings": [],
+        "exceptions": [],
+        "expected_violations": [
+          "update-without-preview",
+          "update-without-disclosure",
+          "disclosure-missing"
+        ],
+        "layer_assignments": [],
+        "leader_view": null,
+        "lifecycle": {
+          "last_known_good": {
+            "recoverable": false,
+            "revision": null
+          },
+          "steps": [
+            {
+              "command": "standard update",
+              "disclosure": false,
+              "pin": true,
+              "preview": false
+            }
+          ],
+          "traceable_artifacts": [
+            "917851f908b1fe3278547b25a591ab6279e4d5e699940aaab43bea7381254600"
+          ]
+        },
+        "loss_reports": [],
+        "member_disclosure": {
+          "acknowledgement": {},
+          "disclosed_digest": "",
+          "previewed_at": null,
+          "previewed_fields": [],
+          "shown_before_report": false,
+          "upload_consented": true
+        },
+        "overlays": [],
+        "policy_evals": [],
+        "projections": [
+          {
+            "authority": "contexpect-native",
+            "capability_negotiation": {
+              "dropped": [],
+              "required_capability": "instructions",
+              "status": "required-supported",
+              "unknown": [],
+              "unsupported": []
+            },
+            "coordinate": "codex/0.147.0/cli/macos-27-arm64",
+            "equivalence_basis": "canonical-intent-semantics",
+            "family_id": "codex",
+            "lifecycle": "preview-apply-rollback",
+            "managed_channel": true,
+            "native_digest": "b97acb9f2fa8628dd9869c570f70f068e5756a871aae6865d01354f621316b5b",
+            "native_files": [
+              {
+                "content": "# AGENTS.md\n\n<!-- contexpect-native: Codex nested instruction chain; not a byte copy -->\n\n## Testing\n\nThis repository's JavaScript tests must use Vitest.\nDo not add Jest as the project test runner.\n",
+                "digest_sha256": "77e760d71c7691e1f6237b3a55a8a1db3396a0985e06ba5e905204d5307995d4",
+                "path": "AGENTS.md"
+              }
+            ],
+            "native_path": "AGENTS.md",
+            "oracle": {
+              "command": [
+                "codex",
+                "debug",
+                "prompt-input"
+              ],
+              "honesty": "recipe-only-not-a-native-observation",
+              "kind": "declared-repeatable",
+              "live_tested": false,
+              "native_result_captured": false
+            },
+            "os_lane": "macos-27-arm64",
+            "pipeline": [
+              {
+                "order": 1,
+                "status": "recorded",
+                "step": "canonical-intent"
+              },
+              {
+                "order": 2,
+                "status": "recorded",
+                "step": "target-coordinate"
+              },
+              {
+                "order": 3,
+                "status": "recorded",
+                "step": "capability-negotiation"
+              },
+              {
+                "order": 4,
+                "status": "recorded",
+                "step": "authority-selection"
+              },
+              {
+                "order": 5,
+                "status": "recorded",
+                "step": "harness-native-projection"
+              },
+              {
+                "order": 6,
+                "status": "recorded",
+                "step": "preview-apply-rollback"
+              },
+              {
+                "order": 7,
+                "status": "recorded",
+                "step": "target-resolver-oracle"
+              },
+              {
+                "order": 8,
+                "status": "recorded",
+                "step": "reconciliation-receipt"
+              }
+            ],
+            "precedence": "harness-native-document-order",
+            "primitives": [
+              "instructions",
+              "memory",
+              "skills",
+              "plugins",
+              "commands",
+              "agents",
+              "mcp-declarations",
+              "tool-schema-catalog",
+              "task-message",
+              "history",
+              "environment-metadata"
+            ],
+            "projection_outcome": "transformed",
+            "scope": "project",
+            "surface": "cli",
+            "syntax": "markdown-nested-agents-chain"
+          },
+          {
+            "authority": "contexpect-native",
+            "capability_negotiation": {
+              "dropped": [],
+              "required_capability": "instructions",
+              "status": "required-supported",
+              "unknown": [],
+              "unsupported": []
+            },
+            "coordinate": "claude-code/2.1.259/cli/macos-27-arm64",
+            "equivalence_basis": "canonical-intent-semantics",
+            "family_id": "claude-code",
+            "lifecycle": "preview-apply-rollback",
+            "managed_channel": true,
+            "native_digest": "a8fbc2389f54753bcb41e86fa5b102062d681417c771107d7596e2a4ea9f52be",
+            "native_files": [
+              {
+                "content": "# CLAUDE.md\n\n## Testing policy\n\nUse Vitest for JavaScript unit and component tests. Jest is not the project test runner.\n",
+                "digest_sha256": "e39b120baed3c4d265de3d45346f141c4105245dde146140c5ce9b857858e3ab",
+                "path": "CLAUDE.md"
+              },
+              {
+                "content": "---\npaths:\n  - \"packages/**\"\n  - \"apps/**\"\n---\nJavaScript tests in these paths must run on Vitest.\n",
+                "digest_sha256": "c767b36d92110f63f4166e7d455404647e815c08dc1524812036c72073a2b583",
+                "path": ".claude/rules/testing.md"
+              }
+            ],
+            "native_path": "CLAUDE.md",
+            "oracle": {
+              "command": null,
+              "honesty": "no-declared-repeatable-oracle-unknown-or-static-only",
+              "kind": "static-resolver",
+              "live_tested": false,
+              "native_result_captured": false
+            },
+            "os_lane": "macos-27-arm64",
+            "pipeline": [
+              {
+                "order": 1,
+                "status": "recorded",
+                "step": "canonical-intent"
+              },
+              {
+                "order": 2,
+                "status": "recorded",
+                "step": "target-coordinate"
+              },
+              {
+                "order": 3,
+                "status": "recorded",
+                "step": "capability-negotiation"
+              },
+              {
+                "order": 4,
+                "status": "recorded",
+                "step": "authority-selection"
+              },
+              {
+                "order": 5,
+                "status": "recorded",
+                "step": "harness-native-projection"
+              },
+              {
+                "order": 6,
+                "status": "recorded",
+                "step": "preview-apply-rollback"
+              },
+              {
+                "order": 7,
+                "status": "recorded",
+                "step": "target-resolver-oracle"
+              },
+              {
+                "order": 8,
+                "status": "recorded",
+                "step": "reconciliation-receipt"
+              }
+            ],
+            "precedence": "harness-native-document-order",
+            "primitives": [
+              "instructions",
+              "rules",
+              "memory",
+              "skills",
+              "plugins",
+              "commands",
+              "agents",
+              "mcp-declarations",
+              "environment-metadata"
+            ],
+            "projection_outcome": "transformed",
+            "scope": "project",
+            "surface": "cli",
+            "syntax": "markdown-plus-path-scoped-rules"
+          },
+          {
+            "authority": "contexpect-native",
+            "capability_negotiation": {
+              "dropped": [],
+              "required_capability": "instructions",
+              "status": "required-supported",
+              "unknown": [],
+              "unsupported": []
+            },
+            "coordinate": "cursor/3.19.7/ide/macos-27-arm64",
+            "equivalence_basis": "canonical-intent-semantics",
+            "family_id": "cursor",
+            "lifecycle": "preview-apply-rollback",
+            "managed_channel": true,
+            "native_digest": "60b44b7404d40e87b694d4fca58b1734ff10c84015a07c3909747a0c18e93d3f",
+            "native_files": [
+              {
+                "content": "---\ndescription: Project test runner\nglobs: **/*.{test,spec}.{ts,tsx,js,jsx}\nalwaysApply: false\n---\nThis project requires Vitest. Do not introduce Jest as the test runner.\n",
+                "digest_sha256": "eb68410c0b3fbcdf390a05a93b0e91166df1a9aeb52c017f188e0689124684bf",
+                "path": ".cursor/rules/testing.mdc"
+              }
+            ],
+            "native_path": ".cursor/rules/testing.mdc",
+            "oracle": {
+              "command": null,
+              "honesty": "no-declared-repeatable-oracle-unknown-or-static-only",
+              "kind": "static-resolver",
+              "live_tested": false,
+              "native_result_captured": false
+            },
+            "os_lane": "macos-27-arm64",
+            "pipeline": [
+              {
+                "order": 1,
+                "status": "recorded",
+                "step": "canonical-intent"
+              },
+              {
+                "order": 2,
+                "status": "recorded",
+                "step": "target-coordinate"
+              },
+              {
+                "order": 3,
+                "status": "recorded",
+                "step": "capability-negotiation"
+              },
+              {
+                "order": 4,
+                "status": "recorded",
+                "step": "authority-selection"
+              },
+              {
+                "order": 5,
+                "status": "recorded",
+                "step": "harness-native-projection"
+              },
+              {
+                "order": 6,
+                "status": "recorded",
+                "step": "preview-apply-rollback"
+              },
+              {
+                "order": 7,
+                "status": "recorded",
+                "step": "target-resolver-oracle"
+              },
+              {
+                "order": 8,
+                "status": "recorded",
+                "step": "reconciliation-receipt"
+              }
+            ],
+            "precedence": "harness-native-document-order",
+            "primitives": [
+              "instructions",
+              "rules",
+              "memory",
+              "skills",
+              "plugins",
+              "commands",
+              "agents",
+              "mcp-declarations",
+              "environment-metadata"
+            ],
+            "projection_outcome": "native-equivalent",
+            "scope": "project",
+            "surface": "ide",
+            "syntax": "cursor-mdc-project-rules"
+          },
+          {
+            "authority": "contexpect-native",
+            "capability_negotiation": {
+              "dropped": [],
+              "required_capability": "instructions",
+              "status": "required-supported",
+              "unknown": [],
+              "unsupported": []
+            },
+            "coordinate": "grok-build/1.0.13/cli/macos-27-arm64",
+            "equivalence_basis": "canonical-intent-semantics",
+            "family_id": "grok-build",
+            "lifecycle": "preview-apply-rollback",
+            "managed_channel": true,
+            "native_digest": "801aaf9d12440750ea29ec5522732c960354a649f60002a6b78ce9b909de360f",
+            "native_files": [
+              {
+                "content": "# Project instructions (Grok Build)\n\n[testing]\nrequired_runner = Vitest\nprohibited_runner = Jest\n",
+                "digest_sha256": "9c151facc38351fe2188f585aec7129dcac1a40d57c00e2ae5f87f054f6e2b63",
+                "path": "AGENTS.md"
+              }
+            ],
+            "native_path": "AGENTS.md",
+            "oracle": {
+              "command": [
+                "grok",
+                "inspect",
+                "--json"
+              ],
+              "honesty": "discovered-configuration-does-not-prove-model-visible",
+              "kind": "declared-repeatable",
+              "live_tested": false,
+              "native_result_captured": false
+            },
+            "os_lane": "macos-27-arm64",
+            "pipeline": [
+              {
+                "order": 1,
+                "status": "recorded",
+                "step": "canonical-intent"
+              },
+              {
+                "order": 2,
+                "status": "recorded",
+                "step": "target-coordinate"
+              },
+              {
+                "order": 3,
+                "status": "recorded",
+                "step": "capability-negotiation"
+              },
+              {
+                "order": 4,
+                "status": "recorded",
+                "step": "authority-selection"
+              },
+              {
+                "order": 5,
+                "status": "recorded",
+                "step": "harness-native-projection"
+              },
+              {
+                "order": 6,
+                "status": "recorded",
+                "step": "preview-apply-rollback"
+              },
+              {
+                "order": 7,
+                "status": "recorded",
+                "step": "target-resolver-oracle"
+              },
+              {
+                "order": 8,
+                "status": "recorded",
+                "step": "reconciliation-receipt"
+              }
+            ],
+            "precedence": "harness-native-document-order",
+            "primitives": [
+              "instructions",
+              "memory",
+              "skills",
+              "plugins",
+              "commands",
+              "agents",
+              "mcp-declarations",
+              "environment-metadata"
+            ],
+            "projection_outcome": "native-equivalent",
+            "scope": "project",
+            "surface": "cli",
+            "syntax": "grok-project-instructions"
+          }
+        ],
+        "receipts": [],
+        "rollback_plan": null,
+        "scenario": "",
+        "team_standard": {
+          "canonical_intent_set": [
+            "intent.tests-must-use-vitest"
+          ],
+          "channel": "git-file-local",
+          "compatibility_floors": {
+            "ctxpect_schema": 1,
+            "harness": {
+              "claude-code": "2.1.259",
+              "codex": "0.147.0",
+              "cursor": "3.19.7",
+              "grok-build": "1.0.13"
+            }
+          },
+          "content_digest_manifest": [
+            {
+              "digest_sha256": "917851f908b1fe3278547b25a591ab6279e4d5e699940aaab43bea7381254600",
+              "path": "canonical_intent_set/intent.tests-must-use-vitest"
+            },
+            {
+              "digest_sha256": "10bbca2f5a52cec1bd86df9d7b6af83d2c5731da2957e9e8942ca4dbe6e63a2c",
+              "path": "policy_rules/policy.vitest-required"
+            }
+          ],
+          "expiry": "2026-12-31T23:59:59+08:00",
+          "lifecycle_metadata": {
+            "expires_at": "2026-12-31T23:59:59+08:00",
+            "published_at": "2026-09-04T12:00:00+08:00",
+            "state": "publish"
+          },
+          "lineage": {
+            "current_floor": 1,
+            "history": [
+              {
+                "digest_sha256": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+                "revision": 0
+              }
+            ],
+            "previous_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+            "previous_revision": 0
+          },
+          "members": [
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead",
+              "key_id": "syn-publisher-team-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead-rotated",
+              "key_id": "syn-publisher-team-lead-rotated",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "approve-exception",
+              "id": "syn-approver-lead",
+              "key_id": "syn-approver-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "request-exception",
+              "id": "syn-member",
+              "key_id": "syn-member",
+              "role": "member",
+              "trust_state": "trusted"
+            }
+          ],
+          "migration": {
+            "from_revision": 0,
+            "strategy": "adopt-then-project"
+          },
+          "policy_rules": [
+            {
+              "honesty": "enforceable",
+              "id": "policy.vitest-required",
+              "intent_ids": [
+                "intent.tests-must-use-vitest"
+              ],
+              "layer": "team",
+              "mode": "required",
+              "text": "JavaScript tests must use Vitest"
+            }
+          ],
+          "publisher": {
+            "authorization": "publish-team-standard",
+            "display_name": "Synthetic Team Lead",
+            "id": "syn-publisher-team-lead",
+            "key_id": "syn-publisher-team-lead",
+            "role": "team-lead",
+            "signing_identity": "syn-publisher-team-lead",
+            "trust_state": "trusted"
+          },
+          "release_notes": "Synthetic Team Context Standard for the Vitest instruction. Git/file local-first; encrypted cloud is optional transport only.",
+          "revision": 1,
+          "rollback": {
+            "last_known_good_revision": 0,
+            "preserves_unrelated_personal_files": true,
+            "safe": true,
+            "transaction": {
+              "audit_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "authorized": false,
+              "receipt_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "target_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+              "target_is_last_known_good": true,
+              "target_revision": 0
+            }
+          },
+          "semantic_version": "1.0.0",
+          "signatures": [
+            {
+              "alg": "hmac-sha256-synthetic",
+              "key_id": "syn-publisher-team-lead",
+              "live_tested": false,
+              "note": "offline synthetic fixture key; not a user token",
+              "signature": "ffb8a53f2d623b9c47048d9d6ca3969c31bbf7dfff0713c404617687f56460f0"
+            }
+          ],
+          "stable_id": "tcs.vitest-standard",
+          "target_harness_coordinates": [
+            "codex/0.147.0/cli/macos-27-arm64",
+            "claude-code/2.1.259/cli/macos-27-arm64",
+            "cursor/3.19.7/ide/macos-27-arm64",
+            "grok-build/1.0.13/cli/macos-27-arm64"
+          ],
+          "transport": {
+            "encrypted_cloud_is_optional": true,
+            "kind": "git-file-local",
+            "local_first": true
+          },
+          "trust": {
+            "publisher_key_id": "syn-publisher-team-lead",
+            "state": "trusted",
+            "verified_key_id": "syn-publisher-team-lead"
+          }
+        },
+        "trust_state": null,
+        "variants": []
+      },
+      {
+        "canonical_intents": [],
+        "claimed_alignment": null,
+        "documentation_only": false,
+        "effective_policies": [],
+        "equivalence_bindings": [],
+        "exceptions": [],
+        "expected_violations": [
+          "fork-conflict-silent-merge"
+        ],
+        "layer_assignments": [],
+        "leader_view": null,
+        "lifecycle": {
+          "conflict_resolution": {
+            "mode": "silent-merge",
+            "silent_merge": true
+          },
+          "steps": [],
+          "traceable_artifacts": []
+        },
+        "loss_reports": [],
+        "member_disclosure": null,
+        "overlays": [],
+        "policy_evals": [],
+        "projections": [],
+        "receipts": [],
+        "rollback_plan": null,
+        "scenario": "",
+        "team_standard": {
+          "canonical_intent_set": [
+            "intent.tests-must-use-vitest"
+          ],
+          "channel": "git-file-local",
+          "compatibility_floors": {
+            "ctxpect_schema": 1,
+            "harness": {
+              "claude-code": "2.1.259",
+              "codex": "0.147.0",
+              "cursor": "3.19.7",
+              "grok-build": "1.0.13"
+            }
+          },
+          "content_digest_manifest": [
+            {
+              "digest_sha256": "917851f908b1fe3278547b25a591ab6279e4d5e699940aaab43bea7381254600",
+              "path": "canonical_intent_set/intent.tests-must-use-vitest"
+            },
+            {
+              "digest_sha256": "10bbca2f5a52cec1bd86df9d7b6af83d2c5731da2957e9e8942ca4dbe6e63a2c",
+              "path": "policy_rules/policy.vitest-required"
+            }
+          ],
+          "expiry": "2026-12-31T23:59:59+08:00",
+          "lifecycle_metadata": {
+            "expires_at": "2026-12-31T23:59:59+08:00",
+            "published_at": "2026-09-04T12:00:00+08:00",
+            "state": "publish"
+          },
+          "lineage": {
+            "current_floor": 1,
+            "history": [
+              {
+                "digest_sha256": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+                "revision": 0
+              }
+            ],
+            "previous_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+            "previous_revision": 0
+          },
+          "members": [
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead",
+              "key_id": "syn-publisher-team-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead-rotated",
+              "key_id": "syn-publisher-team-lead-rotated",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "approve-exception",
+              "id": "syn-approver-lead",
+              "key_id": "syn-approver-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "request-exception",
+              "id": "syn-member",
+              "key_id": "syn-member",
+              "role": "member",
+              "trust_state": "trusted"
+            }
+          ],
+          "migration": {
+            "from_revision": 0,
+            "strategy": "adopt-then-project"
+          },
+          "policy_rules": [
+            {
+              "honesty": "enforceable",
+              "id": "policy.vitest-required",
+              "intent_ids": [
+                "intent.tests-must-use-vitest"
+              ],
+              "layer": "team",
+              "mode": "required",
+              "text": "JavaScript tests must use Vitest"
+            }
+          ],
+          "publisher": {
+            "authorization": "publish-team-standard",
+            "display_name": "Synthetic Team Lead",
+            "id": "syn-publisher-team-lead",
+            "key_id": "syn-publisher-team-lead",
+            "role": "team-lead",
+            "signing_identity": "syn-publisher-team-lead",
+            "trust_state": "trusted"
+          },
+          "release_notes": "Synthetic Team Context Standard for the Vitest instruction. Git/file local-first; encrypted cloud is optional transport only.",
+          "revision": 1,
+          "rollback": {
+            "last_known_good_revision": 0,
+            "preserves_unrelated_personal_files": true,
+            "safe": true,
+            "transaction": {
+              "audit_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "authorized": false,
+              "receipt_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "target_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+              "target_is_last_known_good": true,
+              "target_revision": 0
+            }
+          },
+          "semantic_version": "1.0.0",
+          "signatures": [
+            {
+              "alg": "hmac-sha256-synthetic",
+              "key_id": "syn-publisher-team-lead",
+              "live_tested": false,
+              "note": "offline synthetic fixture key; not a user token",
+              "signature": "ffb8a53f2d623b9c47048d9d6ca3969c31bbf7dfff0713c404617687f56460f0"
+            }
+          ],
+          "stable_id": "tcs.vitest-standard",
+          "target_harness_coordinates": [
+            "codex/0.147.0/cli/macos-27-arm64",
+            "claude-code/2.1.259/cli/macos-27-arm64",
+            "cursor/3.19.7/ide/macos-27-arm64",
+            "grok-build/1.0.13/cli/macos-27-arm64"
+          ],
+          "transport": {
+            "encrypted_cloud_is_optional": true,
+            "kind": "git-file-local",
+            "local_first": true
+          },
+          "trust": {
+            "publisher_key_id": "syn-publisher-team-lead",
+            "state": "trusted",
+            "verified_key_id": "syn-publisher-team-lead"
+          }
+        },
+        "trust_state": {
+          "equivalent": true,
+          "heads": [
+            "rev-1",
+            "rev-1-fork"
+          ],
+          "silent_merge": true
+        },
+        "variants": []
+      },
+      {
+        "canonical_intents": [],
+        "claimed_alignment": null,
+        "documentation_only": false,
+        "effective_policies": [],
+        "equivalence_bindings": [],
+        "exceptions": [],
+        "expected_violations": [
+          "rollback-deletes-personal"
+        ],
+        "layer_assignments": [],
+        "leader_view": null,
+        "lifecycle": null,
+        "loss_reports": [],
+        "member_disclosure": null,
+        "overlays": [],
+        "policy_evals": [],
+        "projections": [],
+        "receipts": [],
+        "rollback_plan": {
+          "deletes": [
+            "personal/unrelated-notes.md"
+          ],
+          "preserves_unrelated_personal_files": false,
+          "retains": []
+        },
+        "scenario": "",
+        "team_standard": null,
+        "trust_state": null,
+        "variants": []
+      },
+      {
+        "canonical_intents": [],
+        "claimed_alignment": null,
+        "documentation_only": false,
+        "effective_policies": [],
+        "equivalence_bindings": [],
+        "exceptions": [],
+        "expected_violations": [
+          "revoked-key-still-trusted"
+        ],
+        "layer_assignments": [],
+        "leader_view": null,
+        "lifecycle": null,
+        "loss_reports": [],
+        "member_disclosure": null,
+        "overlays": [],
+        "policy_evals": [],
+        "projections": [],
+        "receipts": [],
+        "rollback_plan": null,
+        "scenario": "",
+        "team_standard": {
+          "canonical_intent_set": [
+            "intent.tests-must-use-vitest"
+          ],
+          "channel": "git-file-local",
+          "compatibility_floors": {
+            "ctxpect_schema": 1,
+            "harness": {
+              "claude-code": "2.1.259",
+              "codex": "0.147.0",
+              "cursor": "3.19.7",
+              "grok-build": "1.0.13"
+            }
+          },
+          "content_digest_manifest": [
+            {
+              "digest_sha256": "917851f908b1fe3278547b25a591ab6279e4d5e699940aaab43bea7381254600",
+              "path": "canonical_intent_set/intent.tests-must-use-vitest"
+            },
+            {
+              "digest_sha256": "10bbca2f5a52cec1bd86df9d7b6af83d2c5731da2957e9e8942ca4dbe6e63a2c",
+              "path": "policy_rules/policy.vitest-required"
+            }
+          ],
+          "expiry": "2026-12-31T23:59:59+08:00",
+          "lifecycle_metadata": {
+            "expires_at": "2026-12-31T23:59:59+08:00",
+            "published_at": "2026-09-04T12:00:00+08:00",
+            "state": "publish"
+          },
+          "lineage": {
+            "current_floor": 1,
+            "history": [
+              {
+                "digest_sha256": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+                "revision": 0
+              }
+            ],
+            "previous_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+            "previous_revision": 0
+          },
+          "members": [
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead",
+              "key_id": "syn-publisher-team-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead-rotated",
+              "key_id": "syn-publisher-team-lead-rotated",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "approve-exception",
+              "id": "syn-approver-lead",
+              "key_id": "syn-approver-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "request-exception",
+              "id": "syn-member",
+              "key_id": "syn-member",
+              "role": "member",
+              "trust_state": "trusted"
+            }
+          ],
+          "migration": {
+            "from_revision": 0,
+            "strategy": "adopt-then-project"
+          },
+          "policy_rules": [
+            {
+              "honesty": "enforceable",
+              "id": "policy.vitest-required",
+              "intent_ids": [
+                "intent.tests-must-use-vitest"
+              ],
+              "layer": "team",
+              "mode": "required",
+              "text": "JavaScript tests must use Vitest"
+            }
+          ],
+          "publisher": {
+            "authorization": "publish-team-standard",
+            "display_name": "Synthetic Team Lead",
+            "id": "syn-publisher-team-lead",
+            "key_id": "syn-publisher-team-lead",
+            "role": "team-lead",
+            "signing_identity": "syn-publisher-team-lead",
+            "trust_state": "trusted"
+          },
+          "release_notes": "Synthetic Team Context Standard for the Vitest instruction. Git/file local-first; encrypted cloud is optional transport only.",
+          "revision": 1,
+          "rollback": {
+            "last_known_good_revision": 0,
+            "preserves_unrelated_personal_files": true,
+            "safe": true,
+            "transaction": {
+              "audit_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "authorized": false,
+              "receipt_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "target_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+              "target_is_last_known_good": true,
+              "target_revision": 0
+            }
+          },
+          "semantic_version": "1.0.0",
+          "signatures": [
+            {
+              "alg": "hmac-sha256-synthetic",
+              "key_id": "syn-publisher-team-lead",
+              "live_tested": false,
+              "note": "offline synthetic fixture key; not a user token",
+              "signature": "ffb8a53f2d623b9c47048d9d6ca3969c31bbf7dfff0713c404617687f56460f0"
+            }
+          ],
+          "stable_id": "tcs.vitest-standard",
+          "target_harness_coordinates": [
+            "codex/0.147.0/cli/macos-27-arm64",
+            "claude-code/2.1.259/cli/macos-27-arm64",
+            "cursor/3.19.7/ide/macos-27-arm64",
+            "grok-build/1.0.13/cli/macos-27-arm64"
+          ],
+          "transport": {
+            "encrypted_cloud_is_optional": true,
+            "kind": "git-file-local",
+            "local_first": true
+          },
+          "trust": {
+            "publisher_key_id": "syn-publisher-team-lead",
+            "state": "trusted",
+            "verified_key_id": "syn-publisher-team-lead"
+          }
+        },
+        "trust_state": {
+          "publisher_key_revoked": true,
+          "still_trusted": true
+        },
+        "variants": []
+      },
+      {
+        "canonical_intents": [
+          {
+            "activation": {
+              "mode": "required-instruction",
+              "trigger": "javascript-test-paths"
+            },
+            "authority": {
+              "id": "contexpect-native",
+              "kind": "contexpect-native"
+            },
+            "dependencies": [],
+            "desired_outcome": "Each target harness encodes the Vitest requirement in its native instruction/rule primitive",
+            "id": "intent.tests-must-use-vitest",
+            "lifecycle": "active",
+            "meaning": {
+              "constraints": [
+                "Do not introduce Jest as the project test runner"
+              ],
+              "goal": "JavaScript unit and component tests must use Vitest",
+              "non_goals": [
+                "Do not rewrite existing non-JavaScript tests"
+              ]
+            },
+            "owner": "syn-publisher-team-lead",
+            "permission_security_boundary": "instructions-are-not-sandbox-policy",
+            "precedence": {
+              "policy": "team-required-over-personal-recommended",
+              "rank": "team",
+              "shadows_lower": true
+            },
+            "provenance": {
+              "digest_sha256": "daf468fb9bb08e61cd55dae67d9018916862606ccb72178f33fdc424990ab149",
+              "recorded_at": "2026-09-04T12:00:00+08:00",
+              "source": "synthetic-acceptance-fixture"
+            },
+            "required_capability": "instructions",
+            "scope": {
+              "kind": "project",
+              "paths": [
+                "packages/**",
+                "apps/**"
+              ],
+              "target": "javascript-tests"
+            }
+          }
+        ],
+        "claimed_alignment": null,
+        "documentation_only": false,
+        "effective_policies": [],
+        "equivalence_bindings": [],
+        "exceptions": [],
+        "expected_violations": [
+          "invalid-key-rotation",
+          "member-key-as-publisher"
+        ],
+        "layer_assignments": [],
+        "leader_view": null,
+        "lifecycle": {
+          "key_rotation": {
+            "applied": true,
+            "new_key_id": "syn-member",
+            "new_trust_state": "trusted",
+            "old_key_id": "syn-publisher-team-lead",
+            "old_trust_state": "trusted",
+            "rotated_at": "2026-09-04T12:00:00+08:00",
+            "signature": {
+              "key_id": "syn-member",
+              "signature": "0000000000000000000000000000000000000000000000000000000000000000"
+            }
+          },
+          "steps": [
+            {
+              "command": "standard rotate-key",
+              "disclosure": true,
+              "preview": true
+            }
+          ],
+          "traceable_artifacts": [
+            "917851f908b1fe3278547b25a591ab6279e4d5e699940aaab43bea7381254600"
+          ]
+        },
+        "loss_reports": [],
+        "member_disclosure": {
+          "acknowledgement": {
+            "at": "2026-09-04T12:00:00+08:00",
+            "digest": "b585cf5fc604f45a249fb5196c59808d383d339158dc3899ca3094cb3e8eadec",
+            "member_id": "syn-member"
+          },
+          "consent_status": "acknowledged",
+          "disclosed_digest": "b585cf5fc604f45a249fb5196c59808d383d339158dc3899ca3094cb3e8eadec",
+          "preview": {
+            "exception_metadata": true,
+            "loss_unknown": true,
+            "per_harness_projection": true,
+            "standard_version": "1.0.0"
+          },
+          "previewed_at": "2026-09-04T11:00:00+08:00",
+          "previewed_fields": [
+            "standard_version",
+            "per_harness_projection",
+            "loss_unknown",
+            "exception_metadata"
+          ],
+          "report_or_upload_at": "2026-09-04T12:00:00+08:00",
+          "report_payload_digest": "0e47fc689e6eac3998bb7f53a69239722cb86fbcbbcb2872debe9e287d93264d",
+          "shown_before_report": true,
+          "upload_consented": false
+        },
+        "overlays": [],
+        "policy_evals": [],
+        "projections": [],
+        "receipts": [],
+        "rollback_plan": null,
+        "scenario": "",
+        "team_standard": {
+          "canonical_intent_set": [
+            "intent.tests-must-use-vitest"
+          ],
+          "channel": "git-file-local",
+          "compatibility_floors": {
+            "ctxpect_schema": 1,
+            "harness": {
+              "claude-code": "2.1.259",
+              "codex": "0.147.0",
+              "cursor": "3.19.7",
+              "grok-build": "1.0.13"
+            }
+          },
+          "content_digest_manifest": [
+            {
+              "digest_sha256": "917851f908b1fe3278547b25a591ab6279e4d5e699940aaab43bea7381254600",
+              "path": "canonical_intent_set/intent.tests-must-use-vitest"
+            },
+            {
+              "digest_sha256": "10bbca2f5a52cec1bd86df9d7b6af83d2c5731da2957e9e8942ca4dbe6e63a2c",
+              "path": "policy_rules/policy.vitest-required"
+            }
+          ],
+          "expiry": "2026-12-31T23:59:59+08:00",
+          "lifecycle_metadata": {
+            "expires_at": "2026-12-31T23:59:59+08:00",
+            "published_at": "2026-09-04T12:00:00+08:00",
+            "state": "publish"
+          },
+          "lineage": {
+            "current_floor": 1,
+            "history": [
+              {
+                "digest_sha256": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+                "revision": 0
+              }
+            ],
+            "previous_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+            "previous_revision": 0
+          },
+          "members": [
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead",
+              "key_id": "syn-publisher-team-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "publish-team-standard",
+              "id": "syn-publisher-team-lead-rotated",
+              "key_id": "syn-publisher-team-lead-rotated",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "approve-exception",
+              "id": "syn-approver-lead",
+              "key_id": "syn-approver-lead",
+              "role": "team-lead",
+              "trust_state": "trusted"
+            },
+            {
+              "authorization": "request-exception",
+              "id": "syn-member",
+              "key_id": "syn-member",
+              "role": "member",
+              "trust_state": "trusted"
+            }
+          ],
+          "migration": {
+            "from_revision": 0,
+            "strategy": "adopt-then-project"
+          },
+          "policy_rules": [
+            {
+              "honesty": "enforceable",
+              "id": "policy.vitest-required",
+              "intent_ids": [
+                "intent.tests-must-use-vitest"
+              ],
+              "layer": "team",
+              "mode": "required",
+              "text": "JavaScript tests must use Vitest"
+            }
+          ],
+          "publisher": {
+            "authorization": "publish-team-standard",
+            "display_name": "Synthetic Team Lead",
+            "id": "syn-publisher-team-lead",
+            "key_id": "syn-publisher-team-lead",
+            "role": "team-lead",
+            "signing_identity": "syn-publisher-team-lead",
+            "trust_state": "trusted"
+          },
+          "release_notes": "Synthetic Team Context Standard for the Vitest instruction. Git/file local-first; encrypted cloud is optional transport only.",
+          "revision": 1,
+          "rollback": {
+            "last_known_good_revision": 0,
+            "preserves_unrelated_personal_files": true,
+            "safe": true,
+            "transaction": {
+              "audit_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "authorized": false,
+              "receipt_digest": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+              "target_digest": "e37813cc0d9480a87b3a94ad51d6699233112dc08c28bbcb9b03c1bef67c03ad",
+              "target_is_last_known_good": true,
+              "target_revision": 0
+            }
+          },
+          "semantic_version": "1.0.0",
+          "signatures": [
+            {
+              "alg": "hmac-sha256-synthetic",
+              "key_id": "syn-publisher-team-lead",
+              "live_tested": false,
+              "note": "offline synthetic fixture key; not a user token",
+              "signature": "ffb8a53f2d623b9c47048d9d6ca3969c31bbf7dfff0713c404617687f56460f0"
+            }
+          ],
+          "stable_id": "tcs.vitest-standard",
+          "target_harness_coordinates": [
+            "codex/0.147.0/cli/macos-27-arm64",
+            "claude-code/2.1.259/cli/macos-27-arm64",
+            "cursor/3.19.7/ide/macos-27-arm64",
+            "grok-build/1.0.13/cli/macos-27-arm64"
+          ],
+          "transport": {
+            "encrypted_cloud_is_optional": true,
+            "kind": "git-file-local",
+            "local_first": true
+          },
+          "trust": {
+            "publisher_key_id": "syn-publisher-team-lead",
+            "state": "trusted",
+            "verified_key_id": "syn-publisher-team-lead"
+          }
+        },
+        "trust_state": null,
+        "variants": []
+      }
+    ]
+  },
+  "polarity": "negative",
+  "scenario": "ST8-neg",
+  "schema_version": 1
+}

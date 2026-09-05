@@ -1,0 +1,502 @@
+{
+  "covers": [
+    "ST2-neg"
+  ],
+  "cutoff": "2026-09-04T23:59:59+08:00",
+  "digest": "baef53ecb15c8b5ecc643ac237e6407c52313ee45c379c1d0666f7c23bc5d37e",
+  "expected_gate_result": "fail",
+  "expected_violations": [
+    "projection-outcome-is-reconciliation-state",
+    "silent-capability-loss",
+    "unsupported-marked-verified",
+    "unknown-marked-verified",
+    "silent-drop-unsupported",
+    "silent-drop-unknown"
+  ],
+  "id": "ST2-neg",
+  "kind": "semantic-team-fixture",
+  "license": "Apache-2.0",
+  "live_tested": false,
+  "notes": "Silent capability loss / dropping unsupported or unknown and reporting verified must fail.",
+  "payload": {
+    "canonical_intents": [
+      {
+        "activation": {
+          "mode": "required-instruction",
+          "trigger": "javascript-test-paths"
+        },
+        "authority": {
+          "id": "contexpect-native",
+          "kind": "contexpect-native"
+        },
+        "dependencies": [],
+        "desired_outcome": "Each target harness encodes the Vitest requirement in its native instruction/rule primitive",
+        "id": "intent.tests-must-use-vitest",
+        "lifecycle": "active",
+        "meaning": {
+          "constraints": [
+            "Do not introduce Jest as the project test runner"
+          ],
+          "goal": "JavaScript unit and component tests must use Vitest",
+          "non_goals": [
+            "Do not rewrite existing non-JavaScript tests"
+          ]
+        },
+        "owner": "syn-publisher-team-lead",
+        "permission_security_boundary": "instructions-are-not-sandbox-policy",
+        "precedence": {
+          "policy": "team-required-over-personal-recommended",
+          "rank": "team",
+          "shadows_lower": true
+        },
+        "provenance": {
+          "digest_sha256": "daf468fb9bb08e61cd55dae67d9018916862606ccb72178f33fdc424990ab149",
+          "recorded_at": "2026-09-04T12:00:00+08:00",
+          "source": "synthetic-acceptance-fixture"
+        },
+        "required_capability": "instructions",
+        "scope": {
+          "kind": "project",
+          "paths": [
+            "packages/**",
+            "apps/**"
+          ],
+          "target": "javascript-tests"
+        }
+      }
+    ],
+    "claimed_alignment": null,
+    "documentation_only": false,
+    "effective_policies": [],
+    "equivalence_bindings": [
+      {
+        "byte_identical": false,
+        "equivalence_basis": "canonical-intent-semantics",
+        "equivalent": true,
+        "family_ids": [
+          "codex",
+          "claude-code",
+          "cursor",
+          "grok-build"
+        ],
+        "intent_id": "intent.tests-must-use-vitest",
+        "native_digests": [
+          "b97acb9f2fa8628dd9869c570f70f068e5756a871aae6865d01354f621316b5b",
+          "a8fbc2389f54753bcb41e86fa5b102062d681417c771107d7596e2a4ea9f52be",
+          "60b44b7404d40e87b694d4fca58b1734ff10c84015a07c3909747a0c18e93d3f",
+          "801aaf9d12440750ea29ec5522732c960354a649f60002a6b78ce9b909de360f"
+        ],
+        "text_hash_equality_is_not_semantic_equivalence": true
+      }
+    ],
+    "exceptions": [],
+    "expected_violations": [],
+    "layer_assignments": [],
+    "leader_view": null,
+    "lifecycle": null,
+    "loss_reports": [],
+    "member_disclosure": null,
+    "overlays": [],
+    "policy_evals": [],
+    "projections": [
+      {
+        "authority": "contexpect-native",
+        "capability_negotiation": {
+          "dropped": [
+            "scoped-conditional-rules",
+            "model-visible-complete-prompt"
+          ],
+          "required_capability": "rules",
+          "status": "not-applicable",
+          "unknown": [
+            "model-visible-complete-prompt"
+          ],
+          "unsupported": [
+            "scoped-conditional-rules"
+          ]
+        },
+        "coordinate": "codex/0.147.0/cli/macos-27-arm64",
+        "equivalence_basis": "canonical-intent-semantics",
+        "family_id": "codex",
+        "lifecycle": "preview-apply-rollback",
+        "managed_channel": true,
+        "native_digest": "b97acb9f2fa8628dd9869c570f70f068e5756a871aae6865d01354f621316b5b",
+        "native_files": [
+          {
+            "content": "# AGENTS.md\n\n<!-- contexpect-native: Codex nested instruction chain; not a byte copy -->\n\n## Testing\n\nThis repository's JavaScript tests must use Vitest.\nDo not add Jest as the project test runner.\n",
+            "digest_sha256": "77e760d71c7691e1f6237b3a55a8a1db3396a0985e06ba5e905204d5307995d4",
+            "path": "AGENTS.md"
+          }
+        ],
+        "native_path": "AGENTS.md",
+        "oracle": {
+          "command": [
+            "codex",
+            "debug",
+            "prompt-input"
+          ],
+          "honesty": "recipe-only-not-a-native-observation",
+          "kind": "declared-repeatable",
+          "live_tested": false,
+          "native_result_captured": false
+        },
+        "os_lane": "macos-27-arm64",
+        "pipeline": [
+          {
+            "order": 1,
+            "status": "recorded",
+            "step": "canonical-intent"
+          },
+          {
+            "order": 2,
+            "status": "recorded",
+            "step": "target-coordinate"
+          },
+          {
+            "order": 3,
+            "status": "recorded",
+            "step": "capability-negotiation"
+          },
+          {
+            "order": 4,
+            "status": "recorded",
+            "step": "authority-selection"
+          },
+          {
+            "order": 5,
+            "status": "recorded",
+            "step": "harness-native-projection"
+          },
+          {
+            "order": 6,
+            "status": "recorded",
+            "step": "preview-apply-rollback"
+          },
+          {
+            "order": 7,
+            "status": "recorded",
+            "step": "target-resolver-oracle"
+          },
+          {
+            "order": 8,
+            "status": "recorded",
+            "step": "reconciliation-receipt"
+          }
+        ],
+        "precedence": "harness-native-document-order",
+        "primitives": [
+          "instructions",
+          "memory",
+          "skills",
+          "plugins",
+          "commands",
+          "agents",
+          "mcp-declarations",
+          "tool-schema-catalog",
+          "task-message",
+          "history",
+          "environment-metadata"
+        ],
+        "projection_outcome": "verified",
+        "reconciliation_state": "verified",
+        "scope": "project",
+        "surface": "cli",
+        "syntax": "markdown-nested-agents-chain"
+      },
+      {
+        "authority": "contexpect-native",
+        "capability_negotiation": {
+          "dropped": [],
+          "required_capability": "instructions",
+          "status": "required-supported",
+          "unknown": [],
+          "unsupported": []
+        },
+        "coordinate": "claude-code/2.1.259/cli/macos-27-arm64",
+        "equivalence_basis": "canonical-intent-semantics",
+        "family_id": "claude-code",
+        "lifecycle": "preview-apply-rollback",
+        "managed_channel": true,
+        "native_digest": "a8fbc2389f54753bcb41e86fa5b102062d681417c771107d7596e2a4ea9f52be",
+        "native_files": [
+          {
+            "content": "# CLAUDE.md\n\n## Testing policy\n\nUse Vitest for JavaScript unit and component tests. Jest is not the project test runner.\n",
+            "digest_sha256": "e39b120baed3c4d265de3d45346f141c4105245dde146140c5ce9b857858e3ab",
+            "path": "CLAUDE.md"
+          },
+          {
+            "content": "---\npaths:\n  - \"packages/**\"\n  - \"apps/**\"\n---\nJavaScript tests in these paths must run on Vitest.\n",
+            "digest_sha256": "c767b36d92110f63f4166e7d455404647e815c08dc1524812036c72073a2b583",
+            "path": ".claude/rules/testing.md"
+          }
+        ],
+        "native_path": "CLAUDE.md",
+        "oracle": {
+          "command": null,
+          "honesty": "no-declared-repeatable-oracle-unknown-or-static-only",
+          "kind": "static-resolver",
+          "live_tested": false,
+          "native_result_captured": false
+        },
+        "os_lane": "macos-27-arm64",
+        "pipeline": [
+          {
+            "order": 1,
+            "status": "recorded",
+            "step": "canonical-intent"
+          },
+          {
+            "order": 2,
+            "status": "recorded",
+            "step": "target-coordinate"
+          },
+          {
+            "order": 3,
+            "status": "recorded",
+            "step": "capability-negotiation"
+          },
+          {
+            "order": 4,
+            "status": "recorded",
+            "step": "authority-selection"
+          },
+          {
+            "order": 5,
+            "status": "recorded",
+            "step": "harness-native-projection"
+          },
+          {
+            "order": 6,
+            "status": "recorded",
+            "step": "preview-apply-rollback"
+          },
+          {
+            "order": 7,
+            "status": "recorded",
+            "step": "target-resolver-oracle"
+          },
+          {
+            "order": 8,
+            "status": "recorded",
+            "step": "reconciliation-receipt"
+          }
+        ],
+        "precedence": "harness-native-document-order",
+        "primitives": [
+          "instructions",
+          "rules",
+          "memory",
+          "skills",
+          "plugins",
+          "commands",
+          "agents",
+          "mcp-declarations",
+          "environment-metadata"
+        ],
+        "projection_outcome": "transformed",
+        "scope": "project",
+        "surface": "cli",
+        "syntax": "markdown-plus-path-scoped-rules"
+      },
+      {
+        "authority": "contexpect-native",
+        "capability_negotiation": {
+          "dropped": [],
+          "required_capability": "instructions",
+          "status": "required-supported",
+          "unknown": [],
+          "unsupported": []
+        },
+        "coordinate": "cursor/3.19.7/ide/macos-27-arm64",
+        "equivalence_basis": "canonical-intent-semantics",
+        "family_id": "cursor",
+        "lifecycle": "preview-apply-rollback",
+        "managed_channel": true,
+        "native_digest": "60b44b7404d40e87b694d4fca58b1734ff10c84015a07c3909747a0c18e93d3f",
+        "native_files": [
+          {
+            "content": "---\ndescription: Project test runner\nglobs: **/*.{test,spec}.{ts,tsx,js,jsx}\nalwaysApply: false\n---\nThis project requires Vitest. Do not introduce Jest as the test runner.\n",
+            "digest_sha256": "eb68410c0b3fbcdf390a05a93b0e91166df1a9aeb52c017f188e0689124684bf",
+            "path": ".cursor/rules/testing.mdc"
+          }
+        ],
+        "native_path": ".cursor/rules/testing.mdc",
+        "oracle": {
+          "command": null,
+          "honesty": "no-declared-repeatable-oracle-unknown-or-static-only",
+          "kind": "static-resolver",
+          "live_tested": false,
+          "native_result_captured": false
+        },
+        "os_lane": "macos-27-arm64",
+        "pipeline": [
+          {
+            "order": 1,
+            "status": "recorded",
+            "step": "canonical-intent"
+          },
+          {
+            "order": 2,
+            "status": "recorded",
+            "step": "target-coordinate"
+          },
+          {
+            "order": 3,
+            "status": "recorded",
+            "step": "capability-negotiation"
+          },
+          {
+            "order": 4,
+            "status": "recorded",
+            "step": "authority-selection"
+          },
+          {
+            "order": 5,
+            "status": "recorded",
+            "step": "harness-native-projection"
+          },
+          {
+            "order": 6,
+            "status": "recorded",
+            "step": "preview-apply-rollback"
+          },
+          {
+            "order": 7,
+            "status": "recorded",
+            "step": "target-resolver-oracle"
+          },
+          {
+            "order": 8,
+            "status": "recorded",
+            "step": "reconciliation-receipt"
+          }
+        ],
+        "precedence": "harness-native-document-order",
+        "primitives": [
+          "instructions",
+          "rules",
+          "memory",
+          "skills",
+          "plugins",
+          "commands",
+          "agents",
+          "mcp-declarations",
+          "environment-metadata"
+        ],
+        "projection_outcome": "native-equivalent",
+        "scope": "project",
+        "surface": "ide",
+        "syntax": "cursor-mdc-project-rules"
+      },
+      {
+        "authority": "contexpect-native",
+        "capability_negotiation": {
+          "dropped": [],
+          "required_capability": "instructions",
+          "status": "required-supported",
+          "unknown": [],
+          "unsupported": []
+        },
+        "coordinate": "grok-build/1.0.13/cli/macos-27-arm64",
+        "equivalence_basis": "canonical-intent-semantics",
+        "family_id": "grok-build",
+        "lifecycle": "preview-apply-rollback",
+        "managed_channel": true,
+        "native_digest": "801aaf9d12440750ea29ec5522732c960354a649f60002a6b78ce9b909de360f",
+        "native_files": [
+          {
+            "content": "# Project instructions (Grok Build)\n\n[testing]\nrequired_runner = Vitest\nprohibited_runner = Jest\n",
+            "digest_sha256": "9c151facc38351fe2188f585aec7129dcac1a40d57c00e2ae5f87f054f6e2b63",
+            "path": "AGENTS.md"
+          }
+        ],
+        "native_path": "AGENTS.md",
+        "oracle": {
+          "command": [
+            "grok",
+            "inspect",
+            "--json"
+          ],
+          "honesty": "discovered-configuration-does-not-prove-model-visible",
+          "kind": "declared-repeatable",
+          "live_tested": false,
+          "native_result_captured": false
+        },
+        "os_lane": "macos-27-arm64",
+        "pipeline": [
+          {
+            "order": 1,
+            "status": "recorded",
+            "step": "canonical-intent"
+          },
+          {
+            "order": 2,
+            "status": "recorded",
+            "step": "target-coordinate"
+          },
+          {
+            "order": 3,
+            "status": "recorded",
+            "step": "capability-negotiation"
+          },
+          {
+            "order": 4,
+            "status": "recorded",
+            "step": "authority-selection"
+          },
+          {
+            "order": 5,
+            "status": "recorded",
+            "step": "harness-native-projection"
+          },
+          {
+            "order": 6,
+            "status": "recorded",
+            "step": "preview-apply-rollback"
+          },
+          {
+            "order": 7,
+            "status": "recorded",
+            "step": "target-resolver-oracle"
+          },
+          {
+            "order": 8,
+            "status": "recorded",
+            "step": "reconciliation-receipt"
+          }
+        ],
+        "precedence": "harness-native-document-order",
+        "primitives": [
+          "instructions",
+          "memory",
+          "skills",
+          "plugins",
+          "commands",
+          "agents",
+          "mcp-declarations",
+          "environment-metadata"
+        ],
+        "projection_outcome": "native-equivalent",
+        "scope": "project",
+        "surface": "cli",
+        "syntax": "grok-project-instructions"
+      }
+    ],
+    "receipts": [
+      {
+        "bound_digests": {},
+        "id": "receipt.false-verified",
+        "native_result_captured": false,
+        "reconciliation_state": "verified"
+      }
+    ],
+    "rollback_plan": null,
+    "scenario": "ST2-neg",
+    "team_standard": null,
+    "trust_state": null,
+    "variants": []
+  },
+  "polarity": "negative",
+  "scenario": "ST2-neg",
+  "schema_version": 1
+}

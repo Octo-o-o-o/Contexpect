@@ -1,0 +1,34 @@
+Contexpect
+Copyright 2026 Contexpect contributors
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file in the project root.
+
+This product includes documentation, schemas, acceptance contracts, and
+synthetic fixtures authored for Contexpect. The Rust/Tauri product runtime
+is not implemented in this documentation foundation.
+
+Third-party software, corpora, and vendor documentation may be introduced
+in later work packages. Any such material MUST be recorded here with:
+
+- component name and version pin
+- SPDX license identifier
+- source URL and retrieved-at date
+- content digest
+- redistribution permission
+- NOTICE/attribution obligations
+
+Until a dependency is pinned, do not copy its source into this tree.
+
+Known future Apache-2.0 borrow candidates that are NOT currently vendored:
+
+- CtxWise (Codex-oriented fixtures / prompt-input surfaces). If source is
+  later borrowed, retain its NOTICE and copyright lines unchanged.
+
+Package, SBOM, and install-policy evaluation remain the unique authority of
+a frozen APM integration. Contexpect will display those results; it will not
+replace them.
+
+Generated development fixtures in `acceptance/corpus/` are Apache-2.0
+synthetic data. They are not live native observations and must not be
+redistributed as vendor session logs.

@@ -1,0 +1,6 @@
+---
+description: project instructions
+globs: "**/*"
+alwaysApply: true
+---
+Use typed APIs for public functions.

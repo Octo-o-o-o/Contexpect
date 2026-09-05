@@ -1,0 +1,144 @@
+{
+  "covers": [
+    "ST7-neg"
+  ],
+  "cutoff": "2026-09-04T23:59:59+08:00",
+  "digest": "4746060328f327b8be2477ef05c159b690bcfb59f1157e64086eb66f99fa16a0",
+  "expected_gate_result": "fail",
+  "expected_violations": [
+    "leader-private-prompt",
+    "leader-secrets",
+    "leader-personal-context",
+    "leader-session-history",
+    "disclosure-missing",
+    "nested-private-content"
+  ],
+  "id": "ST7-neg",
+  "kind": "semantic-team-fixture",
+  "license": "Apache-2.0",
+  "live_tested": false,
+  "notes": "Leader report containing private prompt, secrets, unrelated personal context, or full session history must fail.",
+  "payload": {
+    "canonical_intents": [
+      {
+        "activation": {
+          "mode": "required-instruction",
+          "trigger": "javascript-test-paths"
+        },
+        "authority": {
+          "id": "contexpect-native",
+          "kind": "contexpect-native"
+        },
+        "dependencies": [],
+        "desired_outcome": "Each target harness encodes the Vitest requirement in its native instruction/rule primitive",
+        "id": "intent.tests-must-use-vitest",
+        "lifecycle": "active",
+        "meaning": {
+          "constraints": [
+            "Do not introduce Jest as the project test runner"
+          ],
+          "goal": "JavaScript unit and component tests must use Vitest",
+          "non_goals": [
+            "Do not rewrite existing non-JavaScript tests"
+          ]
+        },
+        "owner": "syn-publisher-team-lead",
+        "permission_security_boundary": "instructions-are-not-sandbox-policy",
+        "precedence": {
+          "policy": "team-required-over-personal-recommended",
+          "rank": "team",
+          "shadows_lower": true
+        },
+        "provenance": {
+          "digest_sha256": "daf468fb9bb08e61cd55dae67d9018916862606ccb72178f33fdc424990ab149",
+          "recorded_at": "2026-09-04T12:00:00+08:00",
+          "source": "synthetic-acceptance-fixture"
+        },
+        "required_capability": "instructions",
+        "scope": {
+          "kind": "project",
+          "paths": [
+            "packages/**",
+            "apps/**"
+          ],
+          "target": "javascript-tests"
+        }
+      }
+    ],
+    "claimed_alignment": null,
+    "documentation_only": false,
+    "effective_policies": [],
+    "equivalence_bindings": [],
+    "exceptions": [],
+    "expected_violations": [],
+    "layer_assignments": [],
+    "leader_view": {
+      "compatibility": {
+        "floors": [
+          "codex",
+          "claude-code",
+          "cursor",
+          "grok-build"
+        ]
+      },
+      "compliance_state": "structural-only",
+      "device_freshness": {
+        "device-a": "current"
+      },
+      "exception_metadata": {
+        "expires_at": "2026-09-04T23:59:59+08:00",
+        "id": "exc.scoped-vitest-jest-migration",
+        "private_prompt_text": "nested private prompt in exception metadata",
+        "scope": "packages/legacy",
+        "state": "approval"
+      },
+      "full_session_history": [
+        {
+          "text": "full session",
+          "turn": 1
+        }
+      ],
+      "harness_id": "cursor",
+      "loss_unknown": {
+        "loss_classes": [
+          "harness-only"
+        ],
+        "unknown": true
+      },
+      "member_id_redacted": "member-redacted",
+      "private_prompt_text": "user private prompt body",
+      "redacted_evidence_refs": [
+        "evidence:redacted:intent.tests-must-use-vitest"
+      ],
+      "secrets": {
+        "api_token": "synthetic-forbidden-secret-field"
+      },
+      "semantic_drift_class": "benign-native-representation",
+      "standard_id": "tcs.vitest-standard",
+      "standard_version": "1.0.0",
+      "unrelated_personal_context": "personal notes unrelated to the standard"
+    },
+    "lifecycle": null,
+    "loss_reports": [],
+    "member_disclosure": {
+      "acknowledgement": {},
+      "disclosed_digest": "",
+      "previewed_at": null,
+      "previewed_fields": [],
+      "shown_before_report": false,
+      "upload_consented": true
+    },
+    "overlays": [],
+    "policy_evals": [],
+    "projections": [],
+    "receipts": [],
+    "rollback_plan": null,
+    "scenario": "ST7-neg",
+    "team_standard": null,
+    "trust_state": null,
+    "variants": []
+  },
+  "polarity": "negative",
+  "scenario": "ST7-neg",
+  "schema_version": 1
+}

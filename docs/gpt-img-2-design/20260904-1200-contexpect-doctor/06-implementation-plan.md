@@ -1,6 +1,16 @@
 # Implementation Plan
 
-> 本文件是设计到代码的实施映射，不表示已开始开发。当前仓库仍只有方案与设计资产。
+> 本文件是设计到代码的实施映射，不表示已开始开发。产品运行时尚未实施。
+>
+> Canonical 架构、真值模型、信任边界与验证合同已上收：
+> [架构总览](../../architecture/overview.md)、
+> [真值模型](../../architecture/data-and-truth-model.md)、
+> [信任边界 ADR](../../adr/0002-trust-boundaries.md)、
+> [桌面 UI 指南](../../guides/desktop-ui.md)、
+> [测试策略](../../process/test-strategy.md)、
+> [完整实施计划 WP-01–WP-12](../../process/implementation-plan.md)、
+> [兼容矩阵](../../../acceptance/compatibility-matrix.yaml)。
+> 设计稿负责 Doctor 构图与 token；产品含义以 PRD 与上述规范为准。
 
 ## Code Mapping
 
@@ -37,6 +47,15 @@
 8. Add Monitor、Assets、Integrations、Policy、Standards and remaining product routes。
 9. Run desktop responsive、keyboard、screen-reader、privacy/redaction and screenshot gates。
 10. Run native-oracle conformance、cross-device、daemon/CI and full-product acceptance gates from the PRD。
+
+## Canonical verification documents
+
+截图与视觉回归仍按本表执行，但证据语义、18-family 坐标和 CI/安全门禁以 canonical 文档为准，不要只对照生成图 OCR。
+
+- 架构与信任边界：`docs/architecture/overview.md`、`docs/adr/0001-rust-tauri-react-sqlite.md`、`docs/adr/0002-trust-boundaries.md`
+- UI 词表与路由：`docs/guides/desktop-ui.md`、`03-screen-specs.md`、`02-design-system.md`
+- 适配器诚实状态：`acceptance/compatibility-matrix.yaml`（live）与本 fixture 的 4/9/5 分组（仅 Doctor 演示数据）
+- 全产品门禁：`docs/process/test-strategy.md`、`docs/process/implementation-plan.md` WP-04/WP-12
 
 ## Verification Targets
 

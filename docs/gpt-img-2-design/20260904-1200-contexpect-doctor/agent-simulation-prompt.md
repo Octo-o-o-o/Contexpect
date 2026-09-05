@@ -4,13 +4,13 @@
 
 请先完整查看这张最终原型图：
 
-`/Users/wangyixiao/WorkSpace/ContextView/docs/gpt-img-2-design/20260904-1200-contexpect-doctor/images/10-context-doctor-final.png`
+`./docs/gpt-img-2-design/20260904-1200-contexpect-doctor/images/10-context-doctor-final.png`
 
 并阅读以下短文档作为产品语义合同：
 
-- `/Users/wangyixiao/WorkSpace/ContextView/docs/gpt-img-2-design/20260904-1200-contexpect-doctor/00-brief.md`
-- `/Users/wangyixiao/WorkSpace/ContextView/docs/gpt-img-2-design/20260904-1200-contexpect-doctor/ui-spec.md`
-- `/Users/wangyixiao/WorkSpace/ContextView/docs/gpt-img-2-design/20260904-1200-contexpect-doctor/02-design-system.md`
+- `./docs/gpt-img-2-design/20260904-1200-contexpect-doctor/00-brief.md`
+- `./docs/gpt-img-2-design/20260904-1200-contexpect-doctor/ui-spec.md`
+- `./docs/gpt-img-2-design/20260904-1200-contexpect-doctor/02-design-system.md`
 
 如果当前 harness 无法直接查看 PNG，必须明确写 `IMAGE_UNAVAILABLE`，并只根据文档评价；不得假装读到了图片。
 

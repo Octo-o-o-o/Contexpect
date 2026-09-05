@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "task": "contexpect-docs",
+  "stage": "semantic-team",
+  "cycle": "c2",
+  "candidate_head": "3ae72e47ae2b770dabd31b5948736fc38a5e45ef",
+  "diff_fingerprint": "e0912077193d46f2a333a867c40ade54f7374961112252ef7447790663fb76c8",
+  "dimensions": [
+    "domain",
+    "scenario",
+    "surface"
+  ],
+  "acceptance_ids": [
+    "ST1",
+    "ST2",
+    "ST3",
+    "ST4",
+    "ST5",
+    "ST6",
+    "ST7",
+    "ST8"
+  ],
+  "cases": [
+    {
+      "id": "ST1-pos",
+      "acceptance_id": "ST1",
+      "kind": "positive",
+      "coordinates": {
+        "domain": "alignment",
+        "scenario": "canonical-intent",
+        "surface": "contract"
+      },
+      "expected_outcome": "pass",
+      "evidence_ref": "case:ST1-pos"
+    },
+    {
+      "id": "ST1-neg",
+      "acceptance_id": "ST1",
+      "kind": "negative",
+      "coordinates": {
+        "domain": "alignment",
+        "scenario": "byte-copy-as-alignment",
+        "surface": "contract"
+      },
+      "expected_outcome": "fail",
+      "evidence_ref": "case:ST1-neg"
+    },
+    {
+      "id": "ST2-pos",
+      "acceptance_id": "ST2",
+      "kind": "positive",
+      "coordinates": {
+        "domain": "alignment",
+        "scenario": "native-projection",
+        "surface": "adapter"
+      },
+      "expected_outcome": "pass",
+      "evidence_ref": "case:ST2-pos"
+    },
+    {
+      "id": "ST2-neg",
+      "acceptance_id": "ST2",
+      "kind": "negative",
+      "coordinates": {
+        "domain": "alignment",
+        "scenario": "silent-capability-loss",
+        "surface": "adapter"
+      },
+      "expected_outcome": "fail",
+      "evidence_ref": "case:ST2-neg"
+    },
+    {
+      "id": "ST3-pos",
+      "acceptance_id": "ST3",
+      "kind": "positive",
+      "coordinates": {
+        "domain": "alignment",
+        "scenario": "overlay-reconciliation",
+        "surface": "receipt"
+      },
+      "expected_outcome": "pass",
+      "evidence_ref": "case:ST3-pos"
+    },
+    {
+      "id": "ST3-neg",
+      "acceptance_id": "ST3",
+      "kind": "negative",
+      "coordinates": {
+        "domain": "alignment",
+        "scenario": "unapproved-overlay-drift",
+        "surface": "receipt"
+      },
+      "expected_outcome": "fail",
+      "evidence_ref": "case:ST3-neg"
+    },
+    {
+      "id": "ST4-pos",
+      "acceptance_id": "ST4",
+      "kind": "positive",
+      "coordinates": {
+        "domain": "team",
+        "scenario": "signed-versioned-standard",
+        "surface": "bundle"
+      },
+      "expected_outcome": "pass",
+      "evidence_ref": "case:ST4-pos"
+    },
+    {
+      "id": "ST4-neg",
+      "acceptance_id": "ST4",
+      "kind": "negative",
+      "coordinates": {
+        "domain": "team",
+        "scenario": "unsigned-or-rollback-standard",
+        "surface": "bundle"
+      },
+      "expected_outcome": "fail",
+      "evidence_ref": "case:ST4-neg"
+    },
+    {
+      "id": "ST5-pos",
+      "acceptance_id": "ST5",
+      "kind": "positive",
+      "coordinates": {
+        "domain": "team",
+        "scenario": "layered-enforcement",
+        "surface": "policy"
+      },
+      "expected_outcome": "pass",
+      "evidence_ref": "case:ST5-pos"
+    },
+    {
+      "id": "ST5-neg",
+      "acceptance_id": "ST5",
+      "kind": "negative",
+      "coordinates": {
+        "domain": "team",
+        "scenario": "silent-personal-shadow",
+        "surface": "policy"
+      },
+      "expected_outcome": "fail",
+      "evidence_ref": "case:ST5-neg"
+    },
+    {
+      "id": "ST6-pos",
+      "acceptance_id": "ST6",
+      "kind": "positive",
+      "coordinates": {
+        "domain": "team",
+        "scenario": "scoped-expiring-exception",
+        "surface": "workflow"
+      },
+      "expected_outcome": "pass",
+      "evidence_ref": "case:ST6-pos"
+    },
+    {
+      "id": "ST6-neg",
+      "acceptance_id": "ST6",
+      "kind": "negative",
+      "coordinates": {
+        "domain": "team",
+        "scenario": "unbounded-exception",
+        "surface": "workflow"
+      },
+      "expected_outcome": "fail",
+      "evidence_ref": "case:ST6-neg"
+    },
+    {
+      "id": "ST7-pos",
+      "acceptance_id": "ST7",
+      "kind": "positive",
+      "coordinates": {
+        "domain": "team",
+        "scenario": "privacy-preserving-drift",
+        "surface": "leader-view"
+      },
+      "expected_outcome": "pass",
+      "evidence_ref": "case:ST7-pos"
+    },
+    {
+      "id": "ST7-neg",
+      "acceptance_id": "ST7",
+      "kind": "negative",
+      "coordinates": {
+        "domain": "team",
+        "scenario": "private-content-disclosure",
+        "surface": "leader-view"
+      },
+      "expected_outcome": "fail",
+      "evidence_ref": "case:ST7-neg"
+    },
+    {
+      "id": "ST8-pos",
+      "acceptance_id": "ST8",
+      "kind": "positive",
+      "coordinates": {
+        "domain": "delivery",
+        "scenario": "traceable-executable-flow",
+        "surface": "acceptance"
+      },
+      "expected_outcome": "pass",
+      "evidence_ref": "case:ST8-pos"
+    },
+    {
+      "id": "ST8-neg",
+      "acceptance_id": "ST8",
+      "kind": "negative",
+      "coordinates": {
+        "domain": "delivery",
+        "scenario": "documentation-only-claim",
+        "surface": "acceptance"
+      },
+      "expected_outcome": "fail",
+      "evidence_ref": "case:ST8-neg"
+    }
+  ]
+}

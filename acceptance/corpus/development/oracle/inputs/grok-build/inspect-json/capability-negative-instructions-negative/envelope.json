@@ -1,0 +1,1 @@
+{"capability_id":"instructions","class":"oracle","family_id":"grok-build","kind":"oracle-fixture","native_paths":[".oracle-exclude","AGENTS.md","inspect-probe.json","inspect-result.json"],"schema_version":1}

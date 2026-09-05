@@ -1,0 +1,88 @@
+{
+  "covers": [
+    "malformed-schema"
+  ],
+  "cutoff": "2026-09-04T23:59:59+08:00",
+  "digest": "d0580334a92dfd7a443497eaf5fe2c36a6922cf33638baf09fea1a1ebdd87bf0",
+  "expected_gate_result": "fail",
+  "expected_violations": [
+    "malformed-schema"
+  ],
+  "id": "malformed-schema",
+  "kind": "semantic-team-fixture",
+  "license": "Apache-2.0",
+  "live_tested": false,
+  "notes": "CanonicalIntent with undeclared keys must fail.",
+  "payload": {
+    "canonical_intents": [
+      {
+        "activation": {
+          "mode": "required-instruction",
+          "trigger": "javascript-test-paths"
+        },
+        "authority": {
+          "id": "contexpect-native",
+          "kind": "contexpect-native"
+        },
+        "dependencies": [],
+        "desired_outcome": "Each target harness encodes the Vitest requirement in its native instruction/rule primitive",
+        "id": "intent.tests-must-use-vitest",
+        "lifecycle": "active",
+        "meaning": {
+          "constraints": [
+            "Do not introduce Jest as the project test runner"
+          ],
+          "goal": "JavaScript unit and component tests must use Vitest",
+          "non_goals": [
+            "Do not rewrite existing non-JavaScript tests"
+          ]
+        },
+        "owner": "syn-publisher-team-lead",
+        "permission_security_boundary": "instructions-are-not-sandbox-policy",
+        "precedence": {
+          "policy": "team-required-over-personal-recommended",
+          "rank": "team",
+          "shadows_lower": true
+        },
+        "provenance": {
+          "digest_sha256": "daf468fb9bb08e61cd55dae67d9018916862606ccb72178f33fdc424990ab149",
+          "recorded_at": "2026-09-04T12:00:00+08:00",
+          "source": "synthetic-acceptance-fixture"
+        },
+        "required_capability": "instructions",
+        "scope": {
+          "kind": "project",
+          "paths": [
+            "packages/**",
+            "apps/**"
+          ],
+          "target": "javascript-tests"
+        },
+        "unexpected_field": "not-in-schema"
+      }
+    ],
+    "claimed_alignment": null,
+    "documentation_only": false,
+    "effective_policies": [],
+    "equivalence_bindings": [],
+    "exceptions": [],
+    "expected_violations": [],
+    "layer_assignments": [],
+    "leader_view": null,
+    "lifecycle": null,
+    "loss_reports": [],
+    "member_disclosure": null,
+    "overlays": [],
+    "policy_evals": [],
+    "projections": [],
+    "receipts": [],
+    "rollback_plan": null,
+    "scenario": "malformed-schema",
+    "team_standard": null,
+    "trust_state": null,
+    "variants": []
+  },
+  "polarity": "negative",
+  "scenario": "malformed-schema",
+  "schema_version": 1
+}

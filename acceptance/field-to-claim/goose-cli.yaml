@@ -1,0 +1,18 @@
+{
+  "artifact": "field-to-claim",
+  "cutoff": "2026-09-04T23:59:59+08:00",
+  "family_id": "goose",
+  "fields": [
+    {
+      "claim_kind": "resolved",
+      "coverage": "partial-declared-surface",
+      "lifecycle_stage": "installed",
+      "minimum_evidence": "official-spec",
+      "native_field": "declared-static-path"
+    }
+  ],
+  "live_tested": false,
+  "schema_version": 1,
+  "surface": "cli",
+  "version": "1.37.0"
+}

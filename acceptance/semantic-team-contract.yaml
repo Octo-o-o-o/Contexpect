@@ -1,0 +1,692 @@
+{
+  "artifact": "semantic-team-contract",
+  "canonical_intent_fields": [
+    "id",
+    "meaning",
+    "scope",
+    "precedence",
+    "activation",
+    "required_capability",
+    "dependencies",
+    "permission_security_boundary",
+    "lifecycle",
+    "owner",
+    "desired_outcome",
+    "authority",
+    "provenance"
+  ],
+  "content_digest_manifest": [
+    {
+      "digest_sha256": "b2c16a14e55bb2b6bad0195cd47ea604914878dc5a281769ae83e0b460ae28bb",
+      "path": "acceptance/semantic-team/ST1-neg.json"
+    },
+    {
+      "digest_sha256": "b079149832f82792a99c2cedebfd64a12a2bd6e7ba37aa6d71b736749b29c5cc",
+      "path": "acceptance/semantic-team/ST1-pos.json"
+    },
+    {
+      "digest_sha256": "180f6240ca666d050a9f8dff2c1b2a46bb9750ed17ba33997fb926cd309d53c8",
+      "path": "acceptance/semantic-team/ST2-neg.json"
+    },
+    {
+      "digest_sha256": "31e33c2a04447394d65dd84154d5097fd1287183643ec14b18f730a1a7f93f4d",
+      "path": "acceptance/semantic-team/ST2-pos.json"
+    },
+    {
+      "digest_sha256": "3ed9e6bffb2c9c7505b3e7bdd6ae42767c97ab00706afc219dda9497f2bf0d4a",
+      "path": "acceptance/semantic-team/ST3-neg.json"
+    },
+    {
+      "digest_sha256": "1327336deedcdd300dd79f42c9f0095b4acb52d8ef77ab47baf891c657f93615",
+      "path": "acceptance/semantic-team/ST3-pos.json"
+    },
+    {
+      "digest_sha256": "a017abb04eea82719c74c5e085fec10e3dfe7abd959e38bdc70c4b5907e1308e",
+      "path": "acceptance/semantic-team/ST4-neg.json"
+    },
+    {
+      "digest_sha256": "bdc8e4fe847adabe57935d4baa8185811956896cf79fd1165ccd9562cdbc2975",
+      "path": "acceptance/semantic-team/ST4-pos.json"
+    },
+    {
+      "digest_sha256": "1c99d22699ab4ab339312a100916643d14c6429f6bd074f19b2195b9360aa37d",
+      "path": "acceptance/semantic-team/ST5-neg.json"
+    },
+    {
+      "digest_sha256": "314640eb59226574fe94e2bb09aef5468c072d058eec01c52f922f29334d435b",
+      "path": "acceptance/semantic-team/ST5-pos.json"
+    },
+    {
+      "digest_sha256": "89e5d5ca17516bd0c2c2af5e2b245457fb7634290ed74e906b09890898240e56",
+      "path": "acceptance/semantic-team/ST6-neg.json"
+    },
+    {
+      "digest_sha256": "a3c3da0104ea8367db36e3cf0ca4313bf283492b50365a8db8ed585b6c47a0a9",
+      "path": "acceptance/semantic-team/ST6-pos.json"
+    },
+    {
+      "digest_sha256": "24257eadbfbb01d3668d6030189825202643f45eba1c2ec9e51b60e35fba16cc",
+      "path": "acceptance/semantic-team/ST7-neg.json"
+    },
+    {
+      "digest_sha256": "2ef526cc63ce3351fbdbd14ec2873f8e1d3a066f3d2ad840bc8a54bb52e8493a",
+      "path": "acceptance/semantic-team/ST7-pos.json"
+    },
+    {
+      "digest_sha256": "5dc1d80b8b1e909731cb6720bdb2e798234a0c2f93904ce6b4044ba7f0ae8862",
+      "path": "acceptance/semantic-team/ST8-neg.json"
+    },
+    {
+      "digest_sha256": "12a93855fcc779db022f270be5ddc28a6c2bc50e56397d7aca2e6fa50a33c672",
+      "path": "acceptance/semantic-team/ST8-pos.json"
+    },
+    {
+      "digest_sha256": "071fec1da176801c8e488ddfa9f8ad8c536ed9770b4b004b06749c8664f58f0a",
+      "path": "acceptance/semantic-team/forged-publisher.json"
+    },
+    {
+      "digest_sha256": "dac03ce82ec5016ea120d078d254ee4cd936eb45253c8a6244827904efb99667",
+      "path": "acceptance/semantic-team/malformed-schema.json"
+    },
+    {
+      "digest_sha256": "540b4207a3c16e04b067be4ce5144e674adca1263b5326626b5400bb050b04ff",
+      "path": "acceptance/semantic-team/missing-signature.json"
+    },
+    {
+      "digest_sha256": "ccea60ac704eb259c4250bfd791eee79e17bdd515d14ff79e43be6880e77951a",
+      "path": "acceptance/semantic-team/swapped-digest.json"
+    },
+    {
+      "digest_sha256": "116957562b98109bf7edc1d2c7320b54f06489a01befbf1032e63dcf53b27e98",
+      "path": "acceptance/semantic-team/truncated-bundle.json"
+    }
+  ],
+  "cutoff": "2026-09-04T23:59:59+08:00",
+  "drift_classes": [
+    "benign-native-representation",
+    "unapproved-semantic-drift",
+    "approved-exception",
+    "unknown-evidence"
+  ],
+  "enforcement_honesty": [
+    "enforceable",
+    "detect-only",
+    "non-enforceable"
+  ],
+  "enforcement_modes": [
+    "recommended",
+    "required",
+    "prohibited"
+  ],
+  "exception_states": [
+    "request",
+    "approval",
+    "rejection",
+    "revocation",
+    "expiry"
+  ],
+  "family_native_target_fields": [
+    "family_id",
+    "native_path",
+    "syntax",
+    "scope",
+    "precedence",
+    "lifecycle",
+    "primitives",
+    "managed_channel",
+    "alignment",
+    "byte_copy_forbidden"
+  ],
+  "family_native_targets": [
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "codex",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": "**/AGENTS.md",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "tool-schema-catalog",
+        "task-message",
+        "history",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "markdown-nested-agents-chain"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "claude-code",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": "**/CLAUDE.md",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "rules",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "markdown-plus-path-scoped-rules"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "cursor",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": "**/.cursor/rules/**",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "rules",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "cursor-mdc-project-rules"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "grok-build",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": "**/AGENTS.md",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "grok-project-instructions"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "opencode",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": "AGENTS.md",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "rules",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "opencode-markdown"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "deepseek-harness",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": "AGENTS.md",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "rules",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "deepseek-harness-markdown"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "kimi-code",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": "AGENTS.md",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "rules",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "kimi-code-markdown"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "zcode",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": "AGENTS.md",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "rules",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "zcode-markdown"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "qwen-code",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": "QWEN.md",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "rules",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "qwen-code-markdown"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "goose",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": ".goosehints",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "rules",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "goose-text"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "gemini-cli",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": "GEMINI.md",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "rules",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "gemini-cli-markdown"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "github-copilot-cli",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": ".github/copilot-instructions.md",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "rules",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "github-copilot-cli-markdown"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "kiro",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": ".kiro/steering/product.md",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "rules",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "kiro-markdown"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "cline",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": ".clinerules",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "rules",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "cline-markdown"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "aider",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": ".aider.conf.yml",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "memory",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "aider-yaml"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "openhands",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": "AGENTS.md",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "rules",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "openhands-markdown"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "windsurf",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": true,
+      "native_path": ".windsurf/rules.md",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "instructions",
+        "rules",
+        "memory",
+        "skills",
+        "plugins",
+        "commands",
+        "agents",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "windsurf-markdown"
+    },
+    {
+      "alignment": "harness-native-projection",
+      "byte_copy_forbidden": true,
+      "family_id": "coze",
+      "lifecycle": "preview-apply-rollback",
+      "managed_channel": false,
+      "native_path": ".cozerc.json",
+      "precedence": "harness-native-document-order",
+      "primitives": [
+        "skills",
+        "mcp-declarations",
+        "environment-metadata"
+      ],
+      "scope": "project",
+      "syntax": "coze-json"
+    }
+  ],
+  "fixture_id_mapping": {
+    "ST1-neg": "ST1-neg",
+    "ST1-pos": "ST1-pos",
+    "ST2-neg": "ST2-neg",
+    "ST2-pos": "ST2-pos",
+    "ST3-neg": "ST3-neg",
+    "ST3-pos": "ST3-pos",
+    "ST4-neg": "ST4-neg",
+    "ST4-pos": "ST4-pos",
+    "ST5-neg": "ST5-neg",
+    "ST5-pos": "ST5-pos",
+    "ST6-neg": "ST6-neg",
+    "ST6-pos": "ST6-pos",
+    "ST7-neg": "ST7-neg",
+    "ST7-pos": "ST7-pos",
+    "ST8-neg": "ST8-neg",
+    "ST8-pos": "ST8-pos",
+    "forged-publisher": "forged-publisher",
+    "malformed-schema": "malformed-schema",
+    "missing-signature": "missing-signature",
+    "swapped-digest": "swapped-digest",
+    "truncated-bundle": "truncated-bundle"
+  },
+  "layer_order": [
+    "organization",
+    "team",
+    "project",
+    "role",
+    "personal"
+  ],
+  "license": "Apache-2.0",
+  "live_tested": false,
+  "loss_classes": [
+    "omitted",
+    "weakened",
+    "approximated",
+    "duplicated",
+    "harness-only"
+  ],
+  "notes": [
+    "Keep the original eight PRD §17.0 artifacts. This contract is an additional generated artifact.",
+    "Fixture files under acceptance/semantic-team/ are hashed here (bijection). The contract itself is hashed in acceptance/artifact-digest-manifest.json.",
+    "Projection outcomes are orthogonal to reconciliation states verified|structural-only|indeterminate|failed.",
+    "Text/hash equality is evidence of identical files only, never semantic equivalence.",
+    "Encrypted cloud is optional transport for TeamContextStandard; git/file distribution is local-first.",
+    "Declared repeatable oracles remain Codex debug prompt-input and Grok inspect --json. This stage does not capture native results."
+  ],
+  "pipeline_steps": [
+    "canonical-intent",
+    "target-coordinate",
+    "capability-negotiation",
+    "authority-selection",
+    "harness-native-projection",
+    "preview-apply-rollback",
+    "target-resolver-oracle",
+    "reconciliation-receipt"
+  ],
+  "projection_outcomes": [
+    "exact",
+    "native-equivalent",
+    "transformed",
+    "lossless-native-overlay",
+    "lossy",
+    "unsupported",
+    "unknown"
+  ],
+  "publisher_fields": [
+    "id",
+    "display_name",
+    "signing_identity",
+    "role",
+    "authorization",
+    "key_id",
+    "trust_state"
+  ],
+  "reconciliation_states": [
+    "verified",
+    "structural-only",
+    "indeterminate",
+    "failed"
+  ],
+  "required_malformed_fixtures": [
+    "malformed-schema",
+    "missing-signature",
+    "swapped-digest",
+    "truncated-bundle",
+    "forged-publisher"
+  ],
+  "required_scenarios": [
+    "ST1-pos",
+    "ST1-neg",
+    "ST2-pos",
+    "ST2-neg",
+    "ST3-pos",
+    "ST3-neg",
+    "ST4-pos",
+    "ST4-neg",
+    "ST5-pos",
+    "ST5-neg",
+    "ST6-pos",
+    "ST6-neg",
+    "ST7-pos",
+    "ST7-neg",
+    "ST8-pos",
+    "ST8-neg"
+  ],
+  "round_trip_digest_keys": [
+    "intent",
+    "plan",
+    "authority",
+    "transaction",
+    "native_artifact",
+    "resolver_oracle",
+    "policy",
+    "exception"
+  ],
+  "schema_version": 1,
+  "standard_lifecycles": [
+    "validate",
+    "publish",
+    "preview",
+    "adopt",
+    "pin",
+    "update",
+    "status",
+    "leave",
+    "rollback",
+    "revoke"
+  ],
+  "synthetic_signing": {
+    "alg": "hmac-sha256-synthetic",
+    "key_ids": [
+      "syn-approver-lead",
+      "syn-member",
+      "syn-publisher-team-lead",
+      "syn-publisher-team-lead-rotated"
+    ],
+    "live_tested": false,
+    "note": "offline synthetic fixture keys; not user tokens"
+  },
+  "team_standard_fields": [
+    "stable_id",
+    "semantic_version",
+    "revision",
+    "publisher",
+    "members",
+    "trust",
+    "lineage",
+    "compatibility_floors",
+    "target_harness_coordinates",
+    "canonical_intent_set",
+    "policy_rules",
+    "release_notes",
+    "migration",
+    "rollback",
+    "content_digest_manifest",
+    "signatures",
+    "expiry",
+    "channel",
+    "transport",
+    "lifecycle_metadata"
+  ]
+}

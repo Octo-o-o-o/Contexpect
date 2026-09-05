@@ -1,0 +1,1 @@
+{"capability_id":"commands","class":"filesystem_edge","family_id":"cursor","kind":"static-fixture","native_paths":[".agents/commands/fixture.md",".agents/hooks/on-command.json",".agents/workflows/fixture.yaml","layout.json"],"polarity":"positive","schema_version":1}

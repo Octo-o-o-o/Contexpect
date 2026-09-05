@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "task": "contexpect-docs",
+  "stage": "semantic-team",
+  "cycle": "c2",
+  "required_dimensions": [
+    "domain",
+    "scenario",
+    "surface"
+  ],
+  "acceptance_items": [
+    {
+      "id": "ST1",
+      "severity": "P0"
+    },
+    {
+      "id": "ST2",
+      "severity": "P0"
+    },
+    {
+      "id": "ST3",
+      "severity": "P1"
+    },
+    {
+      "id": "ST4",
+      "severity": "P0"
+    },
+    {
+      "id": "ST5",
+      "severity": "P0"
+    },
+    {
+      "id": "ST6",
+      "severity": "P1"
+    },
+    {
+      "id": "ST7",
+      "severity": "P1"
+    },
+    {
+      "id": "ST8",
+      "severity": "P0"
+    }
+  ],
+  "required_gates": [
+    "docs-structure",
+    "acceptance-validation",
+    "traceability-validation",
+    "corpus-validation",
+    "semantic-team-validation",
+    "validator-negative-tests"
+  ]
+}

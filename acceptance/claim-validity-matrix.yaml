@@ -1,0 +1,222 @@
+{
+  "artifact": "claim-validity-matrix",
+  "axes": {
+    "claim_kind": [
+      "resolved",
+      "observed",
+      "effect"
+    ],
+    "coverage": [
+      "full-declared-surface",
+      "partial-declared-surface",
+      "unknown"
+    ],
+    "knowledge_status": [
+      "current",
+      "stale",
+      "conflicted",
+      "unknown"
+    ],
+    "lifecycle_stage": [
+      "installed",
+      "discoverable",
+      "eligible",
+      "model-visible",
+      "use-evidence",
+      "outcome-affecting"
+    ],
+    "precision": [
+      "exact",
+      "derived",
+      "estimated",
+      "not-applicable"
+    ],
+    "provenance": [
+      "native-runtime",
+      "native-log",
+      "harness-source",
+      "official-spec",
+      "heuristic",
+      "user-attested"
+    ],
+    "truth_state": [
+      "present",
+      "absent",
+      "indeterminate",
+      "not-applicable"
+    ]
+  },
+  "cutoff": "2026-09-04T23:59:59+08:00",
+  "illegal_examples": [
+    {
+      "claim_kind": "resolved",
+      "id": "static-as-observed-present",
+      "lifecycle_stage": "model-visible",
+      "truth_state": "present",
+      "why": "Static resolver cannot prove model-visible present."
+    }
+  ],
+  "invariants": [
+    {
+      "allowed_truth_state": [
+        "indeterminate",
+        "not-applicable"
+      ],
+      "forbidden_truth_state": [
+        "present"
+      ],
+      "id": "resolved-no-present-runtime-facets",
+      "if": {
+        "claim_kind": "resolved",
+        "lifecycle_stage": [
+          "model-visible",
+          "use-evidence",
+          "outcome-affecting"
+        ]
+      }
+    },
+    {
+      "id": "model-visible-present-requires-native",
+      "if": {
+        "lifecycle_stage": "model-visible",
+        "truth_state": "present"
+      },
+      "minimum_coverage": "partial-declared-surface",
+      "required_provenance": [
+        "native-runtime",
+        "native-log"
+      ]
+    },
+    {
+      "default_truth_state": "indeterminate",
+      "forbidden_truth_state": [
+        "present"
+      ],
+      "id": "internal-attribution-never-present-without-native-semantics",
+      "if": {
+        "use_evidence_kind": "internal-attribution"
+      }
+    },
+    {
+      "id": "outcome-affecting-decision-from-experiment-only",
+      "if": {
+        "decision": [
+          "supported-beneficial",
+          "supported-harmful",
+          "supported-equivalent-within-margin"
+        ],
+        "lifecycle_stage": "outcome-affecting"
+      },
+      "required_claim_kind": "effect",
+      "required_fields": [
+        "experiment_id",
+        "contract_digest"
+      ]
+    },
+    {
+      "forbidden_truth_state": [
+        "absent"
+      ],
+      "id": "inconclusive-is-not-absent",
+      "if": {
+        "decision": "inconclusive"
+      }
+    },
+    {
+      "forbid_synthetic_events": true,
+      "id": "unexposed-timeline-no-fake-events",
+      "if": {
+        "capability_unexposed": true
+      },
+      "required_truth_state": [
+        "indeterminate"
+      ]
+    },
+    {
+      "id": "conflict-keep-conflicted",
+      "if": {
+        "contradictory": true,
+        "two_current_same_coverage": true
+      },
+      "required_knowledge_status": "conflicted",
+      "silent_choice": false
+    },
+    {
+      "cannot_override": "fields_outside_its_coverage",
+      "id": "higher-provenance-cannot-fill-uncovered-fields",
+      "if": {
+        "higher_provenance_partial": true
+      }
+    },
+    {
+      "forbidden_coverage": [
+        "unknown"
+      ],
+      "id": "absent-requires-sufficient-coverage",
+      "if": {
+        "truth_state": "absent"
+      }
+    }
+  ],
+  "legal_examples": [
+    {
+      "claim_kind": "observed",
+      "coverage": "partial-declared-surface",
+      "id": "codex-prompt-input-partial",
+      "knowledge_status": "current",
+      "lifecycle_stage": "model-visible",
+      "notes": "Exact only for returned message/character counts.",
+      "precision": "exact",
+      "provenance": "native-runtime",
+      "truth_state": "present"
+    }
+  ],
+  "llm_suggestion_in_provenance": false,
+  "precedence": [
+    "native-runtime",
+    "native-log",
+    "harness-source",
+    "official-spec",
+    "heuristic",
+    "user-attested"
+  ],
+  "reconciliation_invariants": [
+    "structural-only and indeterminate must never be displayed as verified",
+    "algorithm stops-and-keeps-unrun-steps; no total score masking"
+  ],
+  "reconciliation_states": [
+    "verified",
+    "structural-only",
+    "indeterminate",
+    "failed"
+  ],
+  "schema_version": 1,
+  "unknown_reason_codes": [
+    "surface_not_exposed",
+    "unsupported_harness_version",
+    "permission_not_granted",
+    "runtime_snapshot_missing",
+    "cloud_setting_unavailable",
+    "dynamic_agent_selection",
+    "tool_schema_not_exported",
+    "current_occupancy_not_reported",
+    "content_redacted_by_policy",
+    "import_parse_failed",
+    "evidence_stale",
+    "not_installed",
+    "connector_required",
+    "config_residue_only",
+    "authentication_unavailable",
+    "sandbox_unavailable",
+    "configured_model_unsupported",
+    "attachment_unavailable",
+    "official_distribution_not_captured",
+    "hermetic_fixture_only"
+  ],
+  "use_evidence_kinds": [
+    "invocation-observed",
+    "reference-observed",
+    "behavior-consistent",
+    "internal-attribution"
+  ]
+}

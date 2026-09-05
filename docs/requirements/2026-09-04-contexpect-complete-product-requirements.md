@@ -218,6 +218,8 @@ WP-01 必须生成机器可读 `acceptance/claim-validity-matrix.yaml`，至少�
 
 两个 Receipt 只有在同一 `EquivalenceProfile` 下才可称等价。Profile 必须固定 schema major、desired-state revision、required intent set、policy snapshot、required claim tuple 与允许的 device-specific 差异。device id、绝对 home 路径、mtime、本机 signer 和本地 keyed digest 可以按 profile 忽略；asset UUID、intent revision、scope、native target、loss、policy result 和 required claim 不可忽略。不能比较的本地 keyed digest 只能产生 `indeterminate`，不能被正文相似度替代。
 
+跨 harness 对齐必须是语义的、harness-native 的。不得把一份 MD/config 的 byte/hash 相等当作 CanonicalIntent 等价或对齐通过。投影结果枚举必须与核对状态正交，详见 [semantic-alignment-and-team-standard](../architecture/semantic-alignment-and-team-standard.md)。
+
 ### 4.8 生命周期 Facet 与 Effect claim 编码
 
 六个 lifecycle stage 是对同一 item 的六个独立 facet，不是单调状态机：Installed 不蕴含 Discoverable，Observed UseEvidence 不蕴含 OutcomeAffecting；UI 不得用一条“必然向右推进”的箭头误导。
@@ -497,13 +499,21 @@ OutcomeAffecting 的 `truth_state=present` 只表示“存在一份有效格式�
 
 ### F-09 安全编辑、意图与 Native Projection
 
-- 用户必须能把多个 native items 归到一个 `Intent`，例如“测试必须使用 Vitest”。
-- Intent 由 stable id、目标、scope、正文/结构化约束、目标 harness 和 native overlays 构成。
+- 用户必须能把多个 native items 归到一个 `CanonicalIntent`（Intent 不是第二套对象），例如“测试必须使用 Vitest”。
+- CanonicalIntent 必须包含 stable `id`、`meaning`（goal / constraints / non-goals）、`scope`、`precedence`、`activation`、`required_capability`、`dependencies`、`permission_security_boundary`、`lifecycle`、`owner` 与 `desired_outcome`。
+- 不得把“把同一份 MD/config 复制进每个 harness”当作对齐；byte/hash 相等只证明文件相同，不得当作语义等价。
+- 投影流水线必须按固定顺序执行：canonical intent → target coordinate → capability negotiation → 唯一 `ProjectionAuthority` → harness-native projection → preview/apply/rollback → resolver/oracle → reconciliation Receipt。
+- `FAMILIES` 中每个 family 必须使用该 family 的 native path、syntax、scope、precedence、lifecycle 与受支持 primitive；Codex、Claude Code、Cursor、DeepSeek Harness、Grok CLI（`grok-build`）、OpenCode、Kimi Code、ZCode、Coze 及其他已声明 family 都不得改走通用文件副本。
+- 投影结果必须是 `exact | native-equivalent | transformed | lossless-native-overlay | lossy | unsupported | unknown`，且不得把核对状态 `verified` 当作 projection outcome。
+- `unsupported` 与 `unknown` 语义不得静默丢弃，也不得报告为 `verified`。`lossy` 必须进入 loss report；无有效 covering exception 时不得 `verified`。
 - 每个 target profile/transaction 必须绑定唯一 `ProjectionAuthority`：`contexpect-native`、冻结版本的 APM、Agentpack、agentsync 或 `export-only`。同一目标和资产不能组合两个 projector。
 - `contexpect-native` 只覆盖下表的核心 required-write cell：由版本化 adapter 生成 machine-readable native plan/loss，再交给受限 File/Git transaction executor 原子写入。外部 authority 负责其被分配的 cell；Contexpect 不为同一 cell 再生成第二份 plan。
 - Contexpect 拥有 preview UI、执行授权、调用审计和 apply 后 Receipt，并用自己的 resolver 对投影结果产生独立 `post-projection finding`。它不能改写 authority 的 loss report；两者矛盾时显示 conflicted 并阻止 apply，直到 integration contract 或用户选择被记录。
 - 任何应用动作必须显式选择目标；被委托 executor 必须提供原子/可恢复语义、保留原格式/注释（能力允许时）和 rollback point。若没有满足合同的 executor，该 projection 只能导出 plan，不能由 Contexpect 直接写入。
 - 不支持的映射必须 skip 或要求 native overlay，禁止静默删除。
+- 正当的 harness-specific native overlay 必须有显式 `owner`、`reason`、`scope` 和独立 digest；overlay 不得在没有有效 exception 时削弱 required 团队规则。
+- Loss report 必须使用封闭类别 `omitted | weakened | approximated | duplicated | harness-only`，并区分 benign-native-representation 与 unapproved-semantic-drift。
+- Reconciliation Receipt 必须绑定 intent、plan、authority、transaction、native artifact、resolver/oracle、policy、exception 的 digest。
 - 必须处理并发修改：apply 前重新 hash，检测变化后停止并要求 merge。
 - 必须通过 executor integration 支持 undo/rollback 和 dry-run；不能把 executor 成功等同于目标 harness 已生效，应用后还要重新生成 Receipt。
 - executor 必须在最小化环境和任务级受限临时目录运行；其 argv、env、stdin、stdout/stderr、debug log、临时文件、backup、snapshot、local Git history 与 crash artifact 全部进入 secret/redaction gate。不能证明不落明文 secret 的 executor 不得处理 secret-bearing transaction，只能 read-only/import/export plan。
@@ -533,6 +543,10 @@ OutcomeAffecting 的 `truth_state=present` 只表示“存在一份有效格式�
 - 同步前后均生成 Receipt；设备“同步成功”必须同时区分 transport success 和 semantic reconciliation success。
 - 项目资产优先引用 Git source；不得把 Git 已管理的正文无理由复制进第二套云数据库。
 - 支持 `local-only`、`project-shared`、`device-group`、`never-sync` 分类。
+- 团队负责人必须能发布可移植、已签名的 `TeamContextStandard` bundle：`stable_id`、`semantic_version`+`revision`、publisher/signing identity、`compatibility_floors`、`target_harness_coordinates`、`canonical_intent_set`、`policy_rules`、`release_notes`、migration/rollback 元数据、`content_digest_manifest`、`signatures`、expiry/channel；不得包含 secret 值。
+- TeamContextStandard 的分发必须 local-first 支持 git/file；加密云 registry/sync 只是可选传输，不得成为语义依赖。
+- 生命周期必须支持 `validate`、`publish`、`preview`、`adopt`/`pin`、`update`、`status`、`leave`、`rollback`、`revoke`。
+- 未签名、secret-bearing、rollback-unsafe、伪造 publisher 或 digest 被替换的 bundle 不得被当作已采用标准。
 
 ### F-11 Skills / Plugins / MCP 管理与外部生态集成
 
@@ -632,6 +646,13 @@ OutcomeAffecting facet 的 decision 只允许：`supported-beneficial`、`suppor
 - 离线时使用最后一个已验证且仍有效的 revision；需要在线刷新但无法完成、policy 过期或 revocation 状态未知时，结果为 indeterminate/exit `3`。
 - `AuditEvent` 以本地 append-only hash chain 保存 policy load/bind/evaluate/exception/approval/apply；可签名导出。管理员默认只看到 metadata，不得到正文。
 - `policy pass` 的唯一含义是：当前 coordinate 下所有 required policy checks 确定通过，且没有未被有效 Approval 覆盖的 deny 或 indeterminate。
+- 分层必须为 organization > team > project > role > personal，并支持 `recommended | required | prohibited`。低层可以收紧，不得静默放宽高层 required/prohibited；personal 只能覆盖 recommended。
+- 无托管可执行通道时必须报告 `detect-only` 或 `non-enforceable`，不得声称 compliance。
+- 成员有效状态必须按 harness 经同一 CanonicalIntent native projection + reconciliation 流水线计算。
+- 受控 exception 必须记录 requester、approver、reason、精确 intent/policy ID、member/device/project/harness scope、use/time limits、timestamps、signature 与 audit chain；状态为 request/approval/rejection/revocation/expiry。
+- 离线 stale/expired/revoked exception 对 required policy 必须 fail-closed，同时仍允许安全 inspection/export。
+- Leader 视图默认可以包含 standard version、compatibility、compliance、semantic drift class、loss/Unknown、exception metadata、device freshness 与 redacted evidence references；默认不得包含 private prompt text、secrets、unrelated personal context 或 full session history。
+- 任何 report/upload 之前必须先向成员展示 preview/disclosure。Rollback 必须保留无关个人文件。
 
 ## 9. 信息架构与视觉需求
 
@@ -646,9 +667,11 @@ OutcomeAffecting facet 的 decision 只允许：`supported-beneficial`、`suppor
 7. `Effect Lab`：task suite、A/B runs 和结果。
 8. `Sync`：desired state、设备、remote、conflict、secret refs。
 9. `Doctor`：deterministic findings、exceptions、LLM Advisor。
-10. `Policy`：当前绑定、来源、评估、Approval、例外和 audit events。
-11. `Standards`：adapter 规则、来源、版本、conformance 状态。
+10. `Policy`：分层有效 policy、recommended/required/prohibited、detect-only 诚实性、Approval、例外和 audit events。
+11. `Standards`：Team Context Standard 目录、成员 disclosure、per-harness projection；adapter conformance 放 Integrations。
 12. `Settings`：privacy、retention、analysis adapters、notification、resource limits。
+13. `Exceptions`：request/approve/reject/revoke。
+14. `Team compliance`（leader）：redacted compliance/drift，不含私有 prompt 或 session 正文。
 
 ### 9.2 Inspector 视觉层级
 
@@ -705,6 +728,12 @@ Receipt / Snapshot / ResolutionCoordinate
           └─ ContextItem / ContextRevision
 
 DesiredState ── ProjectionPlan ── ApplyTransaction ── RollbackPoint
+CanonicalIntent ── IntentRevision ── ProjectionOutcome ── NativeOverlay
+     ├─ LossReport
+     └─ EquivalenceBinding
+TeamContextStandard ── StandardRevision ── StandardBinding
+LayerAssignment ── ExceptionRecord
+MemberDisclosure ── LeaderComplianceView
 SyncBundle ── DeviceEnvelope ── Conflict
 Policy ── PolicyRevision ── PolicyBinding ── PolicyEvaluation
                               ├─ Approval
@@ -716,7 +745,8 @@ Policy ── PolicyRevision ── PolicyBinding ── PolicyEvaluation
 - `devices`, `environment_profiles`, `account_profiles`, `organization_contexts`, `policy_snapshots`, `harness_installations`, `surfaces`
 - `projects`, `worktrees`, `resolution_coordinates`
 - `context_items`, `context_revisions`, `native_representations`, `context_state_claims`, `item_aliases`, `identity_events`
-- `intents`, `intent_memberships`, `projection_capabilities`
+- `intents`（CanonicalIntent，不是第二套对象）, `intent_revisions`, `intent_memberships`, `projection_capabilities`, `projection_outcomes`, `native_overlays`, `loss_reports`, `equivalence_bindings`
+- `team_context_standards`, `standard_revisions`, `standard_bindings`, `layer_assignments`, `exception_records`, `member_disclosures`, `leader_compliance_views`
 - `snapshots`, `receipts`, `receipt_items`, `receipt_digests`
 - `resolution_edges`, `evidence`, `unknown_surfaces`
 - `findings`, `exceptions`, `repair_options`
@@ -807,6 +837,8 @@ AuditEvent: sequence, previous_digest, event_type, actor, subject, evidence_dige
 ```
 
 Policy 内容与 evaluation 分开；修改 policy 不重写历史 evaluation。离线/时钟/签名状态是 evaluation evidence，不隐藏在 UI 设置中。`domain + check_id` 只能绑定一个 authority；APM evaluation 作为外部只读结果导入，不由 Contexpect 重算。
+
+CanonicalIntent、TeamContextStandard、ProjectionOutcome、NativeOverlay、LossReport、EquivalenceBinding、LayerAssignment、ExceptionRecord、MemberDisclosure 与 LeaderComplianceView 的字段与封闭枚举见 [semantic-alignment-and-team-standard](../architecture/semantic-alignment-and-team-standard.md)。本阶段不得假装已执行 SQLite migration。
 
 ## 11. Adapter 支持矩阵
 
@@ -1093,18 +1125,20 @@ Native files / Settings / Runtime exports / External tools
 
 ### WP-06 Intent、Projection、Apply 与 Rollback
 
-- 实现 Intent、ProjectionAuthority binding、`contexpect-native` required adapter、preview、authority loss report、独立 post-projection finding、concurrency guard、调用审计和 apply 后核对。
+- 实现 CanonicalIntent、ProjectionAuthority binding、`contexpect-native` required adapter、preview、authority loss report、独立 post-projection finding、concurrency guard、调用审计和 apply 后核对。
 - 逐 cell 使用 WP-01 冻结的唯一 authority 与 File/Git transaction executor 执行 projection、mutation、snapshot 和 rollback；§F-09 的 required-write cell 不允许退化为导出，observe/export cell 无合格 executor 时才只导出 intent/plan。
 - 对 executor argv/env/stdin/stdout/stderr/temp/backup/snapshot/local Git/crash artifact 运行 secret gate；不合格 executor 禁止 secret-bearing transaction。
+- 实现 harness-native projection outcomes、overlay/loss/drift 报告与 round-trip digest binding；不得把 byte/hash 相等当作语义等价。
 
-验收：`acceptance/projection-matrix.yaml` 每个 required-write cell 都完成 preview/apply/rollback/post-Receipt；有损字段逐项显示；并发变化阻止覆盖；rollback 不删未受管文件；不得用一条“代表路径”代替矩阵全量执行。
+验收：`acceptance/projection-matrix.yaml` 每个 required-write cell 都完成 preview/apply/rollback/post-Receipt；有损字段逐项显示；并发变化阻止覆盖；rollback 不删未受管文件；不得用一条“代表路径”代替矩阵全量执行；`scripts/check_semantic_team.py` 对 ST1–ST3 夹具为绿。
 
 ### WP-07 加密多设备同步
 
 - 复用 age/SOPS 类加密格式和 SignerAdapter，实现 recipient add/remove/rotation、用户现有密钥备份接口、replay/rollback/divergence detection 和 conflict handoff；Git provider 委托 Git history/merge，folder provider 不实现自定义版本图或自动 merge；不自建设备 PKI。
 - 内置本地文件夹与 Git-backed provider；其他远端由 provider adapter 或用户已有文件同步传输，core 不自建通用 WebDAV/S3/账号控制面。
+- 实现可移植签名 `TeamContextStandard` 的 git/file local-first 分发；加密云只作可选传输。支持 pin/adopt/update/leave/rollback/revoke，rollback 必须保留无关个人文件。
 
-验收：远端无解密密钥不能读取正文；secret 值从未进入 bundle；设备同步成功后还需 semantic reconciliation；离线冲突不丢数据。
+验收：远端无解密密钥不能读取正文；secret 值从未进入 bundle；设备同步成功后还需 semantic reconciliation；离线冲突不丢数据；`scripts/check_semantic_team.py` 对 ST4/ST7/ST8 夹具为绿。
 
 ### WP-08 生态资产管理与供应链安全
 
@@ -1131,9 +1165,10 @@ Native files / Settings / Runtime exports / External tools
 
 - 完成稳定 exit codes、SARIF、CI 模板、本地 API、adapter SDK、IDE deep links、OTLP/export。
 - 实现 context-specific PolicyRevision/Binding/Evaluation、tighten-only、签名信任、Approval、offline indeterminate 和 AuditEvent；通过冻结 integration 只读导入 APM authority 的 package/source/install evaluation，验证 `domain + check_id` 唯一归属。
+- 实现 organization/team/project/role/personal 分层、recommended/required/prohibited、detect-only 诚实性，以及 scoped/expiring exception 的 fail-closed。
 - 完成跨平台安装、升级、迁移、卸载和文档。
 
-验收：CLI/UI/daemon/CI 使用同一 core 和 Receipt schema；policy pass/deny/indeterminate 与 0/2/3 一致；过期/冲突/未验证 policy 不假绿；卸载不删除用户原生配置；第三方 adapter 权限最小化。
+验收：CLI/UI/daemon/CI 使用同一 core 和 Receipt schema；policy pass/deny/indeterminate 与 0/2/3 一致；过期/冲突/未验证 policy 不假绿；卸载不删除用户原生配置；第三方 adapter 权限最小化；`scripts/check_semantic_team.py` 对 ST5–ST8 夹具为绿。
 
 ### WP-12 全产品集成验收
 
@@ -1155,6 +1190,8 @@ WP-01 必须生成并评审以下机器可读基线，后续工作包不得用�
 - `acceptance/traceability.csv`：覆盖本文全部规范性语句，而不只 F-01–F-18。每行含 stable requirement id、章节、原文 digest、MUST/不得类型、WP、test/gate、artifact、owner；由 lint 提取“必须/不得/不能/禁止/只有……才”等词并验证零未追踪条目。§17.6 表只作高层摘要。
 - `acceptance/reference-hardware.md`：性能测试硬件、文件系统、冷/热缓存条件和数据集生成器 digest。
 - `acceptance/integration-contracts.yaml`：外部项目的版本、集成模式、capability 和不可用时降级。
+
+上述八份仍是 §17.0 冻结表面。`acceptance/semantic-team-contract.yaml` 是额外生成工件，夹具树在 `acceptance/semantic-team/`，由 `scripts/check_semantic_team.py` 校验；不得把它算成第 19 个 feature 或第 13 个工作包。
 
 Acceptance version cutoff 固定为 `2026-09-04T23:59:59+08:00`。在该时间之后发布的 harness 或 OS build 不会自动进入 required scope；升级 required matrix 必须提交显式 acceptance-contract revision，重新跑受影响 gate，不能由 code freeze 日期隐式改变。
 
@@ -1256,8 +1293,8 @@ WP-02 的硬前置条件是上述八份 artifact 已生成、内容 digest 冻�
 | F-06 | WP-04 | internal usability gate；WCAG audit；privacy screenshot mode |
 | F-07 | WP-03, WP-04 | cross-coordinate golden diff；no numeric-confidence check |
 | F-08 | WP-02, WP-08 | deterministic Doctor corpus；false-positive review；SARIF |
-| F-09 | WP-06 | executor contract；loss report；concurrency/rollback/unmanaged-file tests |
-| F-10 | WP-07 | crypto vectors；replay/rollback/equivocation/device revoke tests |
+| F-09 | WP-06 | executor contract；loss report；concurrency/rollback/unmanaged-file tests；semantic-team-validation；scripts/check_semantic_team.py |
+| F-10 | WP-07 | crypto vectors；replay/rollback/equivocation/device revoke tests；semantic-team-validation；scripts/check_semantic_team.py |
 | F-11 | WP-01, WP-08 | integration contract；license/provenance/SBOM；malicious package corpus |
 | F-12 | WP-05 | importer coverage manifest；partial/unknown honesty；retention/delete |
 | F-13 | WP-09 | consent/payload/egress tests；evidence-linked suggestion checks |
@@ -1265,7 +1302,7 @@ WP-02 的硬前置条件是上述八份 artifact 已生成、内容 digest 冻�
 | F-15 | WP-10 | frozen ExperimentContract；statistical decision fixtures；runner receipt |
 | F-16 | WP-05, WP-11 | daemon resource/notification tests；CI exit contract；offline gate |
 | F-17 | WP-01, WP-11 | JSON Schema/API compatibility；adapter sandbox/egress；import traversal |
-| F-18 | WP-01, WP-11 | policy precedence/binding/signature/expiry/offline fixtures；Approval scope；audit chain；CI 0/2/3 |
+| F-18 | WP-01, WP-11 | policy precedence/binding/signature/expiry/offline fixtures；Approval scope；audit chain；CI 0/2/3；semantic-team-validation；scripts/check_semantic_team.py |
 
 ## 18. 用户验证与成功指标
 

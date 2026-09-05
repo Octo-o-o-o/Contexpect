@@ -1,0 +1,53 @@
+{
+  "artifact": "artifact-digest-manifest",
+  "artifacts": [
+    {
+      "digest_sha256": "1f4fd9e3a354770304687fe165289bc56460220e3c607cab226fea75d039ff18",
+      "path": "acceptance/compatibility-matrix.yaml",
+      "schema_id": "compatibility-matrix"
+    },
+    {
+      "digest_sha256": "2578361f7479c3a4f4d3b3b36206add910a82137b056806b25e74fc578abea8a",
+      "path": "acceptance/corpus-manifest.json",
+      "schema_id": "corpus-manifest"
+    },
+    {
+      "digest_sha256": "dcf33f7e3753d0bef82252377f849057517f613b950705e66bc1eab963f43366",
+      "path": "acceptance/claim-validity-matrix.yaml",
+      "schema_id": "claim-validity-matrix"
+    },
+    {
+      "digest_sha256": "ca639cc768013f65c5dd0fb9ad155d491ee2000e079fed4d790b34b96aeaada5",
+      "path": "acceptance/context-capability-matrix.yaml",
+      "schema_id": "context-capability-matrix"
+    },
+    {
+      "digest_sha256": "57aa653749c6ad77cab4a6e45d6b64bcc9b06e58b4cdca313d2ac1bbfe6cde36",
+      "path": "acceptance/projection-matrix.yaml",
+      "schema_id": "projection-matrix"
+    },
+    {
+      "digest_sha256": "34fd56d54f2f86e97cbdde1a8b5d033e67acba3f48e3244c6981ce544ea36c63",
+      "path": "acceptance/traceability.csv",
+      "schema_id": "traceability"
+    },
+    {
+      "digest_sha256": "fe331f577fc85ec663336588747d12da1ec5595234c1a088ef3a097d40d3b6e1",
+      "path": "acceptance/reference-hardware.md",
+      "schema_id": "reference-hardware"
+    },
+    {
+      "digest_sha256": "808084a59013bece8bb967a64c26c91ed7014b979364e92f33e8cee0208e7cd6",
+      "path": "acceptance/integration-contracts.yaml",
+      "schema_id": "integration-contracts"
+    },
+    {
+      "digest_sha256": "e54d75809db325a1396ab4cda8183c9daaffde2f5998de5983c0305437f71457",
+      "path": "acceptance/semantic-team-contract.yaml",
+      "schema_id": "semantic-team-contract"
+    }
+  ],
+  "cutoff": "2026-09-04T23:59:59+08:00",
+  "notes": "Digests of the eight PRD §17.0 artifacts plus acceptance/semantic-team-contract.yaml after deterministic generation. Fixture files under acceptance/semantic-team/ are hashed inside the semantic-team contract content_digest_manifest.",
+  "schema_version": 1
+}

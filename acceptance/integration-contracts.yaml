@@ -1,0 +1,165 @@
+{
+  "artifact": "integration-contracts",
+  "borrow_only_forbidden": [
+    "unlicensed code",
+    "GPL-3.0 embedded into Apache-2.0 core",
+    "README metrics treated as Contexpect truth"
+  ],
+  "contracts": [
+    {
+      "capability": "package lifecycle, lock, SBOM, apm-policy.yml evaluation import",
+      "integration_mode": "CLI + file-import; unique PolicyAuthority for package/source/install/license/digest/SBOM",
+      "license": "unknown",
+      "name": "Microsoft APM",
+      "notes": "Contexpect must not re-evaluate APM domain checks.",
+      "pin_evidence": {
+        "access_date": "2026-09-04",
+        "digest_status": "digest-not-published-by-source",
+        "reason": "Owner-authorized retrieval covered Ubuntu, Windows, DeepSeek Harness, Coze, Cline, Aider, OpenHands, and Windsurf only. This repository's research ledger records the GitHub URL but no immutable tag, commit, or package digest was captured for the integration at cutoff.",
+        "source_url": "https://github.com/microsoft/apm",
+        "status": "evidence-backed-unavailable"
+      },
+      "unavailable_degrade": "read-only display / export plan / Unknown; never silently enable a built-in substitute",
+      "version_pin": "evidence-backed-unavailable",
+      "version_pin_honesty": "research-ledger-records-github-url-without-cutoff-release-tag"
+    },
+    {
+      "capability": "preview/apply/snapshot/rollback for assigned projection cells",
+      "integration_mode": "CLI or frozen external ProjectionAuthority",
+      "license": "unknown",
+      "name": "Agentpack",
+      "notes": "Cannot share a required-write cell with contexpect-native.",
+      "pin_evidence": {
+        "access_date": "2026-09-04",
+        "digest_status": "digest-not-published-by-source",
+        "reason": "Owner-authorized retrieval covered Ubuntu, Windows, DeepSeek Harness, Coze, Cline, Aider, OpenHands, and Windsurf only. This repository's research ledger records the GitHub URL but no immutable tag, commit, or package digest was captured for the integration at cutoff.",
+        "source_url": "https://github.com/liqiongyu/agentpack",
+        "status": "evidence-backed-unavailable"
+      },
+      "unavailable_degrade": "read-only display / export plan / Unknown; never silently enable a built-in substitute",
+      "version_pin": "evidence-backed-unavailable",
+      "version_pin_honesty": "research-ledger-records-github-url-without-cutoff-release-tag"
+    },
+    {
+      "capability": "desired-state projection, loss report, secret refs",
+      "integration_mode": "CLI; secret-bearing path gated",
+      "license": "unknown",
+      "name": "agentsync",
+      "notes": "Backup/local Git artifacts may leak parsed secrets.",
+      "pin_evidence": {
+        "access_date": "2026-09-04",
+        "digest_status": "digest-not-published-by-source",
+        "reason": "Owner-authorized retrieval covered Ubuntu, Windows, DeepSeek Harness, Coze, Cline, Aider, OpenHands, and Windsurf only. This repository's research ledger records the GitHub URL but no immutable tag, commit, or package digest was captured for the integration at cutoff.",
+        "source_url": "https://github.com/spxrogers/agentsync",
+        "status": "evidence-backed-unavailable"
+      },
+      "unavailable_degrade": "read-only/import/export plan until secret artifact gate passes",
+      "version_pin": "evidence-backed-unavailable",
+      "version_pin_honesty": "research-ledger-records-github-url-without-cutoff-release-tag"
+    },
+    {
+      "capability": "Codex resolver fixtures and prompt-input xray",
+      "integration_mode": "AdapterProvider for Codex JSON/fixture surface at a frozen commit",
+      "license": "Apache-2.0",
+      "name": "CtxWise",
+      "notes": "NOTICE attribution required if code is borrowed.",
+      "pin_evidence": {
+        "access_date": "2026-09-04",
+        "digest_status": "digest-not-published-by-source",
+        "reason": "Owner-authorized retrieval covered Ubuntu, Windows, DeepSeek Harness, Coze, Cline, Aider, OpenHands, and Windsurf only. This repository's research ledger records the GitHub URL but no immutable tag, commit, or package digest was captured for the integration at cutoff.",
+        "source_url": "https://github.com/FramY2/ctxwise",
+        "status": "evidence-backed-unavailable"
+      },
+      "unavailable_degrade": "bundled static resolver with Observed gap labeled; still run independent golden/native-oracle tests",
+      "version_pin": "evidence-backed-unavailable",
+      "version_pin_honesty": "research-ledger-records-github-url-without-cutoff-release-tag"
+    },
+    {
+      "capability": "runtime token/cost/timeline",
+      "integration_mode": "file import or OTLP",
+      "license": "MIT OR Apache-2.0",
+      "name": "Scopeon",
+      "notes": "Not a static intent resolver.",
+      "pin_evidence": {
+        "access_date": "2026-09-04",
+        "digest_status": "digest-not-published-by-source",
+        "reason": "Owner-authorized retrieval covered Ubuntu, Windows, DeepSeek Harness, Coze, Cline, Aider, OpenHands, and Windsurf only. This repository's research ledger records the GitHub URL but no immutable tag, commit, or package digest was captured for the integration at cutoff.",
+        "source_url": "https://github.com/sorunokoe/Scopeon",
+        "status": "evidence-backed-unavailable"
+      },
+      "unavailable_degrade": "read-only display / export plan / Unknown; never silently enable a built-in substitute",
+      "version_pin": "evidence-backed-unavailable",
+      "version_pin_honesty": "research-ledger-records-github-url-without-cutoff-release-tag"
+    },
+    {
+      "capability": "session history analysis",
+      "integration_mode": "file import",
+      "license": "MIT",
+      "name": "ctxray",
+      "notes": "Observed-window wording still applies.",
+      "pin_evidence": {
+        "access_date": "2026-09-04",
+        "digest_status": "digest-not-published-by-source",
+        "reason": "Owner-authorized retrieval covered Ubuntu, Windows, DeepSeek Harness, Coze, Cline, Aider, OpenHands, and Windsurf only. This repository's research ledger records the GitHub URL but no immutable tag, commit, or package digest was captured for the integration at cutoff.",
+        "source_url": "https://github.com/ctxray/ctxray",
+        "status": "evidence-backed-unavailable"
+      },
+      "unavailable_degrade": "read-only display / export plan / Unknown; never silently enable a built-in substitute",
+      "version_pin": "evidence-backed-unavailable",
+      "version_pin_honesty": "research-ledger-records-github-url-without-cutoff-release-tag"
+    },
+    {
+      "capability": "request-level runtime profiler",
+      "integration_mode": "advanced opt-in adapter",
+      "license": "Apache-2.0",
+      "name": "ContextSpy",
+      "notes": "Must not become default MITM/CA.",
+      "pin_evidence": {
+        "access_date": "2026-09-04",
+        "digest_status": "digest-not-published-by-source",
+        "reason": "Owner-authorized retrieval covered Ubuntu, Windows, DeepSeek Harness, Coze, Cline, Aider, OpenHands, and Windsurf only. This repository's research ledger records the GitHub URL but no immutable tag, commit, or package digest was captured for the integration at cutoff.",
+        "source_url": "https://github.com/RimantasZ/contextspy",
+        "status": "evidence-backed-unavailable"
+      },
+      "unavailable_degrade": "disabled by default; product is complete without it",
+      "version_pin": "evidence-backed-unavailable",
+      "version_pin_honesty": "research-ledger-records-github-url-without-cutoff-release-tag"
+    },
+    {
+      "capability": "E2EE bundle encryption and recipient wrapping",
+      "integration_mode": "library/format via ADR-0003",
+      "license": "unknown",
+      "name": "age or SOPS",
+      "notes": "No homemade crypto, recovery-code protocol, or device PKI.",
+      "pin_evidence": {
+        "access_date": "2026-09-04",
+        "digest_status": "digest-not-published-by-source",
+        "reason": "Owner-authorized retrieval covered Ubuntu, Windows, DeepSeek Harness, Coze, Cline, Aider, OpenHands, and Windsurf only. This repository's research ledger records the GitHub URL but no immutable tag, commit, or package digest was captured for the integration at cutoff.",
+        "source_url": "https://github.com/FiloSottile/age",
+        "status": "evidence-backed-unavailable"
+      },
+      "unavailable_degrade": "sync disabled if no mature format can be used",
+      "version_pin": "evidence-backed-unavailable",
+      "version_pin_honesty": "research-ledger-records-github-url-without-cutoff-release-tag"
+    },
+    {
+      "capability": "Receipt and sync envelope authenticity",
+      "integration_mode": "adapter",
+      "license": "unknown",
+      "name": "SignerAdapter (SSH/GPG/minisign/Sigstore/existing trust store)",
+      "notes": "RFC 8785 JCS + DSSE or equivalent public envelope.",
+      "pin_evidence": {
+        "access_date": "2026-09-04",
+        "digest_status": "digest-not-published-by-source",
+        "reason": "Owner-authorized retrieval covered Ubuntu, Windows, DeepSeek Harness, Coze, Cline, Aider, OpenHands, and Windsurf only. This repository's research ledger records the GitHub URL but no immutable tag, commit, or package digest was captured for the integration at cutoff.",
+        "source_url": "https://github.com/sigstore",
+        "status": "evidence-backed-unavailable"
+      },
+      "unavailable_degrade": "unsigned local continuity signature is not organizational identity",
+      "version_pin": "evidence-backed-unavailable",
+      "version_pin_honesty": "research-ledger-records-github-url-without-cutoff-release-tag"
+    }
+  ],
+  "cutoff": "2026-09-04T23:59:59+08:00",
+  "schema_version": 1
+}

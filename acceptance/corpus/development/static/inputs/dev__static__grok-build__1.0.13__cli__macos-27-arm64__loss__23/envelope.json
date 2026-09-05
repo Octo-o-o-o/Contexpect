@@ -1,0 +1,1 @@
+{"capability_id":"rules","class":"loss","family_id":"grok-build","kind":"loss","native_paths":["AGENTS.md","loss-report.json"],"polarity":"loss","schema_version":1}

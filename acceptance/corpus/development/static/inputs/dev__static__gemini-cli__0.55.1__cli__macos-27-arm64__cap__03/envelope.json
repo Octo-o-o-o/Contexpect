@@ -1,0 +1,1 @@
+{"capability_id":"skills","class":"cap","family_id":"gemini-cli","kind":"static-fixture","native_paths":[".gemini/skills/fixture-skill/SKILL.md","scripts/run.sh"],"polarity":"positive","schema_version":1}

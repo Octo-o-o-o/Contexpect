@@ -1,0 +1,60 @@
+# Build
+/target/
+/apps/desktop/src-tauri/target/
+/dist/
+/build/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Node / frontend
+node_modules/
+.pnpm-store/
+.npm/
+coverage/
+.turbo/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Secrets and local state — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.key
+id_rsa
+id_ed25519
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+/var/
+/data/
+/.ctxpect/
+/.contexpect/
+
+# Sealed answers must stay out of implementer trees
+/acceptance/corpus/sealed/answers/
+/acceptance/corpus/live/raw/
+
+# Logs and crash artifacts
+*.log
+crash-*
+core.*
+
+# Generated local receipts that may contain paths
+/tmp/
+/scratch/

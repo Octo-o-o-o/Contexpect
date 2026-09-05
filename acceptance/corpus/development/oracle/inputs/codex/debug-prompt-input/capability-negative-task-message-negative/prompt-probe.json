@@ -1,0 +1,1 @@
+{"capability_id":"task-message","command":["codex","debug","prompt-input"],"expected_native_shape":{"format":"json","required_keys":["messages"]},"live_tested":false,"result_path":"prompt-result.json"}

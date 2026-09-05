@@ -5,8 +5,8 @@
 
 | Source ID | 标题/识别 | 原始路径 | 行数 | 字节 | SHA-256 |
 |---|---|---|---:|---:|---|
-| S1 | `AI Coding Context Control Plane` | `/Users/wangyixiao/.codex/attachments/09656809-67e1-4c5c-83bc-ebfe78e0518f/pasted-text.txt` | 2,806 | 38,248 | `e90f4b4ca4d77c4244faeadee5dceb6a4c384a231c55393a9616d191253a6f6d` |
-| S2 | `织境 Loom：调研后的思考与项目需求` | `/Users/wangyixiao/.codex/attachments/91ed7277-4f35-4f01-a11a-a7137cdf702e/pasted-text.txt` | 2,240 | 31,002 | `1698aed2e7a905f1a3d3fd78ea7a5d7e04d7745a7ee500dc8bd5e42f83bc2ee1` |
+| S1 | `AI Coding Context Control Plane` | `$HOME/.codex/attachments/09656809-67e1-4c5c-83bc-ebfe78e0518f/pasted-text.txt` | 2,806 | 38,248 | `e90f4b4ca4d77c4244faeadee5dceb6a4c384a231c55393a9616d191253a6f6d` |
+| S2 | `织境 Loom：调研后的思考与项目需求` | `$HOME/.codex/attachments/91ed7277-4f35-4f01-a11a-a7137cdf702e/pasted-text.txt` | 2,240 | 31,002 | `1698aed2e7a905f1a3d3fd78ea7a5d7e04d7745a7ee500dc8bd5e42f83bc2ee1` |
 
 校验命令：
 

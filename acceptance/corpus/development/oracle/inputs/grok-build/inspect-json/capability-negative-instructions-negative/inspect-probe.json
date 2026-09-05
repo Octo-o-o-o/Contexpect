@@ -1,0 +1,1 @@
+{"capability_id":"instructions","command":["grok","inspect","--json"],"expected_native_shape":{"format":"json","required_keys":["cwd"]},"live_tested":false,"result_path":"inspect-result.json"}
