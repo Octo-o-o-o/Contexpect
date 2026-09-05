@@ -399,6 +399,12 @@ CLAIM_INVARIANTS = [
         "if": {"truth_state": "absent"},
         "forbidden_coverage": ["unknown"],
     },
+    {
+        "id": "indeterminate-requires-unknown-reason",
+        "if": {"truth_state": "indeterminate"},
+        "required_fields": ["unknown_reason"],
+        "required_vocabulary": "unknown_reason_codes",
+    },
 ]
 
 CLAIM_INVARIANT_IDS = [item["id"] for item in CLAIM_INVARIANTS]
@@ -730,8 +736,10 @@ F_TO_GATE = {
 
 SEMANTIC_TEAM_GATE = "semantic-team-validation; scripts/check_semantic_team.py"
 
-# Single source of truth for the six required gates of this stage. Every canonical
-# document that lists the gates must list all six, name and command.
+# Single source of truth for this stage's required gates. Every canonical document
+# that lists the gates must list every entry below, name and command. The count is
+# deliberately not written down here: it has changed twice and each stale mention
+# became a defect.
 REQUIRED_GATES = [
     ("docs-structure", "python3 scripts/check_docs.py"),
     ("acceptance-validation", "python3 scripts/check_acceptance.py --structure"),
@@ -742,6 +750,9 @@ REQUIRED_GATES = [
         "validator-negative-tests",
         "TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'",
     ),
+    ("cargo-build", "cargo build --workspace"),
+    ("cargo-test", "cargo test --workspace"),
+    ("cargo-clippy", "cargo clippy --workspace --all-targets"),
 ]
 GATE_TABLE_DOCS = [
     "README.md",

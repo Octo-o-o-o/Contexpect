@@ -44,7 +44,7 @@ Doctor 截图与 `images/10-context-doctor-final.png` 对照构图；文案以 `
 
 ## 本阶段实际可跑的测试
 
-六条 required gate（名称 + 命令）必须一起跑，不得只跑其中一部分：
+九条 required gate（名称 + 命令）必须一起跑，不得只跑其中一部分：
 
 | 名称 | 命令 |
 | --- | --- |
@@ -54,6 +54,9 @@ Doctor 截图与 `images/10-context-doctor-final.png` 对照构图；文案以 `
 | corpus-validation | `python3 scripts/check_acceptance.py --corpus` |
 | semantic-team-validation | `python3 scripts/check_semantic_team.py` |
 | validator-negative-tests | `TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'` |
+| cargo-build | `cargo build --workspace` |
+| cargo-test | `cargo test --workspace` |
+| cargo-clippy | `cargo clippy --workspace --all-targets` |
 
 ```bash
 python3 scripts/check_docs.py
@@ -62,6 +65,9 @@ python3 scripts/check_acceptance.py --traceability
 python3 scripts/check_acceptance.py --corpus
 python3 scripts/check_semantic_team.py
 TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'
+cargo build --workspace
+cargo test --workspace
+cargo clippy --workspace --all-targets
 ```
 
 不要把这些脚本的绿当成 F1/oracle 已测。`check_semantic_team.py` 只证明语义对齐与 Team Context Standard 的生成夹具/合同，不证明产品运行时。

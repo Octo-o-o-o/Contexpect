@@ -12,7 +12,7 @@
       "schema_id": "corpus-manifest"
     },
     {
-      "digest_sha256": "dcf33f7e3753d0bef82252377f849057517f613b950705e66bc1eab963f43366",
+      "digest_sha256": "b4c2a92a88a28425bf4c0f573012b7cf271d33a78fb9d7ccdc62e7aa8ac2f95d",
       "path": "acceptance/claim-validity-matrix.yaml",
       "schema_id": "claim-validity-matrix"
     },

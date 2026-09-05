@@ -48,7 +48,7 @@ Contexpect 把这些来源对齐到同一套证据模型，而不是再做一份
 
 ## 本阶段门禁（离线）
 
-本阶段六条 required gate（名称 + 命令）必须一起跑：
+本阶段九条 required gate（名称 + 命令）必须一起跑：
 
 | 名称 | 命令 |
 | --- | --- |
@@ -58,6 +58,9 @@ Contexpect 把这些来源对齐到同一套证据模型，而不是再做一份
 | corpus-validation | `python3 scripts/check_acceptance.py --corpus` |
 | semantic-team-validation | `python3 scripts/check_semantic_team.py` |
 | validator-negative-tests | `TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'` |
+| cargo-build | `cargo build --workspace` |
+| cargo-test | `cargo test --workspace` |
+| cargo-clippy | `cargo clippy --workspace --all-targets` |
 
 ```bash
 python3 scripts/check_docs.py
@@ -66,6 +69,9 @@ python3 scripts/check_acceptance.py --traceability
 python3 scripts/check_acceptance.py --corpus
 python3 scripts/check_semantic_team.py
 TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'
+cargo build --workspace
+cargo test --workspace
+cargo clippy --workspace --all-targets
 ```
 
 这些命令不访问网络、不安装依赖、不启动 harness。它们验证文档完整性、八份 §17.0 验收件、语义对齐/Team Context Standard 合同、规范性语句追踪和语料数量/分类。它们**不是**产品运行时测试。

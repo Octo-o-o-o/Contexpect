@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "task": "contexpect-wp02",
+  "stage": "core-truth-model",
+  "cycle": "c1",
+  "base_head": "492fd5fe7183fc5517fb6a1ca811d8d5233eb1f3",
+  "scope_note": "WP-02 第一刀：Cargo workspace + ctxpect-core 真值模型 + ctxpect-schema 规范化。不含 collect/resolve/doctor/cli，不含 UI/daemon。",
+  "required_dimensions": [
+    "axis",
+    "invariant",
+    "parity"
+  ],
+  "acceptance_items": [
+    {
+      "id": "W1",
+      "severity": "P0",
+      "statement": "Cargo workspace 可构建：cargo build --workspace、cargo test --workspace 与 cargo clippy --workspace --all-targets 均 exit 0。workspace 对 clippy::all 设 deny，且该 deny 由 cargo-clippy 门禁真实执行，不是未被运行的声明。"
+    },
+    {
+      "id": "W2",
+      "severity": "P0",
+      "statement": "ctxpect-core 的 7 条 claim-validity 轴（claim_kind / coverage / knowledge_status / lifecycle_stage / precision / provenance / truth_state）取值与 acceptance/claim-validity-matrix.yaml 冻结值逐字一致，顺序一致。任何一侧增删改都必须使 parity 测试转红。"
+    },
+    {
+      "id": "W3",
+      "severity": "P0",
+      "statement": "20 个 unknown reason code、4 个 reconciliation state、4 个 use-evidence kind、6 级 provenance precedence 与冻结合同逐字一致。"
+    },
+    {
+      "id": "W4",
+      "severity": "P0",
+      "statement": "10 条 invariant 在 Rust 侧实现为可执行判定，且判定结果对 claim-validity-matrix.yaml 的 legal_examples 全部接受、illegal_examples 全部拒绝，并给出对应 invariant id。"
+    },
+    {
+      "id": "W5",
+      "severity": "P0",
+      "statement": "诚实性红线以负例测试固化，至少覆盖：resolved 不得对 model-visible/use-evidence/outcome-affecting 声称 present；model-visible present 必须有 native-runtime 或 native-log 出处且 coverage 不低于 partial-declared-surface；internal-attribution 不得声称 present；outcome-affecting 决策必须是 effect claim 且带 experiment_id 与 contract_digest；inconclusive 不得等同 absent；未暴露能力不得产生合成事件；两条同等 coverage 的矛盾 current 证据必须保持 conflicted 而非静默择一；高 provenance 的部分覆盖不得填充其未覆盖字段；absent 不得建立在 unknown coverage 之上。 另：`Indeterminate` 必须带一个封闭词表内的 unknown reason（第 10 条不变量，owner 裁决，见 scope-addendum-1.md）。"
+    },
+    {
+      "id": "W6",
+      "severity": "P0",
+      "statement": "ctxpect-schema 的 canonical JSON 与 SHA-256 digest 在**其声明支持的 JSON 子集内**与 Python 侧 contexpect_contract.canonical_json / _digest_obj 字节一致；该子集的边界（浮点不支持、超 i64 整数、NaN/Infinity、孤立代理项）必须在 crate 文档中准确声明，且每一条声明都由对拍测试与两侧实际行为核对。"
+    },
+    {
+      "id": "W7",
+      "severity": "P1",
+      "statement": "不引入产品运行时之外的空骨架：本切片只创建 Cargo.toml、crates/ctxpect-core、crates/ctxpect-schema；不创建 apps/、packages/ 或其它尚未实施的 crate 目录。"
+    },
+    {
+      "id": "W8",
+      "severity": "P1",
+      "statement": "既有六条门禁零回归，且门禁表一致性校验覆盖新增门禁：所有 canonical 门禁文档必须同步列出全部 required gate 的名称与命令。"
+    }
+  ],
+  "required_gates": [
+    "docs-structure",
+    "acceptance-validation",
+    "traceability-validation",
+    "corpus-validation",
+    "semantic-team-validation",
+    "validator-negative-tests",
+    "cargo-build",
+    "cargo-test",
+    "cargo-clippy"
+  ],
+  "gate_commands": {
+    "docs-structure": "python3 scripts/check_docs.py",
+    "acceptance-validation": "python3 scripts/check_acceptance.py --structure",
+    "traceability-validation": "python3 scripts/check_acceptance.py --traceability",
+    "corpus-validation": "python3 scripts/check_acceptance.py --corpus",
+    "semantic-team-validation": "python3 scripts/check_semantic_team.py",
+    "validator-negative-tests": "TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'",
+    "cargo-build": "cargo build --workspace",
+    "cargo-test": "cargo test --workspace",
+    "cargo-clippy": "cargo clippy --workspace --all-targets"
+  },
+  "out_of_scope": [
+    "collect / resolve / doctor / cli crates",
+    "SQLite store, daemon, Tauri shell, React UI",
+    "网络访问、第三方 harness 实际调用、live oracle"
+  ],
+  "scope_addenda": [
+    "scope-addendum-1.md"
+  ]
+}

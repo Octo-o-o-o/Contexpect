@@ -327,7 +327,7 @@ def check_license(errors: list[str]) -> None:
 
 
 def check_gate_tables(errors: list[str]) -> None:
-    """Every canonical gate listing must carry all six required gates, name and command."""
+    """Every canonical gate listing must carry every REQUIRED_GATES entry, name and command."""
     for rel in GATE_TABLE_DOCS:
         path = ROOT / rel
         if not path.is_file():

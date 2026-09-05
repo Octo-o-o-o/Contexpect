@@ -94,7 +94,7 @@ Field-to-claim 草稿：`acceptance/field-to-claim/`。生成夹具：`acceptanc
 
 ## 门禁
 
-本阶段六条 required gate（名称 + 命令）必须一起跑：
+本阶段九条 required gate（名称 + 命令）必须一起跑：
 
 | 名称 | 命令 |
 | --- | --- |
@@ -104,6 +104,9 @@ Field-to-claim 草稿：`acceptance/field-to-claim/`。生成夹具：`acceptanc
 | corpus-validation | `python3 scripts/check_acceptance.py --corpus` |
 | semantic-team-validation | `python3 scripts/check_semantic_team.py` |
 | validator-negative-tests | `TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'` |
+| cargo-build | `cargo build --workspace` |
+| cargo-test | `cargo test --workspace` |
+| cargo-clippy | `cargo clippy --workspace --all-targets` |
 
 ```bash
 python3 scripts/check_docs.py
@@ -112,6 +115,9 @@ python3 scripts/check_acceptance.py --traceability
 python3 scripts/check_acceptance.py --corpus
 python3 scripts/check_semantic_team.py
 TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'
+cargo build --workspace
+cargo test --workspace
+cargo clippy --workspace --all-targets
 ```
 
 离线、无第三方依赖。它们不证明产品运行时已经落地。

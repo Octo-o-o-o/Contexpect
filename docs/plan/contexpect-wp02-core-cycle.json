@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "task": "contexpect-wp02",
+  "stage": "core-truth-model",
+  "cycle": "c1",
+  "task_mode": "supervised_delivery",
+  "candidate_head": "492fd5fe7183fc5517fb6a1ca811d8d5233eb1f3",
+  "diff_fingerprint": "b53db35d716cd0375308e3303b20f35ee8641f1f5dd7cada46575fcaa5509a26",
+  "status": "AWAITING_OWNER",
+  "stop_reason": "repair-5 delivered; rereview budget exhausted; deliverables unverified",
+  "budget": {
+    "repair_rounds_reserved": 5,
+    "repair_rounds_used": 5,
+    "rereview_rounds_reserved": 5,
+    "rereview_rounds_used": 5,
+    "strategy_resets_reserved": 1,
+    "strategy_resets_used": 1
+  },
+  "review_ordinal": 5,
+  "root_cause_attempts": [
+    {
+      "id": "promise-stronger-than-implementation",
+      "attempts": 3,
+      "limit": 2,
+      "occurrences": [
+        "F10 repair-1: crate doc layer",
+        "F15 repair-2: guard layer",
+        "R4-01 repair-3: guard-is-closed layer",
+        "R5-04 repair-4: strategy-reset layer — written into the code meant to end it"
+      ],
+      "note": "four occurrences; every fix was a stronger assertion whose self-description again overstated its reach"
+    },
+    {
+      "id": "F2 allowed_truth_state",
+      "attempts": 1,
+      "closed": true
+    },
+    {
+      "id": "F11 parser divergence",
+      "attempts": 1,
+      "closed": true
+    }
+  ],
+  "current_blockers": [],
+  "unverified_work": {
+    "round": "repair-5",
+    "closed": [
+      "R5-02",
+      "R5-03",
+      "R5-05",
+      "R5-06"
+    ],
+    "narrowed_not_closed": [
+      "R5-01"
+    ],
+    "note": "未经零上下文独立复审。四条关闭项有自证复验，R5-01 明确记为未关闭。"
+  },
+  "evidence_refs": [
+    "review:wp02-core-review-1.md:RED:F1,F2",
+    "repair-1",
+    "review:wp02-core-review-2.md:RED:F10,F11",
+    "repair-2:owner-decision-invariant-10",
+    "review:wp02-core-review-3.md:RED:F15",
+    "repair-3",
+    "focused:nine-gates-green-63-cargo-148-python",
+    "determinism:acceptance-tree:091eedc5010ab6ae637d595e30ae21cbed09608075bd2447bf3b794dc202d734",
+    "stop:budget_exhausted",
+    "owner:grant-one-extra-rereview:scope=F15,F16,F17",
+    "review:wp02-core-review-4.md:RED:R4-01",
+    "confirmed:F16-closed:F17-point-defect-fixed",
+    "confirmed:no-regression:repair-3-touched-no-product-logic",
+    "stop:budget_exhausted:repair=3/3",
+    "owner:choose-1b-plus-strategy-reset",
+    "repair-4:strategy-reset:generated-boundary-doc",
+    "focused:nine-gates-green-71-cargo-148-python",
+    "reverse-check:four-review4-attacks-all-red",
+    "owner:grant-fifth-rereview:scope=strategy-reset-validity",
+    "review:wp02-core-review-5.md:RED:R5-01..R5-04",
+    "confirmed:review-4-four-attacks-now-red",
+    "confirmed:no-empty-tests:coverage-smaller-than-self-description",
+    "confirmed:table-complete:52-new-vectors-zero-canonical-divergence",
+    "stop:all-budgets-exhausted",
+    "owner:choose-a-plus-description-discipline",
+    "repair-5:closed-4-of-6-paths:R5-01-narrowed-not-closed",
+    "focused:nine-gates-green-77-cargo-148-python",
+    "description-discipline:applied-what-they-do-not-observe-sections"
+  ],
+  "safety": {
+    "candidate_unchanged": false,
+    "new_owner_decision": true,
+    "partial_write": false,
+    "permissions_lowered": false,
+    "process_alive": false,
+    "scope_expanded": false
+  },
+  "owner_authorization": "Owner 于 2026-09-05 在第二次 STOP_FOR_OWNER 检查点选择 1(b) + 3：1(b) 追加 repair 预算，仅订正三处失实的受管陈述（零代码改动清零 R4-01）；3 动用 strategy reset（0/1 → 1/1），把文档与实现改为生成关系，从结构上终结 promise-stronger-than-implementation 这条 root cause。 Owner 复于同日追加第 5 次复审预算，范围：确认 repair-4 的策略重置（文档由边界表生成 + 三方互锁）是否真的从结构上成立。未追加 repair 预算。 Owner 于第三次 STOP_FOR_OWNER 检查点选择 (a) + 描述纪律：(a) 最小封闭词表改造（note 换枚举、章节集合断言、lib.rs 只允许 include）；描述纪律：关于保护强度的描述只写可验证的最小事实，并显式列出不覆盖的部分。",
+  "independently_confirmed": [
+    "F2",
+    "F4",
+    "F8",
+    "F10",
+    "F11",
+    "F12",
+    "F16",
+    "invariant-10",
+    "F15 partial: deletion-class attacks now caught"
+  ],
+  "strategy_reset": {
+    "trigger": "same root cause reached its third occurrence; stronger assertions kept failing the same way",
+    "approach": "boundary table becomes the single source of truth; the crate documentation is rendered from it, and every row is checked against both implementations. Documentation can no longer disagree with the table, and the table can no longer disagree with behaviour.",
+    "outcome": "did not hold: hand-written prose moved from the .md into the table's note field"
+  },
+  "description_discipline": {
+    "rule": "Statements about what a guard protects must name only what a test observes, and must list what it does not cover. No inferential claims ('no middle ground', 'structurally ended', 'cannot drift').",
+    "reason": "Four occurrences of the same root cause were all self-descriptions that outran the mechanism. The mechanism was fixable; the description habit is what recurred."
+  }
+}

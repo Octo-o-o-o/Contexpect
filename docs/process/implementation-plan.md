@@ -5,7 +5,7 @@
 
 Acceptance cutoff：`2026-09-04T23:59:59+08:00`。WP-02 不得在八份 `acceptance/` 工件通过独立评审前开始。
 
-## 目标仓库布局（实现时创建，现在不要空骨架）
+## 目标仓库布局（按工作包创建，不建空骨架）
 
 ```text
 Cargo.toml                          workspace
@@ -36,6 +36,8 @@ packages/ui                         React/TypeScript app
 packages/ui-tokens                  design tokens from 02-design-system.md
 ```
 
+已创建：`Cargo.toml`（workspace）、`crates/ctxpect-core`（claim 真值模型：轴、unknown reason code、9 条诚实性 invariant）、`crates/ctxpect-schema`（canonical JSON 与内容摘要，与验收生成器字节一致）。其余路径在对应工作包开始前不创建。
+
 OS lanes：`macos-27-arm64`（已捕获）、`ubuntu-24.04-x86_64`（官方 `ubuntu-24.04.4-live-server-amd64.iso` SHA-256 已冻结）、`windows-11-24h2-x86_64`（官方 build `26100.9278` 已冻结；ISO digest 为 `digest-not-published-by-source`）。详见 `docs/research/2026-09-04-source-backed-coordinates.md` 与 `acceptance/artifact-digest-manifest.json`。
 
 ---
@@ -48,9 +50,9 @@ OS lanes：`macos-27-arm64`（已捕获）、`ubuntu-24.04-x86_64`（官方 `ubu
 | --- | --- |
 | Crates | 尚不编译产品；冻结 schema 文本于 `crates/ctxpect-schema` 计划路径与 `acceptance/` |
 | Schemas | Receipt、adapter manifest、ExperimentContract、claim-validity、capability、projection |
-| Commands | 本阶段六条 required gate：docs-structure `python3 scripts/check_docs.py`；acceptance-validation `python3 scripts/check_acceptance.py --structure`；traceability-validation `python3 scripts/check_acceptance.py --traceability`；corpus-validation `python3 scripts/check_acceptance.py --corpus`；semantic-team-validation `python3 scripts/check_semantic_team.py`；validator-negative-tests `TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'`。生成器用 `python3 scripts/generate_acceptance.py`。 |
+| Commands | 本阶段 required gate：docs-structure `python3 scripts/check_docs.py`；acceptance-validation `python3 scripts/check_acceptance.py --structure`；traceability-validation `python3 scripts/check_acceptance.py --traceability`；corpus-validation `python3 scripts/check_acceptance.py --corpus`；semantic-team-validation `python3 scripts/check_semantic_team.py`；validator-negative-tests `TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'`。WP-02 起追加 cargo-build `cargo build --workspace` 与 cargo-test `cargo test --workspace` 与 cargo-clippy `cargo clippy --workspace --all-targets`。生成器用 `python3 scripts/generate_acceptance.py`。 |
 | Migrations | 规划 `0001_init.sql` 表清单，不执行 |
-| Tests | 六条 required gate（名称+命令见本文件完成定义与 [test-strategy](test-strategy.md)）；extractor 零未追踪 |
+| Tests | 本阶段全部 required gate（名称+命令见本文件完成定义与 [test-strategy](test-strategy.md)）；extractor 零未追踪 |
 | Screenshots | 无 |
 | Security gates | 威胁模型、redaction contract、corpus 再分发规则 |
 | OS lanes | 写入 compatibility-matrix；Ubuntu 24.04.4 live-server SHA-256 与 Windows 11 24H2 build 26100.9278 已冻结 |
@@ -280,7 +282,7 @@ Cursor user instructions 保持 export-only。Codex/Grok 无独立 scoped-rule p
 
 ## 本阶段完成定义
 
-本阶段完成定义是下面六条 required gate（名称 + 命令必须一起列出），不是“四条离线门禁”。canonical 命令表亦见 [test-strategy](test-strategy.md)。
+本阶段完成定义是下表全部 required gate（名称 + 命令必须一起列出）。条数随工作包推进而增加，以 `scripts/contexpect_contract.py` 的 `REQUIRED_GATES` 为准，本文件不复述数字。canonical 命令表亦见 [test-strategy](test-strategy.md)。
 
 | 名称 | 命令 |
 | --- | --- |
@@ -290,5 +292,8 @@ Cursor user instructions 保持 export-only。Codex/Grok 无独立 scoped-rule p
 | corpus-validation | `python3 scripts/check_acceptance.py --corpus` |
 | semantic-team-validation | `python3 scripts/check_semantic_team.py` |
 | validator-negative-tests | `TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'` |
+| cargo-build | `cargo build --workspace` |
+| cargo-test | `cargo test --workspace` |
+| cargo-clippy | `cargo clippy --workspace --all-targets` |
 
-WP-01 的**文档与合同**部分在 foundation 完成：根开源文件、canonical docs、八份 acceptance 工件、生成夹具，以及上表六条门禁。WP-01 的独立评审与 WP-02 编码不在本阶段。
+WP-01 的**文档与合同**部分在 foundation 完成：根开源文件、canonical docs、八份 acceptance 工件、生成夹具，以及上表前六条门禁。WP-02 第一刀（`ctxpect-core` 真值模型与 `ctxpect-schema` 规范化）追加 cargo-build、cargo-test 与 cargo-clippy 三条门禁；WP-02 其余 crate（collect / resolve / doctor / cli）尚未开始。

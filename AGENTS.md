@@ -9,7 +9,7 @@ Contexpect / `ctxpect`：local-first 的 AI coding context 核对与控制。当
 
 ## 本阶段允许的命令
 
-六条 required gate（名称 + 命令）：
+九条 required gate（名称 + 命令）：
 
 | 名称 | 命令 |
 | --- | --- |
@@ -19,6 +19,9 @@ Contexpect / `ctxpect`：local-first 的 AI coding context 核对与控制。当
 | corpus-validation | `python3 scripts/check_acceptance.py --corpus` |
 | semantic-team-validation | `python3 scripts/check_semantic_team.py` |
 | validator-negative-tests | `TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'` |
+| cargo-build | `cargo build --workspace` |
+| cargo-test | `cargo test --workspace` |
+| cargo-clippy | `cargo clippy --workspace --all-targets` |
 
 ```bash
 python3 scripts/check_docs.py
@@ -28,6 +31,9 @@ python3 scripts/check_acceptance.py --corpus
 python3 scripts/generate_acceptance.py
 python3 scripts/check_semantic_team.py
 TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'
+cargo build --workspace
+cargo test --workspace
+cargo clippy --workspace --all-targets
 ```
 
 不要为这些命令安装 pip 依赖，不要访问网络，不要读取凭据或私人会话历史。

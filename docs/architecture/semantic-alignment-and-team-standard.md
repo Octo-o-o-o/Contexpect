@@ -166,7 +166,7 @@ TeamContextStandard:
 
 验收：`acceptance/semantic-team-contract.yaml` + `acceptance/semantic-team/` + `scripts/check_semantic_team.py`。文档-only 声明不算对齐。
 
-本阶段六条 required gate（名称 + 命令）：
+本阶段九条 required gate（名称 + 命令）：
 
 | 名称 | 命令 |
 | --- | --- |
@@ -176,3 +176,6 @@ TeamContextStandard:
 | corpus-validation | `python3 scripts/check_acceptance.py --corpus` |
 | semantic-team-validation | `python3 scripts/check_semantic_team.py` |
 | validator-negative-tests | `TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'` |
+| cargo-build | `cargo build --workspace` |
+| cargo-test | `cargo test --workspace` |
+| cargo-clippy | `cargo clippy --workspace --all-targets` |

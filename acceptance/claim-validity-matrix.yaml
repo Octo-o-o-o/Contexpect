@@ -156,6 +156,16 @@
       "if": {
         "truth_state": "absent"
       }
+    },
+    {
+      "id": "indeterminate-requires-unknown-reason",
+      "if": {
+        "truth_state": "indeterminate"
+      },
+      "required_fields": [
+        "unknown_reason"
+      ],
+      "required_vocabulary": "unknown_reason_codes"
     }
   ],
   "legal_examples": [

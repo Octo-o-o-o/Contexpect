@@ -1,0 +1,14 @@
+[package]
+name = "ctxpect-core"
+description = "Claim validity truth model: axes, reason codes and honesty invariants."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+ctxpect-schema = { path = "../ctxpect-schema" }

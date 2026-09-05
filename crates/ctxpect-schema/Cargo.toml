@@ -1,0 +1,11 @@
+[package]
+name = "ctxpect-schema"
+description = "Canonical JSON and content digests, byte-compatible with the acceptance generator."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
