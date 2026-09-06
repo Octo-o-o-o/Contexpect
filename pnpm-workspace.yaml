@@ -1,0 +1,8 @@
+packages:
+  - packages/ui
+  - packages/ui-tokens
+  - apps/desktop
+
+allowBuilds:
+  esbuild: true
+confirmModulesPurge: false

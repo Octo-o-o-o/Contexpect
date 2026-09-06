@@ -60,6 +60,8 @@ core.*
 /scratch/
 
 # Internal delivery process — not published
+# 本地实施交接与公开补充规范分开发布；公开索引不得依赖此 prompt。
+/docs/process/2026-09-06-contexpect-visualization-closure-supplement-IMPL-PROMPT.md
 # 内部交付过程记录：竞品借鉴评估、产品价值/差距分析、内部评审与实施编排、
 # 监督交付的控制面产物。这些不是产品规范，也不面向使用者或贡献者。
 /docs/archive/

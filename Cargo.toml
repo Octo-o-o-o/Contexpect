@@ -1,12 +1,22 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/ctxpect-advisor",
     "crates/ctxpect-cli",
     "crates/ctxpect-collect",
     "crates/ctxpect-core",
+    "crates/ctxpect-diff",
+    "crates/ctxpect-doctor",
+    "crates/ctxpect-effect",
     "crates/ctxpect-fs",
+    "crates/ctxpect-importer",
+    "crates/ctxpect-policy",
+    "crates/ctxpect-projection",
+    "crates/ctxpect-receipt",
     "crates/ctxpect-resolve",
     "crates/ctxpect-schema",
+    "crates/ctxpect-store",
+    "crates/ctxpect-sync",
 ]
 
 [workspace.package]

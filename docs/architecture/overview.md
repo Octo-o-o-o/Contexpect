@@ -1,6 +1,6 @@
 # 架构总览
 
-> 状态：规范（尚未实施产品运行时）
+> 状态：规范（完整产品运行时尚未实施；CLI/localhost API 已有阶段实现）
 
 本文是 Contexpect 的 canonical 系统架构。它冻结组件边界、进程模型和与 18 个 adapter family 的关系。运行时栈由 [ADR 0001](../adr/0001-rust-tauri-react-sqlite.md) 冻结；信任边界由 [ADR 0002](../adr/0002-trust-boundaries.md) 冻结。
 

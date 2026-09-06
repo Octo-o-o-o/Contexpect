@@ -326,8 +326,6 @@ fn unimplemented_flags_and_commands_are_refused() {
         ],
         vec!["inspect", "--json", "--project", project, "--allow-unknown"],
         vec!["inspect", "--json", "--project", project, "--force"],
-        vec!["doctor", "--json", "--project", project],
-        vec!["collect", "--json", "--project", project],
     ] {
         let run = run_args(&args, None);
         assert_eq!(run.code, 1, "{args:?} {}", run.stdout);
@@ -556,9 +554,7 @@ fn listed_nested_commands_and_command_flags_are_unimplemented() {
     scratch.write("AGENTS.md", "x\n");
     let project = scratch.path.to_str().unwrap();
     for args in [
-        vec!["receipt", "show", "--json"],
         vec!["doctor", "--json", "--sarif"],
-        vec!["sync", "preview", "--json"],
         vec!["inspect", "--json", "--project", project, "--sarif"],
     ] {
         let run = run_args(&args, None);

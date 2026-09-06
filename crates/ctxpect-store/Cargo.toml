@@ -1,0 +1,16 @@
+[package]
+name = "ctxpect-store"
+description = "Local JSON ledger for Receipts, snapshots, sessions, and settings. Same DTO contracts as the SQLite plan; storage engine is std-only so cargo gates stay offline."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ctxpect-fs = { path = "../ctxpect-fs" }
+ctxpect-receipt = { path = "../ctxpect-receipt" }
+ctxpect-schema = { path = "../ctxpect-schema" }
+
+[lints]
+workspace = true

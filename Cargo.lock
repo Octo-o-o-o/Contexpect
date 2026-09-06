@@ -3,14 +3,31 @@
 version = 4
 
 [[package]]
+name = "ctxpect-advisor"
+version = "0.1.0"
+dependencies = [
+ "ctxpect-schema",
+]
+
+[[package]]
 name = "ctxpect-cli"
 version = "0.1.0"
 dependencies = [
+ "ctxpect-advisor",
  "ctxpect-collect",
  "ctxpect-core",
+ "ctxpect-diff",
+ "ctxpect-doctor",
+ "ctxpect-effect",
  "ctxpect-fs",
+ "ctxpect-importer",
+ "ctxpect-policy",
+ "ctxpect-projection",
+ "ctxpect-receipt",
  "ctxpect-resolve",
  "ctxpect-schema",
+ "ctxpect-store",
+ "ctxpect-sync",
 ]
 
 [[package]]
@@ -29,7 +46,57 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctxpect-diff"
+version = "0.1.0"
+dependencies = [
+ "ctxpect-schema",
+]
+
+[[package]]
+name = "ctxpect-doctor"
+version = "0.1.0"
+dependencies = [
+ "ctxpect-schema",
+]
+
+[[package]]
+name = "ctxpect-effect"
+version = "0.1.0"
+dependencies = [
+ "ctxpect-schema",
+]
+
+[[package]]
 name = "ctxpect-fs"
+version = "0.1.0"
+dependencies = [
+ "ctxpect-schema",
+]
+
+[[package]]
+name = "ctxpect-importer"
+version = "0.1.0"
+dependencies = [
+ "ctxpect-schema",
+]
+
+[[package]]
+name = "ctxpect-policy"
+version = "0.1.0"
+dependencies = [
+ "ctxpect-schema",
+]
+
+[[package]]
+name = "ctxpect-projection"
+version = "0.1.0"
+dependencies = [
+ "ctxpect-fs",
+ "ctxpect-schema",
+]
+
+[[package]]
+name = "ctxpect-receipt"
 version = "0.1.0"
 dependencies = [
  "ctxpect-schema",
@@ -48,3 +115,19 @@ dependencies = [
 [[package]]
 name = "ctxpect-schema"
 version = "0.1.0"
+
+[[package]]
+name = "ctxpect-store"
+version = "0.1.0"
+dependencies = [
+ "ctxpect-fs",
+ "ctxpect-receipt",
+ "ctxpect-schema",
+]
+
+[[package]]
+name = "ctxpect-sync"
+version = "0.1.0"
+dependencies = [
+ "ctxpect-schema",
+]

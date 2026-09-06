@@ -1,6 +1,6 @@
 [package]
 name = "ctxpect-cli"
-description = "ctxpect command-line entry; this slice ships inspect only."
+description = "ctxpect command-line entry: inspect slice plus doctor/collect/receipt/daemon and related commands."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,11 +12,21 @@ name = "ctxpect"
 path = "src/main.rs"
 
 [dependencies]
+ctxpect-advisor = { path = "../ctxpect-advisor" }
 ctxpect-collect = { path = "../ctxpect-collect" }
 ctxpect-core = { path = "../ctxpect-core" }
+ctxpect-diff = { path = "../ctxpect-diff" }
+ctxpect-doctor = { path = "../ctxpect-doctor" }
+ctxpect-effect = { path = "../ctxpect-effect" }
 ctxpect-fs = { path = "../ctxpect-fs" }
+ctxpect-importer = { path = "../ctxpect-importer" }
+ctxpect-policy = { path = "../ctxpect-policy" }
+ctxpect-projection = { path = "../ctxpect-projection" }
+ctxpect-receipt = { path = "../ctxpect-receipt" }
 ctxpect-resolve = { path = "../ctxpect-resolve" }
 ctxpect-schema = { path = "../ctxpect-schema" }
+ctxpect-store = { path = "../ctxpect-store" }
+ctxpect-sync = { path = "../ctxpect-sync" }
 
 [lints]
 workspace = true

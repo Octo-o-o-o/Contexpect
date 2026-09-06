@@ -4,9 +4,11 @@ Copyright 2026 Contexpect contributors
 This product is licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root.
 
-This product includes documentation, schemas, acceptance contracts, and
-synthetic fixtures authored for Contexpect. The Rust/Tauri product runtime
-is not implemented in this documentation foundation.
+This product includes documentation, schemas, acceptance contracts,
+synthetic fixtures, and a third-party-free Rust workspace. The React UI
+may depend on npm packages listed in packages/ui/package.json; those
+licenses must be copied here when a lockfile is committed. Full product
+runtime acceptance is not complete.
 
 Third-party software, corpora, and vendor documentation may be introduced
 in later work packages. Any such material MUST be recorded here with:

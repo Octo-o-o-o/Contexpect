@@ -1,7 +1,7 @@
 # 用户指南
 
-> 状态：规范（尚未实施产品运行时）
-> 产品尚未可安装。本文描述完整交付后的使用方式。
+> 状态：规范（完整产品运行时尚未实施）
+> `ctxpect inspect` / `doctor` / localhost UI 已可在开发树构建。安装包、全 OS WebView 与人工可用性门禁尚未实施。
 
 ## 三种节奏，同一产品
 
@@ -12,6 +12,26 @@
 | Continuous / 长期开启 | 文件、版本、session、设备变化 | 可选 daemon，安静提醒 |
 
 不需要账号。daemon 可选。第一次 one-shot 不要求初始化数据库。
+
+## 只读桌面主链（当前可复制）
+
+在隔离临时项目上（不要指向真实 home）：
+
+```bash
+# cwd：仓库根
+export CARGO_NET_OFFLINE=true
+cargo build -p ctxpect-cli
+CORPUS=acceptance/corpus/development/static/inputs
+PROJ="$CORPUS/dev__static__codex__0.147.0__cli__macos-27-arm64__instructions__positive"
+STORE=/tmp/ctxpect-demo-store
+./target/debug/ctxpect inspect --offline --json --project "$PROJ" --store "$STORE"
+./target/debug/ctxpect doctor --json --project "$PROJ" --store "$STORE"
+python3 scripts/check_ui_routes.py
+# UI（需要 Node）：pnpm --dir packages/ui build
+# ./target/debug/ctxpect daemon start --project "$PROJ" --store "$STORE" --listen 127.0.0.1:7420 --ui-root packages/ui/dist
+```
+
+忽略示例请用 `__instructions__negative`（含 `.ctxpect-ignore` / G4），不要把 `__ignore__04` 当成 instructions 排除示例。默认不扫描 HOME。未知版本 fail-closed（exit 3）。
 
 ## 第一次打开（计划行为）
 

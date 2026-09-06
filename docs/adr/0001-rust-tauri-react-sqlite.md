@@ -27,4 +27,4 @@
 
 ## 非目标
 
-本 ADR 不批准开始写运行时代码。Foundation 阶段只冻结选择。
+Foundation 阶段只冻结选择。后续工作包按 implementation-plan 写运行时代码；本 ADR 不重新选型。SQLite+FTS5 仍是目标引擎；当前 JSON ledger 是为保持 Cargo 零第三方依赖的实现偏离，需在引擎切换时保留同一 DTO。

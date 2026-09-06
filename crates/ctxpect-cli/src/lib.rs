@@ -1,8 +1,9 @@
-//! `ctxpect` command-line entry for the Codex instructions inspect slice.
+//! `ctxpect` command-line entry.
 //!
-//! The binary is `ctxpect`. This development slice implements `inspect` and
-//! the flags named in the stage contract. Other CLI-reference commands and
-//! flags fail closed with `error.code=usage.unimplemented`.
+//! The inspect slice (`dev-inspect-v0` / `development-snapshot`) is unchanged.
+//! Additional commands persist formal `ctxpect-receipt-v1` documents via an
+//! explicit migration. Unimplemented CLI-reference flags (`--config`,
+//! `--privacy`, `--allow-unknown`, `--force`, `--sarif`) still fail closed.
 //!
 //! # What the tests observe
 //!
@@ -12,11 +13,10 @@
 //!   time-stripped canonical JSON.
 //! - Exit 0 / 2 / 3 / 1 follow required present / absent / indeterminate /
 //!   usage-or-IO.
-//! - Unimplemented flags and commands (`--config`, `--privacy`,
-//!   `--allow-unknown`, `--force`, `doctor`, `collect`, …) are refused.
-//!   Nested CLI-reference forms (`receipt show`, `sync preview`) and listed
-//!   command flags (`doctor --sarif`) fail with `usage.unimplemented`; tokens
-//!   absent from the reference fail with `usage.invalid`.
+//! - Unimplemented flags (`--config`, `--privacy`, `--allow-unknown`,
+//!   `--force`, `--sarif`) are refused. Listed command flags that remain
+//!   unimplemented fail with `usage.unimplemented`; tokens absent from the
+//!   reference fail with `usage.invalid`.
 //! - G1–G5 grammar, HOME/CODEX_HOME sentinel non-reads, explanation fields,
 //!   and corpus expected_output / expected_claim are asserted from the
 //!   binary's JSON, not from a Python answer sheet.
@@ -78,8 +78,7 @@
 //! - Other capabilities (skills, plugins, MCP, commands, …).
 //! - ubuntu / windows lanes or desktop / cloud surfaces as live scans; those
 //!   coordinates emit honesty cells only.
-//! - `--help`, `--config`, privacy modes, doctor, collect, or any WP-03+
-//!   command as implemented behaviour (they are refused).
+//! - `--config`, `--privacy`, `--allow-unknown`, `--force`, and `--sarif`.
 //! - Pretty-printed JSON; `--json` is canonical (sorted keys, no extra
 //!   whitespace).
 //! - Socket or device files as a separate CLI case; FIFO covers not-regular.
@@ -96,13 +95,18 @@
 //!   those forms as an ordinary path suffix without a declared boundary.
 
 mod args;
+mod catalog;
+mod dispatch;
+mod http;
 mod inspect;
 mod jsonutil;
 mod redact;
 
-pub use args::{InspectArgs, UsageError, parse_args};
+pub use args::{Cli, InspectArgs, ProductArgs, UsageError, parse_args, parse_cli};
 pub use ctxpect_schema::{Value, canonical_json, parse};
-pub use inspect::{InspectFailure, InspectReport, error_envelope, error_human, inspect};
+pub use ctxpect_store::Store;
+pub use dispatch::persist_inspect;
+pub use inspect::{error_envelope, error_human, inspect, InspectFailure, InspectReport};
 pub use jsonutil::{strip_time_fields, with_snapshot_digest};
 pub use redact::{RedactOutcome, RedactRoots, redact_json_envelope, redact_output};
 
@@ -116,15 +120,19 @@ use std::io::{self, Write as _};
 /// implements. Every other token from the CLI reference still fails closed in
 /// `parse_args`; help does not widen the accepted grammar.
 const USAGE: &str = "\
-ctxpect — AI coding context 核对与控制工具（开发切片）
+ctxpect — AI coding context 核对与控制工具
 
 用法:
   ctxpect inspect [选项]
+  ctxpect doctor --project <dir> [--store <dir>] [--fail-on confirmed]
+  ctxpect collect --project <dir>
+  ctxpect receipt show|verify|export|redact --store <dir> --receipt <id>
+  ctxpect daemon start --project <dir> --store <dir> --listen 127.0.0.1:7420
   ctxpect --help
 
-本切片只实现 inspect。anchor 固定为 Codex CLI 0.147.0 / cli / macos-27-arm64，
-capability 为 instructions。CLI 参考里的其余子命令与参数尚未实施，传入时会以
-usage.unimplemented 或 usage.invalid 明确拒绝，不会被静默忽略。
+inspect 仍是 Codex CLI 0.147.0 / cli / macos-27-arm64 / instructions 的静态切片。
+开发快照 schema=dev-inspect-v0 / receipt_kind=development-snapshot。正式 Receipt
+必须经过 migrate_dev_inspect_v0，不能靠改名升级。
 
 inspect 选项:
   --project <dir>     要检查的项目根（必填）
@@ -137,6 +145,7 @@ inspect 选项:
   --harness <name>    harness 坐标，默认 codex
   --surface <name>    surface 坐标，默认 cli
   --os-lane <lane>    OS lane 坐标，默认 macos-27-arm64
+  --store <dir>       可选：把快照迁移为正式 Receipt 写入本地 ledger
   --json              输出机器可读 JSON
   --offline           声明离线；本切片本来就不联网
   --help, -h          显示本帮助
@@ -171,13 +180,44 @@ where
     }
     let want_json = collected.iter().any(|item| item == "--json");
     let argv_roots = RedactRoots::from_argv(&collected);
-    match parse_args(collected) {
+    match parse_cli(collected) {
         Err(error) => emit_error(&Failure::Usage(error), want_json, &argv_roots),
-        Ok(parsed) => {
+        Ok(Cli::Inspect(parsed)) => {
             let roots = RedactRoots::from_inspect_args(&parsed);
+            let store_path = parsed.store.clone();
             match inspect(parsed) {
-                Ok(report) => emit_ok(report, &roots),
+                Ok(mut report) => {
+                    if let Some(path) = store_path
+                        && let Ok(store) = ctxpect_store::Store::open(&path)
+                        && let Ok(receipt) =
+                            dispatch::persist_inspect(&store, &report.envelope, "one-shot")
+                        && let ctxpect_schema::Value::Object(map) = &mut report.envelope
+                    {
+                        map.insert(
+                            "formal_receipt_id".into(),
+                            ctxpect_schema::string(
+                                receipt
+                                    .get("receipt_id")
+                                    .and_then(ctxpect_schema::Value::as_str)
+                                    .unwrap_or(""),
+                            ),
+                        );
+                    }
+                    emit_ok(report, &roots)
+                }
                 Err(failure) => emit_error(&failure, want_json, &roots),
+            }
+        }
+        Ok(Cli::Product(args)) => {
+            let roots = dispatch::redact_roots_from_product(&args);
+            let json = args.json;
+            match dispatch::run_product(*args) {
+                Ok(report) => {
+                    let envelope = redact_json_envelope(report.envelope, &roots);
+                    let _ = writeln!(io::stdout().lock(), "{}", canonical_json(&envelope));
+                    report.exit_code
+                }
+                Err(failure) => emit_error(&failure, json, &roots),
             }
         }
     }

@@ -1,6 +1,6 @@
 # 配置参考
 
-> 状态：规范（尚未实施产品运行时）
+> 状态：规范（尚未实施完整产品运行时）。Settings JSON 由 `ctxpect-store` 保存；默认 `vault=metadata-only`，不扫描 HOME。
 
 ## 查找顺序（计划）
 

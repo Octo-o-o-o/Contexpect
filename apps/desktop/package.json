@@ -1,0 +1,10 @@
+{
+  "name": "@ctxpect/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Tauri 2 desktop shell has not been created yet. Launch the local API + UI with ctxpect daemon start.",
+  "scripts": {
+    "preview": "echo 'Use: ctxpect daemon start --project <dir> --store <dir> --listen 127.0.0.1:7420 --ui-root packages/ui/dist'"
+  }
+}

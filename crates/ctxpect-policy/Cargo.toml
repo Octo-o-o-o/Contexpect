@@ -1,0 +1,14 @@
+[package]
+name = "ctxpect-policy"
+description = "Five-layer context policy, Approval, exceptions, and detect-only honesty."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ctxpect-schema = { path = "../ctxpect-schema" }
+
+[lints]
+workspace = true

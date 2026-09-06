@@ -1,0 +1,14 @@
+[package]
+name = "ctxpect-sync"
+description = "Folder sync bundles with secret refs, conflict/replay guards, transport vs semantic split."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ctxpect-schema = { path = "../ctxpect-schema" }
+
+[lints]
+workspace = true

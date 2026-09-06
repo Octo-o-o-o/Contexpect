@@ -10,9 +10,10 @@ CLI 名称：`ctxpect`
 核心产物：Context Receipt  
 默认桌面入口：Context Doctor（工作流名，不是独立品牌）
 
-本仓库当前交付的是完整产品合同、架构文档、开源治理文件、PRD §17.0 验收基线，以及 WP-02
-的 Rust workspace 开发切片。Tauri 2 桌面壳、React/TypeScript UI、SQLite/FTS5 存储、daemon
-与同步运行时**尚未实施**。不要把生成夹具或设计图理解为已经跑通的产品，也不要把单 anchor 的
+本仓库当前交付的是完整产品合同、架构文档、开源治理文件、PRD §17.0 验收基线，WP-02
+的 `ctxpect inspect` 切片，以及后续 crate 中的 Receipt 迁移、JSON ledger、Doctor/diff/policy
+与 localhost UI。完整 WP-02–WP-12 验收、Tauri 全 OS WebView、SQLite/FTS5 引擎与真实 oracle
+**尚未实施**。不要把生成夹具或设计图理解为已经跑通的产品，也不要把单 anchor 的
 静态 `inspect` 当作完整 WP-02。
 
 ## 快速开始
@@ -39,7 +40,7 @@ CORPUS=acceptance/corpus/development/static/inputs
 | 命令尾部 | 含义 | exit |
 | --- | --- | ---: |
 | `..._instructions__positive` | 规则命中，指令被纳入 | 0 |
-| `..._ignore__04` | 被 `.ctxpect-ignore` 排除，required 判定为 absent | 2 |
+| `..._instructions__negative` | 被 `.ctxpect-ignore` 列出的 `AGENTS.md` 排除（G4 产品排除，不是 Codex 原生规则），required 判定为 absent | 2 |
 | `--require tool-invocation ..._tool-invocation__indeterminate` | 本切片未解析该能力，诚实报 Unknown | 3 |
 
 完整参数见 `ctxpect --help`。常用的几个：`--json` 输出机器可读结果；`--codex-home <dir>`
@@ -63,9 +64,9 @@ CORPUS=acceptance/corpus/development/static/inputs
 | --- | --- | --- |
 | WP-01 | 契约、fixture 与威胁模型 | 文档与合同部分已交付 |
 | WP-02 | Core collector、resolver 与 CLI | 进行中：`ctxpect-core`/`-schema`/`-fs`/`-collect`/`-resolve`/`-cli` 已有阶段实现与阶段验收记录 |
-| WP-03 | SQLite、snapshot、diff 与 evidence ledger | 尚未开始 |
-| WP-04 | Inspector UI 与本地 API（Tauri 2 + React） | 尚未开始 |
-| WP-05 – WP-12 | daemon、projection、同步、生态、advisor、policy、集成验收 | 尚未开始 |
+| WP-03 | snapshot、diff 与 evidence ledger | JSON document ledger 已落地；SQLite+FTS5 引擎仍为 ADR 目标，尚未切换 |
+| WP-04 | Inspector UI 与本地 API | React UI + `ctxpect daemon` localhost API 已可构建；Tauri 窗口不在 Cargo workspace |
+| WP-05 – WP-12 | daemon、projection、同步、生态、advisor、policy、集成验收 | 有本地实现与负例测试；全矩阵/真机/人工门禁尚未实施 |
 
 存在源码不代表已通过该阶段的完整验收；以各阶段合同与有效交付记录为准。详见
 [实施计划](docs/process/implementation-plan.md)。
@@ -107,7 +108,7 @@ Contexpect 把这些来源对齐到同一套证据模型，而不是再做一份
 
 ## 本阶段门禁（离线）
 
-本阶段九条 required gate（名称 + 命令）必须一起跑：
+本阶段 13 条 required gate（名称 + 命令）必须一起跑：
 
 | 名称 | 命令 |
 | --- | --- |
@@ -134,6 +135,29 @@ cargo clippy --workspace --all-targets
 ```
 
 这些命令不访问网络、不安装依赖、不启动 harness。它们验证文档完整性、八份 §17.0 验收件、语义对齐/Team Context Standard 合同、规范性语句追踪和语料数量/分类。它们**不是**产品运行时测试。
+
+前端/UI 四条是本阶段新增的 required gate（需要 Node；与上述原九条并列，共 13 条）：ui-routes、ui-unit、ui-typecheck、ui-build。`ui-routes` cwd 为仓库根，其余 cwd 为 `packages/ui`。失败判据：缺路由、C03 token 漂移、typecheck/build 失败。
+
+```bash
+python3 scripts/check_ui_routes.py
+```
+
+在 `packages/ui`：
+
+```bash
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+等价写法：
+
+```bash
+python3 scripts/check_ui_routes.py
+pnpm --dir packages/ui test
+pnpm --dir packages/ui typecheck
+pnpm --dir packages/ui build
+```
 
 重新生成验收夹具（可选，确定性）：
 

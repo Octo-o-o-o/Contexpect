@@ -1,6 +1,6 @@
 # LLM Advisor 与 Effect Lab 方法
 
-> 状态：规范（尚未实施产品运行时）
+> 状态：规范（尚未实施完整产品运行时）。`ctxpect advisor` 只产候选；`ctxpect experiment` 使用冻结 ExperimentContract。付费模型调用尚未授权。
 
 确定性检查和 LLM 建议必须分开。前者可进 CI，后者不得作为唯一门禁，也不得写入 Claim 真值。
 

@@ -8,8 +8,8 @@
 
 ## Repository Findings
 
-- Framework: 尚未选择；PRD 建议 Tauri 2 + Rust core + React/TypeScript。
-- Routes: 尚无。
+- Framework: 技术栈已由 ADR 0001 冻结为 Rust + Tauri 2 + React/TypeScript + SQLite/FTS5，不重新选型。本包实现的桌面真值路径是 localhost API + React；Tauri 窗口不加入 Cargo workspace，以免离线 cargo 门禁拉取第三方 crate。产品运行时尚未完成全部 OS WebView 验收。
+- Routes: V01–V16 全部可达（见 `docs/guides/desktop-ui.md` 与 `packages/ui/src/routes.ts`）。
 - Theme/CSS: 尚无。
 - Component system: 尚无；设计必须可用 headless primitives + CSS tokens 实现。
 - Mock/seed data: 本轮定义 `OctoWorkflow` 项目，MacBook Pro 与 Workstation 两设备，18 个 agent adapter family，4 条诊断 finding。

@@ -119,9 +119,9 @@ impl Hasher {
         self.buffered = rest.len();
     }
 
-    /// Finish and return the lowercase hex digest.
+    /// Finish and return the raw 32-byte digest.
     #[must_use]
-    pub fn finish(mut self) -> String {
+    pub fn finish_bytes(mut self) -> [u8; 32] {
         let bit_len = self.total_bytes.wrapping_mul(8);
         let mut tail = [0u8; 128];
         tail[..self.buffered].copy_from_slice(&self.buffer[..self.buffered]);
@@ -133,11 +133,21 @@ impl Hasher {
             buf.copy_from_slice(block);
             compress(&mut self.state, &buf);
         }
+        let mut out = [0u8; 32];
+        for (i, word) in self.state.iter().enumerate() {
+            out[i * 4..(i + 1) * 4].copy_from_slice(&word.to_be_bytes());
+        }
+        out
+    }
 
+    /// Finish and return the lowercase hex digest.
+    #[must_use]
+    pub fn finish(self) -> String {
+        let bytes = self.finish_bytes();
         let mut out = String::with_capacity(64);
-        for word in self.state {
+        for byte in bytes {
             use std::fmt::Write as _;
-            let _ = write!(out, "{word:08x}");
+            let _ = write!(out, "{byte:02x}");
         }
         out
     }

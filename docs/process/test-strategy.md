@@ -44,7 +44,7 @@ Doctor 截图与 `images/10-context-doctor-final.png` 对照构图；文案以 `
 
 ## 本阶段实际可跑的测试
 
-九条 required gate（名称 + 命令）必须一起跑，不得只跑其中一部分：
+本阶段 13 条 required gate（名称 + 命令）必须一起跑，不得只跑其中一部分：
 
 | 名称 | 命令 |
 | --- | --- |
@@ -71,5 +71,18 @@ cargo clippy --workspace --all-targets
 ```
 
 不要把这些脚本的绿当成 F1/oracle 已测。`check_semantic_team.py` 只证明语义对齐与 Team Context Standard 的生成夹具/合同，不证明产品运行时。
+
+### 前端/UI required gate（本阶段新增，与原九条并列）
+
+cwd 见下表。env：不强制 `CARGO_NET_OFFLINE`，不设 `CI`。fixture：`packages/ui/src/routes.ts`、`packages/ui-tokens/tokens.js`。lane：development。失败判据：缺 V01–V16 路由（含详情页）、C03 token 漂移、`tsc` 错误、Vite build 非 0。
+
+| 名称 | cwd | 命令 | 版本 |
+| --- | --- | --- | --- |
+| ui-routes | 仓库根 | `python3 scripts/check_ui_routes.py` | Python 3.12 |
+| ui-unit | `packages/ui` | `pnpm test`（`node --test tests/routes.test.mjs tests/i18n.test.mjs`） | Node ≥22，pnpm 11.20.0 |
+| ui-typecheck | `packages/ui` | `pnpm typecheck` | typescript 5.7.3 |
+| ui-build | `packages/ui` | `pnpm build` | vite 6.0.11 |
+
+未跑或失败不得记为通过。Tauri 桌面壳尚未创建，因此没有 Tauri required gate。
 
 语义对齐夹具必须覆盖 ST1–ST8 正负例：CanonicalIntent 不是文件副本；四 harness native-equivalent 但字节不同；overlay/loss/round-trip；签名 TeamContextStandard；分层与 detect-only；exception fail-closed；leader 脱敏；以及 malformed/forged/partial bundle。byte/hash 相等不得作为 pass。

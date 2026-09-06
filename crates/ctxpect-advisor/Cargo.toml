@@ -1,0 +1,14 @@
+[package]
+name = "ctxpect-advisor"
+description = "Advisor candidates only. Never Claim, policy, CI, baseline, or reconciliation."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ctxpect-schema = { path = "../ctxpect-schema" }
+
+[lints]
+workspace = true

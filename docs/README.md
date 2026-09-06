@@ -1,9 +1,10 @@
 # Contexpect 文档索引
 
-> 状态：规范（尚未实施产品运行时）
+> 状态：规范（尚未实施完整产品运行时）
 > 当前仓库是产品定义、架构合同与验收基线。WP-02 的开发切片已提供可构建的
-> `ctxpect inspect`（Codex instructions 单 anchor，静态只读）；Tauri 桌面应用、
-> daemon、SQLite 存储与其余 CLI 子命令尚未实施。
+> `ctxpect inspect`（Codex instructions 单 anchor，静态只读）；另有 Receipt 迁移、
+> JSON ledger、Doctor 与 localhost UI。Tauri 全 OS WebView、SQLite/FTS5 引擎与
+> 其余完整验收尚未实施。
 
 ## 阅读顺序
 
@@ -47,6 +48,7 @@
 ### 过程
 
 - [process/implementation-plan.md](process/implementation-plan.md)
+- [可视化与完整产品闭环补充实施方案](process/2026-09-06-contexpect-visualization-closure-supplement.md) — 2026-09-06 基线对账；14 个主入口与 2 个配套入口、共用视觉合同及剩余闭环
 - [process/test-strategy.md](process/test-strategy.md)
 - [process/release.md](process/release.md)
 - [process/dependency-and-provenance.md](process/dependency-and-provenance.md)
@@ -96,7 +98,7 @@ Field-to-claim 草稿：`acceptance/field-to-claim/`。生成夹具：`acceptanc
 
 ## 门禁
 
-本阶段九条 required gate（名称 + 命令）必须一起跑：
+本阶段 13 条 required gate（名称 + 命令）必须一起跑：
 
 | 名称 | 命令 |
 | --- | --- |
@@ -123,6 +125,15 @@ cargo clippy --workspace --all-targets
 ```
 
 离线、无第三方依赖。它们不证明产品运行时已经落地。
+
+前端/UI 四条是本阶段新增的 required gate（需要 Node 22 / pnpm；与上表原九条并列，共 13 条）。cwd：`ui-routes` 为仓库根，其余为 `packages/ui`。失败判据：缺路由、C03 token 漂移、typecheck/build 失败。
+
+| 名称 | cwd | 命令 |
+| --- | --- | --- |
+| ui-routes | 仓库根 | `python3 scripts/check_ui_routes.py` |
+| ui-unit | `packages/ui` | `pnpm test` |
+| ui-typecheck | `packages/ui` | `pnpm typecheck` |
+| ui-build | `packages/ui` | `pnpm build` |
 
 ## 当前判定
 

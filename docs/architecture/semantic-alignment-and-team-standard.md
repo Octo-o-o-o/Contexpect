@@ -1,7 +1,7 @@
 # 语义对齐与 Team Context Standard
 
-> 状态：规范（尚未实施产品运行时）
-> 本文冻结 CanonicalIntent、harness-native projection、TeamContextStandard 与分层执行的机器可读合同。产品运行时尚未实现。
+> 状态：规范（尚未实施完整产品运行时）
+> 本文冻结 CanonicalIntent、harness-native projection、TeamContextStandard 与分层执行的机器可读合同。产品运行时尚未完成全矩阵验收。
 > PRD 给出产品要求；长 JSON/字段表以本文为准，避免并行 Intent/Policy/Receipt 体系。
 
 Acceptance cutoff：`2026-09-04T23:59:59+08:00`。
@@ -166,7 +166,7 @@ TeamContextStandard:
 
 验收：`acceptance/semantic-team-contract.yaml` + `acceptance/semantic-team/` + `scripts/check_semantic_team.py`。文档-only 声明不算对齐。
 
-本阶段九条 required gate（名称 + 命令）：
+本阶段 required gate（名称 + 命令；含前端四条，与原九条并列）：
 
 | 名称 | 命令 |
 | --- | --- |
@@ -179,3 +179,7 @@ TeamContextStandard:
 | cargo-build | `cargo build --workspace` |
 | cargo-test | `cargo test --workspace` |
 | cargo-clippy | `cargo clippy --workspace --all-targets` |
+| ui-routes | `python3 scripts/check_ui_routes.py` |
+| ui-unit | `pnpm test` |
+| ui-typecheck | `pnpm typecheck` |
+| ui-build | `pnpm build` |

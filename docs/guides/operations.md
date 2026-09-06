@@ -1,6 +1,6 @@
 # 运维、Daemon 与 CI
 
-> 状态：规范（尚未实施产品运行时）
+> 状态：规范（尚未实施完整产品运行时）。`ctxpect daemon start` 提供 127.0.0.1 API；无 daemon 时 inspect/doctor/receipt 仍可用。
 
 ## CLI 是一等公民
 

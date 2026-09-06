@@ -753,6 +753,10 @@ REQUIRED_GATES = [
     ("cargo-build", "cargo build --workspace"),
     ("cargo-test", "cargo test --workspace"),
     ("cargo-clippy", "cargo clippy --workspace --all-targets"),
+    ("ui-routes", "python3 scripts/check_ui_routes.py"),
+    ("ui-unit", "pnpm test"),
+    ("ui-typecheck", "pnpm typecheck"),
+    ("ui-build", "pnpm build"),
 ]
 GATE_TABLE_DOCS = [
     "README.md",
@@ -2362,6 +2366,156 @@ def extract_normative_statements(prd_text: str) -> list[dict[str, Any]]:
     return statements
 
 
+def _append_trace_field(existing: str, extra: str) -> str:
+    parts = [item.strip() for item in existing.split(";") if item.strip()]
+    for item in extra.split(";"):
+        token = item.strip()
+        if token and token not in parts:
+            parts.append(token)
+    return "; ".join(parts)
+
+
+# Real implementation locations that exist in this tree. Unimplemented
+# F/WP rows keep their original mapping; this only appends what is on disk.
+IMPLEMENTED_TRACE_BY_FEATURE = {
+    "F-01": (
+        "crates/ctxpect-collect/src/lib.rs; crates/ctxpect-cli/src/catalog.rs; crates/ctxpect-cli/tests/product_loops.rs",
+        "cargo-test",
+    ),
+    "F-02": (
+        "crates/ctxpect-collect/src/lib.rs; crates/ctxpect-cli/src/dispatch.rs",
+        "cargo-test",
+    ),
+    "F-03": (
+        "crates/ctxpect-resolve/src/lib.rs; crates/ctxpect-cli/src/inspect.rs",
+        "cargo-test",
+    ),
+    "F-04": (
+        "crates/ctxpect-cli/src/dispatch.rs; crates/ctxpect-cli/tests/product_loops.rs",
+        "cargo-test",
+    ),
+    "F-05": (
+        "crates/ctxpect-receipt/src/lib.rs; crates/ctxpect-store/src/lib.rs",
+        "cargo-test",
+    ),
+    "F-06": (
+        "packages/ui/src/App.tsx; packages/ui/src/routes.ts; packages/ui-tokens/tokens.css",
+        "ui-routes; ui-unit; ui-typecheck; ui-build",
+    ),
+    "F-07": (
+        "crates/ctxpect-diff/src/lib.rs",
+        "cargo-test",
+    ),
+    "F-08": (
+        "crates/ctxpect-doctor/src/lib.rs; crates/ctxpect-cli/src/dispatch.rs",
+        "cargo-test",
+    ),
+    "F-09": (
+        "crates/ctxpect-projection/src/lib.rs; crates/ctxpect-cli/src/dispatch.rs; crates/ctxpect-cli/tests/product_loops.rs",
+        "cargo-test",
+    ),
+    "F-10": (
+        "crates/ctxpect-sync/src/lib.rs; crates/ctxpect-cli/src/dispatch.rs",
+        "cargo-test",
+    ),
+    "F-11": (
+        "crates/ctxpect-cli/src/catalog.rs",
+        "cargo-test",
+    ),
+    "F-12": (
+        "crates/ctxpect-importer/src/lib.rs; crates/ctxpect-cli/src/dispatch.rs; crates/ctxpect-cli/tests/product_loops.rs",
+        "cargo-test",
+    ),
+    "F-13": (
+        "crates/ctxpect-advisor/src/lib.rs",
+        "cargo-test",
+    ),
+    "F-14": (
+        "crates/ctxpect-importer/src/lib.rs; crates/ctxpect-store/src/lib.rs",
+        "cargo-test",
+    ),
+    "F-15": (
+        "crates/ctxpect-effect/src/lib.rs",
+        "cargo-test",
+    ),
+    "F-16": (
+        "crates/ctxpect-cli/src/http.rs; crates/ctxpect-cli/src/dispatch.rs",
+        "cargo-test",
+    ),
+    "F-17": (
+        "crates/ctxpect-cli/src/http.rs; crates/ctxpect-schema/src/lib.rs",
+        "cargo-test",
+    ),
+    "F-18": (
+        "crates/ctxpect-policy/src/lib.rs; crates/ctxpect-cli/src/dispatch.rs; crates/ctxpect-cli/src/http.rs; crates/ctxpect-cli/tests/product_loops.rs",
+        "cargo-test",
+    ),
+}
+
+IMPLEMENTED_TRACE_BY_WP = {
+    "WP-03": (
+        "crates/ctxpect-store/src/lib.rs; crates/ctxpect-receipt/src/lib.rs; crates/ctxpect-diff/src/lib.rs",
+        "cargo-test",
+    ),
+    "WP-04": (
+        "packages/ui/src/App.tsx; packages/ui/src/routes.ts; scripts/check_ui_routes.py",
+        "ui-routes; ui-unit; ui-typecheck; ui-build",
+    ),
+    "WP-06": (
+        "crates/ctxpect-projection/src/lib.rs",
+        "cargo-test",
+    ),
+    "WP-07": (
+        "crates/ctxpect-sync/src/lib.rs",
+        "cargo-test",
+    ),
+    "WP-08": (
+        "crates/ctxpect-cli/src/catalog.rs",
+        "cargo-test",
+    ),
+    "WP-09": (
+        "crates/ctxpect-advisor/src/lib.rs",
+        "cargo-test",
+    ),
+    "WP-10": (
+        "crates/ctxpect-effect/src/lib.rs",
+        "cargo-test",
+    ),
+    "WP-11": (
+        "crates/ctxpect-policy/src/lib.rs; crates/ctxpect-cli/src/http.rs; crates/ctxpect-cli/tests/product_loops.rs",
+        "cargo-test",
+    ),
+}
+
+IMPLEMENTED_TRACE_BY_SECTION_PREFIX = {
+    "9": (
+        "packages/ui/src/App.tsx; packages/ui/src/routes.ts; packages/ui-tokens/tokens.css; scripts/check_ui_routes.py",
+        "ui-routes; ui-unit; ui-typecheck; ui-build",
+    ),
+}
+
+
+def overlay_implemented_trace(
+    feature: str, heading: str, section: str, gate: str, artifact: str
+) -> tuple[str, str]:
+    extra = IMPLEMENTED_TRACE_BY_FEATURE.get(feature)
+    if extra:
+        artifact = _append_trace_field(artifact, extra[0])
+        gate = _append_trace_field(gate, extra[1])
+    wp_match = re.match(r"^(WP-\d{2})\b", heading)
+    if wp_match:
+        extra = IMPLEMENTED_TRACE_BY_WP.get(wp_match.group(1))
+        if extra:
+            artifact = _append_trace_field(artifact, extra[0])
+            gate = _append_trace_field(gate, extra[1])
+    for prefix, extra in IMPLEMENTED_TRACE_BY_SECTION_PREFIX.items():
+        if section == prefix or section.startswith(prefix + "."):
+            artifact = _append_trace_field(artifact, extra[0])
+            gate = _append_trace_field(gate, extra[1])
+            break
+    return gate, artifact
+
+
 def assign_trace_metadata(item: dict[str, Any]) -> dict[str, Any]:
     heading = item.get("heading") or ""
     section = item.get("section") or "0"
@@ -2410,6 +2564,7 @@ def assign_trace_metadata(item: dict[str, Any]) -> dict[str, Any]:
     if any(marker in blob for marker in SEMANTIC_TEAM_MARKERS):
         gate = SEMANTIC_TEAM_GATE
         artifact = SEMANTIC_TEAM_ARTIFACT_HINT
+    gate, artifact = overlay_implemented_trace(feature, heading, section, gate, artifact)
     return {
         **item,
         "feature": feature,

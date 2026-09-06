@@ -55,6 +55,32 @@ impl Value {
         }
     }
 
+    #[must_use]
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            Value::Int(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn as_object(&self) -> Option<&BTreeMap<String, Value>> {
+        match self {
+            Value::Object(map) => Some(map),
+            _ => None,
+        }
+    }
+
+    /// Walk a sequence of object keys. Missing keys or non-objects yield `None`.
+    #[must_use]
+    pub fn pointer(&self, keys: &[&str]) -> Option<&Value> {
+        let mut cur = self;
+        for key in keys {
+            cur = cur.get(key)?;
+        }
+        Some(cur)
+    }
+
     /// String values of an array, or the single string value, as a list.
     /// Frozen contracts use both shapes for the same field.
     #[must_use]
@@ -119,6 +145,65 @@ fn write_value(out: &mut String, value: &Value) {
             }
             out.push('}');
         }
+    }
+}
+
+/// Object constructor used by Receipt/API crates. Keys are sorted by `BTreeMap`.
+#[must_use]
+pub fn object<K: Into<String>>(pairs: impl IntoIterator<Item = (K, Value)>) -> Value {
+    Value::Object(pairs.into_iter().map(|(k, v)| (k.into(), v)).collect())
+}
+
+/// Array constructor.
+#[must_use]
+pub fn array(items: impl IntoIterator<Item = Value>) -> Value {
+    Value::Array(items.into_iter().collect())
+}
+
+/// String constructor.
+#[must_use]
+pub fn string(text: impl Into<String>) -> Value {
+    Value::Str(text.into())
+}
+
+/// Optional string: `None` becomes JSON null.
+#[must_use]
+pub fn opt_string(text: Option<impl Into<String>>) -> Value {
+    match text {
+        Some(text) => string(text),
+        None => Value::Null,
+    }
+}
+
+const TIME_KEYS: &[&str] = &[
+    "generated_at",
+    "timestamp",
+    "inspected_at",
+    "created_at",
+    "emitted_at",
+    "now",
+    "time",
+    "deleted_at",
+    "applied_at",
+    "imported_at",
+];
+
+/// Drop time fields so a digest is stable across clock readings.
+#[must_use]
+pub fn strip_time_fields(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut out = BTreeMap::new();
+            for (key, child) in map {
+                if TIME_KEYS.contains(&key.as_str()) {
+                    continue;
+                }
+                out.insert(key.clone(), strip_time_fields(child));
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(strip_time_fields).collect()),
+        other => other.clone(),
     }
 }
 

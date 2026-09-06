@@ -38,7 +38,7 @@ Quiet clinical observability：像一台可信的诊断仪器，而不是普通 
 ## Components
 
 - `EvidencePill`：Native evidence / Static resolution / User-attested / Unknown；不得用 `Resolved` 单词单独表示静态解析成功。
-- `SeverityMark`：Confirmed / Suspected / Unknown，含 icon 和文字。
+- `SeverityMark`：Confirmed / Suspected，含 icon 和文字。Unknown 不是 severity；知识状态用独立 `UnknownMark`。
 - `AgentChip`：agent 名称、version、coverage state；coverage state 只允许 Native evidence / Static resolution only / Needs connector / Unsupported version。
 - `ContextFacetRail`：六条独立 facet，不使用单向箭头。
 - `FindingRow`：症状、影响范围、evidence state、first seen、severity。
@@ -65,7 +65,7 @@ Quiet clinical observability：像一台可信的诊断仪器，而不是普通 
 | `User-attested` | 用户对不可观察事实作了带时间和 coordinate 的确认 | teal outline + person/check |
 | `Unknown` | 没有足够证据形成该 facet 的 claim | violet + question |
 
-`Expected` 是 receipt 数据模型中的 truth state；在用户界面上，若来源是 resolver，应显示更具体的 `Static resolution`。`Observed` 只有在 provenance 达到 native/runtime 最低门槛时才显示为 `Native evidence`。
+`Expected` 是 resolved context 的用户表述，**不是** `truth_state`。`truth_state` 只有 present / absent / indeterminate / not-applicable。在用户界面上，若来源是 resolver，应显示更具体的 `Static resolution`。`Observed` 只有在 provenance 达到 native/runtime 最低门槛时才显示为 `Native evidence`。
 
 ## Unknown And Indeterminate
 
@@ -77,5 +77,5 @@ Quiet clinical observability：像一台可信的诊断仪器，而不是普通 
 
 - `Native evidence`：当前 coordinate 至少有一种声明范围清楚的原生运行时证据。
 - `Static resolution only`：能解析资产和 precedence，但不可证明模型可见性。
-- `Needs connector`：未安装、未授权、缺采集 surface 或 adapter 未连接；详情必须给 reason code。
-- `Unsupported version`：已探测到版本但不在验证范围；不得自动归入 static resolution。
+- `Needs connector`：compact 分组标签，**不能**单独作为真值。展开后必须分别显示 installation / authentication / connector / version / surface 状态与 reason code；config residue ≠ installed。
+- `Unsupported version`：已探测到版本但不在验证范围；不得自动归入 static resolution。未知版本 fail-closed。

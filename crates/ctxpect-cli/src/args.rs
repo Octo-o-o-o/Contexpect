@@ -13,6 +13,12 @@ use ctxpect_resolve::{
 /// not on the lists fail with `usage.invalid`.
 const IMPLEMENTED_COMMAND: &str = "inspect";
 
+const IMPLEMENTED_COMMANDS: &[&str] = &[
+    "inspect", "collect", "doctor", "diff", "receipt", "inventory", "preflight", "launch",
+    "import", "sessions", "daemon", "sync", "intent", "apply", "rollback", "standard",
+    "exception", "assets", "advisor", "experiment", "policy", "align", "adapter", "ci",
+];
+
 const LISTED_GLOBAL_FLAGS: &[&str] = &[
     "json", "offline", "config", "project", "cwd", "harness", "surface", "version", "privacy",
 ];
@@ -21,7 +27,7 @@ const LISTED_GLOBAL_FLAGS: &[&str] = &[
 const LISTED_GLOBAL_FLAGS_PROSE: &[&str] = &["allow-unknown", "force"];
 
 /// Command-specific flags named in the CLI-reference command tree (`doctor`).
-const LISTED_COMMAND_FLAGS: &[&str] = &["sarif", "fail-on"];
+const LISTED_COMMAND_FLAGS: &[&str] = &["sarif"];
 
 /// Slice-only inspect flags; not a reason to treat other unknown tokens as listed.
 const SLICE_INSPECT_FLAGS: &[&str] = &["codex-home", "require", "os-lane"];
@@ -55,31 +61,7 @@ const LISTED_COMMANDS: &[&str] = &[
 
 const UNIMPLEMENTED_FLAGS: &[&str] = &["config", "privacy", "allow-unknown", "force"];
 
-const UNIMPLEMENTED_COMMANDS: &[&str] = &[
-    "collect",
-    "doctor",
-    "diff",
-    "receipt",
-    "inventory",
-    "preflight",
-    "launch",
-    "import",
-    "sessions",
-    "daemon",
-    "sync",
-    "intent",
-    "apply",
-    "rollback",
-    "standard",
-    "exception",
-    "assets",
-    "advisor",
-    "experiment",
-    "policy",
-    "align",
-    "adapter",
-    "ci",
-];
+const UNIMPLEMENTED_COMMANDS: &[&str] = &[];
 
 #[derive(Debug, Clone)]
 pub struct InspectArgs {
@@ -94,6 +76,63 @@ pub struct InspectArgs {
     pub codex_home: Option<PathBuf>,
     pub require: Vec<String>,
     pub os_lane: String,
+    pub store: Option<PathBuf>,
+}
+
+/// Parsed CLI after inspect-or-product dispatch.
+#[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
+pub enum Cli {
+    Inspect(InspectArgs),
+    Product(Box<ProductArgs>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ProductArgs {
+    pub command: String,
+    pub subcommand: Option<String>,
+    pub json: bool,
+    pub offline: bool,
+    pub project: Option<PathBuf>,
+    pub cwd: Option<PathBuf>,
+    pub harness: String,
+    pub surface: String,
+    pub version: String,
+    pub version_explicit: bool,
+    pub codex_home: Option<PathBuf>,
+    pub require: Vec<String>,
+    pub os_lane: String,
+    pub store: Option<PathBuf>,
+    pub listen: Option<String>,
+    pub ui_root: Option<PathBuf>,
+    pub task: Option<String>,
+    pub files: Vec<String>,
+    pub receipt: Option<String>,
+    pub left: Option<String>,
+    pub right: Option<String>,
+    pub preflight_id: Option<String>,
+    pub from: Option<PathBuf>,
+    pub locale: Option<String>,
+    pub fail_on: Option<String>,
+    pub home: Option<PathBuf>,
+    pub id: Option<String>,
+    pub reason: Option<String>,
+    pub actor: Option<String>,
+    pub role: Option<String>,
+    pub dest: Option<PathBuf>,
+    pub mapping: Option<String>,
+    pub session: Option<String>,
+    pub target: Option<String>,
+    pub desired: Option<String>,
+    pub authority: Option<String>,
+    pub export: Option<PathBuf>,
+    pub kind: Option<String>,
+    pub profile: Option<String>,
+    pub adapter: Option<String>,
+    pub n: Option<i64>,
+    pub execute: bool,
+    pub oneshot: bool,
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -103,7 +142,7 @@ pub struct UsageError {
     pub command: Option<String>,
 }
 
-pub fn parse_args<I, S>(args: I) -> Result<InspectArgs, UsageError>
+pub fn parse_cli<I, S>(args: I) -> Result<Cli, UsageError>
 where
     I: IntoIterator<Item = S>,
     S: Into<OsString>,
@@ -134,7 +173,39 @@ where
     let mut codex_home = None;
     let mut require: Vec<String> = Vec::new();
     let mut os_lane = None;
+    let mut store = None;
+    let mut listen = None;
+    let mut ui_root = None;
+    let mut task = None;
+    let mut files: Vec<String> = Vec::new();
+    let mut receipt = None;
+    let mut left = None;
+    let mut right = None;
+    let mut preflight_id = None;
+    let mut from = None;
+    let mut locale = None;
+    let mut fail_on = None;
+    let mut home = None;
+    let mut id = None;
+    let mut reason = None;
+    let mut actor = None;
+    let mut role = None;
+    let mut dest = None;
+    let mut mapping = None;
+    let mut session = None;
+    let mut target = None;
+    let mut desired = None;
+    let mut authority = None;
+    let mut export = None;
+    let mut kind = None;
+    let mut profile = None;
+    let mut adapter = None;
+    let mut n = None;
+    let mut execute = false;
+    let mut oneshot = false;
+    let mut text = None;
     let mut command = None;
+    let mut subcommand = None;
 
     let mut iter = tokens.into_iter().peekable();
     while let Some(token) = iter.next() {
@@ -205,6 +276,109 @@ where
                     validate_os_lane(&value, command.as_deref())?;
                     os_lane = Some(value);
                 }
+                "store" => {
+                    store = Some(need_value("store", inline, &mut iter, command.as_deref())?);
+                }
+                "listen" => {
+                    listen = Some(need_value("listen", inline, &mut iter, command.as_deref())?);
+                }
+                "ui-root" => {
+                    ui_root = Some(need_value("ui-root", inline, &mut iter, command.as_deref())?);
+                }
+                "task" => {
+                    task = Some(need_value("task", inline, &mut iter, command.as_deref())?);
+                }
+                "files" => {
+                    files.push(need_value("files", inline, &mut iter, command.as_deref())?);
+                }
+                "receipt" => {
+                    receipt = Some(need_value("receipt", inline, &mut iter, command.as_deref())?);
+                }
+                "a" => {
+                    left = Some(need_value("a", inline, &mut iter, command.as_deref())?);
+                }
+                "b" => {
+                    right = Some(need_value("b", inline, &mut iter, command.as_deref())?);
+                }
+                "preflight-id" => {
+                    preflight_id = Some(need_value(
+                        "preflight-id",
+                        inline,
+                        &mut iter,
+                        command.as_deref(),
+                    )?);
+                }
+                "from" => {
+                    from = Some(need_value("from", inline, &mut iter, command.as_deref())?);
+                }
+                "locale" => {
+                    locale = Some(need_value("locale", inline, &mut iter, command.as_deref())?);
+                }
+                "fail-on" => {
+                    fail_on = Some(need_value("fail-on", inline, &mut iter, command.as_deref())?);
+                }
+                "home" => {
+                    home = Some(need_value("home", inline, &mut iter, command.as_deref())?);
+                }
+                "id" => {
+                    id = Some(need_value("id", inline, &mut iter, command.as_deref())?);
+                }
+                "reason" => {
+                    reason = Some(need_value("reason", inline, &mut iter, command.as_deref())?);
+                }
+                "actor" => {
+                    actor = Some(need_value("actor", inline, &mut iter, command.as_deref())?);
+                }
+                "role" => {
+                    role = Some(need_value("role", inline, &mut iter, command.as_deref())?);
+                }
+                "dest" => {
+                    dest = Some(need_value("dest", inline, &mut iter, command.as_deref())?);
+                }
+                "mapping" => {
+                    mapping = Some(need_value("mapping", inline, &mut iter, command.as_deref())?);
+                }
+                "session" => {
+                    session = Some(need_value("session", inline, &mut iter, command.as_deref())?);
+                }
+                "target" => {
+                    target = Some(need_value("target", inline, &mut iter, command.as_deref())?);
+                }
+                "desired" => {
+                    desired = Some(need_value("desired", inline, &mut iter, command.as_deref())?);
+                }
+                "authority" => {
+                    authority = Some(need_value("authority", inline, &mut iter, command.as_deref())?);
+                }
+                "export" => {
+                    export = Some(need_value("export", inline, &mut iter, command.as_deref())?);
+                }
+                "kind" => {
+                    kind = Some(need_value("kind", inline, &mut iter, command.as_deref())?);
+                }
+                "profile" => {
+                    profile = Some(need_value("profile", inline, &mut iter, command.as_deref())?);
+                }
+                "adapter" => {
+                    adapter = Some(need_value("adapter", inline, &mut iter, command.as_deref())?);
+                }
+                "n" => {
+                    let value = need_value("n", inline, &mut iter, command.as_deref())?;
+                    n = Some(value.parse::<i64>().map_err(|_| {
+                        invalid("`--n` must be an integer".to_string(), command.clone())
+                    })?);
+                }
+                "text" => {
+                    text = Some(need_value("text", inline, &mut iter, command.as_deref())?);
+                }
+                "execute" => {
+                    reject_inline(name, inline, command.as_deref())?;
+                    execute = true;
+                }
+                "oneshot" => {
+                    reject_inline(name, inline, command.as_deref())?;
+                    oneshot = true;
+                }
                 other => {
                     if is_listed_unimplemented_flag(other) || listed_but_unimplemented_global(other)
                     {
@@ -225,10 +399,14 @@ where
         if let Some(cmd) = command.as_deref()
             && listed_subcommands(cmd).contains(&token.as_str())
         {
-            return Err(unimplemented(
-                &format!("{} {}", display_token(cmd), display_token(&token)),
-                command.clone(),
-            ));
+            if subcommand.is_some() {
+                return Err(invalid(
+                    format!("unexpected argument `{}`", display_token(&token)),
+                    command.clone(),
+                ));
+            }
+            subcommand = Some(token);
+            continue;
         }
         return Err(invalid(
             format!("unexpected argument `{}`", display_token(&token)),
@@ -246,49 +424,142 @@ where
         }
     };
     if command == IMPLEMENTED_COMMAND {
-        // continue into inspect argument checks
-    } else if LISTED_COMMANDS.contains(&command.as_str()) {
-        return Err(unimplemented(&command, Some(command.clone())));
-    } else {
-        return Err(invalid(
-            format!("unknown command `{}`", display_token(&command)),
-            Some(command),
-        ));
-    }
-
-    let project = match project {
-        Some(path) if !path.is_empty() => PathBuf::from(path),
-        _ => {
+        if subcommand.is_some() {
             return Err(invalid(
-                "`inspect` requires `--project <dir>`".to_string(),
+                "`inspect` does not take a subcommand".to_string(),
                 Some(command),
             ));
         }
-    };
+        let project = match project {
+            Some(path) if !path.is_empty() => PathBuf::from(path),
+            _ => {
+                return Err(invalid(
+                    "`inspect` requires `--project <dir>`".to_string(),
+                    Some(command),
+                ));
+            }
+        };
 
-    let mut required = Vec::new();
-    for item in require {
-        if !required.iter().any(|have| have == &item) {
-            required.push(item);
+        let mut required = Vec::new();
+        for item in require {
+            if !required.iter().any(|have| have == &item) {
+                required.push(item);
+            }
         }
-    }
-    if required.is_empty() {
-        required.push(INSTRUCTIONS.to_string());
+        if required.is_empty() {
+            required.push(INSTRUCTIONS.to_string());
+        }
+
+        return Ok(Cli::Inspect(InspectArgs {
+            json,
+            offline,
+            project,
+            cwd: cwd.map(PathBuf::from),
+            harness: harness.unwrap_or_else(|| ANCHOR_HARNESS.to_string()),
+            surface: surface.unwrap_or_else(|| ANCHOR_SURFACE.to_string()),
+            version: version.unwrap_or_else(|| ANCHOR_VERSION.to_string()),
+            version_explicit,
+            codex_home: codex_home.map(PathBuf::from),
+            require: required,
+            os_lane: os_lane.unwrap_or_else(|| ANCHOR_OS_LANE.to_string()),
+            store: store.map(PathBuf::from),
+        }));
     }
 
-    Ok(InspectArgs {
-        json,
-        offline,
-        project,
-        cwd: cwd.map(PathBuf::from),
-        harness: harness.unwrap_or_else(|| ANCHOR_HARNESS.to_string()),
-        surface: surface.unwrap_or_else(|| ANCHOR_SURFACE.to_string()),
-        version: version.unwrap_or_else(|| ANCHOR_VERSION.to_string()),
-        version_explicit,
-        codex_home: codex_home.map(PathBuf::from),
-        require: required,
-        os_lane: os_lane.unwrap_or_else(|| ANCHOR_OS_LANE.to_string()),
-    })
+    if IMPLEMENTED_COMMANDS.contains(&command.as_str()) {
+        if listed_subcommands(&command).is_empty() && subcommand.is_some() {
+            return Err(invalid(
+                format!("`{command}` does not take a subcommand"),
+                Some(command),
+            ));
+        }
+        if !listed_subcommands(&command).is_empty() && subcommand.is_none() {
+            return Err(invalid(
+                format!(
+                    "`{command}` requires a subcommand ({})",
+                    listed_subcommands(&command).join("|")
+                ),
+                Some(command),
+            ));
+        }
+        let mut required = Vec::new();
+        for item in require {
+            if !required.iter().any(|have| have == &item) {
+                required.push(item);
+            }
+        }
+        return Ok(Cli::Product(Box::new(ProductArgs {
+            command,
+            subcommand,
+            json,
+            offline,
+            project: project.filter(|p| !p.is_empty()).map(PathBuf::from),
+            cwd: cwd.map(PathBuf::from),
+            harness: harness.unwrap_or_else(|| ANCHOR_HARNESS.to_string()),
+            surface: surface.unwrap_or_else(|| ANCHOR_SURFACE.to_string()),
+            version: version.unwrap_or_else(|| ANCHOR_VERSION.to_string()),
+            version_explicit,
+            codex_home: codex_home.map(PathBuf::from),
+            require: required,
+            os_lane: os_lane.unwrap_or_else(|| ANCHOR_OS_LANE.to_string()),
+            store: store.map(PathBuf::from),
+            listen,
+            ui_root: ui_root.map(PathBuf::from),
+            task,
+            files,
+            receipt,
+            left,
+            right,
+            preflight_id,
+            from: from.map(PathBuf::from),
+            locale,
+            fail_on,
+            home: home.map(PathBuf::from),
+            id,
+            reason,
+            actor,
+            role,
+            dest: dest.map(PathBuf::from),
+            mapping,
+            session,
+            target,
+            desired,
+            authority,
+            export: export.map(PathBuf::from),
+            kind,
+            profile,
+            adapter,
+            n,
+            execute,
+            oneshot,
+            text,
+        })));
+    }
+
+    if LISTED_COMMANDS.contains(&command.as_str()) {
+        return Err(unimplemented(&command, Some(command.clone())));
+    }
+    Err(invalid(
+        format!("unknown command `{}`", display_token(&command)),
+        Some(command),
+    ))
+}
+
+pub fn parse_args<I, S>(args: I) -> Result<InspectArgs, UsageError>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    match parse_cli(args)? {
+        Cli::Inspect(parsed) => Ok(parsed),
+        Cli::Product(other) => Err(invalid(
+            format!(
+                "parse_args only accepts inspect; got `{}`",
+                display_token(&other.command)
+            ),
+            Some(other.command),
+        )),
+    }
 }
 
 fn listed_subcommands(command: &str) -> &'static [&'static str] {

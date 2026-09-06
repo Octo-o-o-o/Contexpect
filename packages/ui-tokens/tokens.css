@@ -1,0 +1,25 @@
+:root {
+  --bg-canvas: #F3F1EA;
+  --bg-surface: #FCFBF7;
+  --bg-shell: #101722;
+  --text-primary: #17202B;
+  --text-muted: #66717F;
+  --text-on-shell: #E8E6DC;
+  --border: #D9D8D1;
+  --verified: #167C70;
+  --suspected: #C88825;
+  --confirmed: #C64F45;
+  --unknown: #6F62B5;
+  --info: #2878A8;
+  --nav-width: 224px;
+  --topbar-height: 56px;
+  --drawer-width: 368px;
+  --radius: 10px;
+  --font-ui: "SF Pro Text", "Inter", "PingFang SC", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+}
+
+[data-privacy="screenshot"] [data-mask] {
+  filter: blur(8px);
+  user-select: none;
+}

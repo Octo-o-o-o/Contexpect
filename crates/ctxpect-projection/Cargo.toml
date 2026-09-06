@@ -1,0 +1,15 @@
+[package]
+name = "ctxpect-projection"
+description = "CanonicalIntent, unique-authority preview/apply/rollback, concurrent hash guard."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ctxpect-fs = { path = "../ctxpect-fs" }
+ctxpect-schema = { path = "../ctxpect-schema" }
+
+[lints]
+workspace = true

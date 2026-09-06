@@ -28,7 +28,7 @@
 ### Components
 
 - `SymptomInput`：placeholder `Describe what feels wrong…`；主按钮 `Diagnose`。
-- `StatusBand`：`3 Confirmed`、`2 Suspected`、`4 Unknown`、`4 native-evidence · 9 static-only · 5 need connector`。
+- `StatusBand`：Confirmed / Suspected / Unknown **分开计数**。fixture 文案 `3 Confirmed`、`2 Suspected`、`4 Unknown` 统计的是 **findings**（确认状态 + 知识缺口），与 findings 表行数不必相等（一条 finding 可同时有 Unknown facet）。`4 native-evidence · 9 static-only · 5 need connector` 统计的是 **18 个 adapter family 的 coverage 分组**，与 finding 计数对象不同、允许重叠解释；详情必须能从 Receipt 复算。4/9/5 只属于本视觉 fixture，不是 live 安装矩阵。
 - `FindingTable`：Finding、Affected surfaces、Evidence、Impact、First seen；默认 severity/impact 优先，再按 first seen。
 - `DiagnosisDrawer`：顶部显示 decision；本 fixture 为 `Indeterminate`。
 - `EvidenceChain`：Declared setting → Resolver → Model-visible claim → Native observation；不得用连续绿色暗示整链通过。
@@ -61,7 +61,7 @@ Adapter coverage:
 - `Collect evidence` routes to the best supported native action or a guided user-attestation flow.
 - `Export bundle` exports a redacted diagnostic bundle; it does not unlock treatment.
 - Treatment remains disabled when Model-visible is Indeterminate, even if Installed/Discoverable are Present.
-- `Privacy mode` always shows current state and changes what evidence may leave the device.
+- `Privacy mode` 拆成独立控件：显示遮罩、按住显示、复制确认、导出脱敏、egress consent。关闭遮罩不能自动授予发送正文权限。截图隐私模式还覆盖 DOM/tooltip/aria/toast/导出预览。
 - Empty findings still show adapter coverage and any Unknown facets；copy 必须说 “No current findings in observed coverage”，不能说 “Everything is healthy”。
 - Adapter failure appears as a finding with a reason code (`auth-rejected`、`unsupported-version`、`sandbox-unavailable`、`attachment-unavailable` etc.)。
 

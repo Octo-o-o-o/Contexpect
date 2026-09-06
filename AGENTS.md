@@ -19,7 +19,7 @@ Contexpect / `ctxpect`：local-first 的 AI coding context 核对与控制。现
 
 ## 本阶段允许的命令
 
-九条 required gate（名称 + 命令）：
+本阶段 required gate 共 13 条（原九条与新增四条前端检查并列）。名称 + 命令必须一起跑。
 
 | 名称 | 命令 |
 | --- | --- |
@@ -47,6 +47,17 @@ cargo clippy --workspace --all-targets
 ```
 
 不要为这些命令安装 pip 依赖，不要访问网络，不要读取凭据或私人会话历史。
+
+前端/UI 四条是本阶段新增的 required gate（需要 Node 22 / pnpm 11.20.0，lockfile 尚未冻结前以实际 `pnpm` 版本为准）。失败判据：缺路由、C03 token 漂移、typecheck/build 失败。env 不强制 `CI`。
+
+| 名称 | cwd | 命令 |
+| --- | --- | --- |
+| ui-routes | 仓库根 | `python3 scripts/check_ui_routes.py` |
+| ui-unit | `packages/ui` | `pnpm test` |
+| ui-typecheck | `packages/ui` | `pnpm typecheck` |
+| ui-build | `packages/ui` | `pnpm build` |
+
+未执行或失败时不得把这些命令报告为已通过。Tauri 桌面壳尚未创建，因此也不在 Cargo workspace 内；`cargo build --workspace` 不构建桌面壳。
 
 ## 不变量
 

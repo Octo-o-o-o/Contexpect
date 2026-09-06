@@ -36,7 +36,7 @@ packages/ui                         React/TypeScript app
 packages/ui-tokens                  design tokens from 02-design-system.md
 ```
 
-已创建：`Cargo.toml`（workspace）、`crates/ctxpect-core`（claim 真值模型：轴、unknown reason code、10 条诚实性 invariant）、`crates/ctxpect-schema`（已声明范围内的 legacy canonical JSON 与内容摘要）。当前另有 `crates/ctxpect-fs`、`crates/ctxpect-collect` 的阶段实现，以及本切片新建的 `crates/ctxpect-resolve`、`crates/ctxpect-cli`；存在源码不表示已通过其完整验收；以相应阶段合同和有效交付记录为准。其余路径在对应工作包开始前不创建。
+已创建：`Cargo.toml`（workspace）、`crates/ctxpect-core`、`ctxpect-schema`、`ctxpect-fs`、`ctxpect-collect`、`ctxpect-resolve`、`ctxpect-cli`，以及 Receipt/ledger/Doctor/diff/policy/projection/importer/advisor/effect/sync。`packages/ui` 与 `packages/ui-tokens` 已创建。`apps/desktop` 的 Tauri 桌面壳**尚未创建**（该目录目前只有 README 与预览脚本，没有 `src-tauri` / `tauri.conf.json`），因此也不是 Cargo workspace member。存在源码不表示已通过其完整验收；以相应阶段合同和有效交付记录为准。SQLite+FTS5 仍是 ADR 目标；当前 ledger 是 std-only JSON 文档库，这是存储引擎偏离，不是 Claim/Receipt 合同偏离。
 
 OS lanes：`macos-27-arm64`（已捕获）、`ubuntu-24.04-x86_64`（官方 `ubuntu-24.04.4-live-server-amd64.iso` SHA-256 已冻结）、`windows-11-24h2-x86_64`（官方 build `26100.9278` 已冻结；ISO digest 为 `digest-not-published-by-source`）。详见 `docs/research/2026-09-04-source-backed-coordinates.md` 与 `acceptance/artifact-digest-manifest.json`。
 
@@ -80,7 +80,9 @@ OS lanes：`macos-27-arm64`（已捕获）、`ubuntu-24.04-x86_64`（官方 `ubu
 
 验收：fixtures 全绿；重复扫描 digest 稳定；未知版本 fail-closed；无 UI/daemon/账号完成核心检查。
 
-2026-09-05 排程补充：按[统一交付方案](../plan/2026-09-05-contexpect-evidence-first-delivery.astra.md)接续现有 fs/collect → 单 anchor 可解释 inspect → 尽早受控原生对账 → 其余 anchor 分别扩展。下一切片只补它需要的规范与来源，ECC 按实际消费者的未覆盖缺口并入；不新开独立 ECC 批，也不修改活动 fs/collect 的冻结范围。只读核心验收后可按 PRD §18 准备早期形成性反馈。上述切片通过不等于完整 WP-02 完成，不豁免原 oracle、坐标、静态语料和安全门禁。
+2026-09-05 排程补充（公开 canonical 记录）：接续现有 fs/collect → 单 anchor 可解释 inspect → 尽早受控原生对账 → 其余 anchor 分别扩展。下一切片只补它需要的规范与来源，ECC 按实际消费者的未覆盖缺口并入；不新开独立 ECC 批，也不修改活动 fs/collect 的冻结范围。只读核心验收后可按 PRD §18 准备早期形成性反馈。上述切片通过不等于完整 WP-02 完成，不豁免原 oracle、坐标、静态语料和安全门禁。
+
+2026-09-06 对账与补充：[可视化与完整产品闭环补充实施方案](2026-09-06-contexpect-visualization-closure-supplement.md)覆盖全部用户入口、跨工作包闭环和后续实现/验收依赖；它不表示这些功能已实施，也不覆盖活动阶段的冻结合同。
 
 ---
 
@@ -297,5 +299,9 @@ Cursor user instructions 保持 export-only。Codex/Grok 无独立 scoped-rule p
 | cargo-build | `cargo build --workspace` |
 | cargo-test | `cargo test --workspace` |
 | cargo-clippy | `cargo clippy --workspace --all-targets` |
+| ui-routes | `python3 scripts/check_ui_routes.py` |
+| ui-unit | `pnpm test` |
+| ui-typecheck | `pnpm typecheck` |
+| ui-build | `pnpm build` |
 
-WP-01 的**文档与合同**部分在 foundation 完成：根开源文件、canonical docs、八份 acceptance 工件、生成夹具，以及上表前六条门禁。WP-02 第一刀（`ctxpect-core` 真值模型与 `ctxpect-schema` 规范化）追加 cargo-build、cargo-test 与 cargo-clippy 三条门禁；fs/collect 的后续切片已有阶段实现；本切片新建了 `ctxpect-resolve` 与 `ctxpect-cli`。存在源码不表示已通过其完整验收。`doctor` 等其余 crate 尚未开始。
+WP-01 的**文档与合同**部分在 foundation 完成：根开源文件、canonical docs、八份 acceptance 工件、生成夹具，以及上表前六条门禁。WP-02 第一刀（`ctxpect-core` 真值模型与 `ctxpect-schema` 规范化）追加 cargo-build、cargo-test 与 cargo-clippy 三条门禁；后续 crate 与 `packages/ui` 已有阶段实现。存在源码不表示已通过其完整验收。前端四条（ui-routes / ui-unit / ui-typecheck / ui-build）是本阶段新增的 required gate，cwd/env/命令/失败判据见 [test-strategy](test-strategy.md)。

@@ -1,0 +1,14 @@
+[package]
+name = "ctxpect-effect"
+description = "Frozen ExperimentContract and four effect decisions. Single A/B is not causation."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ctxpect-schema = { path = "../ctxpect-schema" }
+
+[lints]
+workspace = true

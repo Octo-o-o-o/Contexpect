@@ -88,9 +88,13 @@ Receipt 是一次核对的不可变摘要。至少包含 PRD §4.3 列出的字�
 
 至少：`surface_not_exposed`、`unsupported_harness_version`、`permission_not_granted`、`runtime_snapshot_missing`、`cloud_setting_unavailable`、`dynamic_agent_selection`、`tool_schema_not_exported`、`current_occupancy_not_reported`、`content_redacted_by_policy`、`import_parse_failed`、`evidence_stale`，以及安装诚实码 `not_installed`、`connector_required`、`config_residue_only`、`authentication_unavailable`、`sandbox_unavailable`。
 
+## Receipt 迁移
+
+`dev-inspect-v0` + `development-snapshot` 不是正式 Receipt。晋升必须调用 `migrate_dev_inspect_v0`（`crates/ctxpect-receipt`），写入 `schema=ctxpect-receipt-v1`、六类 `receipt_kind` 之一，以及 `source_snapshot.migration=dev-inspect-v0-to-ctxpect-receipt-v1`。只改 schema 名称被 `reject_relabeled_snapshot` 拒绝。本地 HMAC 是 `local-continuity`，`org_identity=false`。
+
 ## SQLite 实体
 
-核心实体树与建议表见 PRD §10。实现时迁移文件按 [implementation-plan](../process/implementation-plan.md) 分工作包落地。本阶段不创建数据库。
+核心实体树与建议表见 PRD §10。当前实现是 JSON document ledger（`crates/ctxpect-store`），同一 DTO；SQLite+FTS5 仍为 ADR 目标，尚未切换引擎。
 
 在 PRD §10 既有表之外规划（不执行 migration）：`intent_revisions`、`projection_outcomes`、`native_overlays`、`loss_reports`、`equivalence_bindings`、`team_context_standards`、`standard_revisions`、`standard_bindings`、`layer_assignments`、`exception_records`、`member_disclosures`、`leader_compliance_views`。`intents` 表保存 CanonicalIntent，不另建平行 Intent 对象。
 

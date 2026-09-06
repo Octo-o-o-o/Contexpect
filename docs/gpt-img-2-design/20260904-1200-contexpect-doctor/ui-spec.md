@@ -30,7 +30,7 @@
 ## Layout System
 
 - Shell: 224px 左导航 + 顶部 56px coordinate bar + 主工作区；右侧 344–384px evidence/care drawer 可折叠。
-- Navigation: Checkup、Doctor、Care Plan、Monitor、Receipts、Lab；下方 Assets、Integrations、Policy、Settings。
+- Navigation: V01–V16 全部可达（Doctor 默认主入口；Inspector、Compare、Sync、Standards、Sessions、Exceptions、Team compliance、Care Plan、Integrations、Settings 可分组）。技术栈遵循 ADR 0001，不重新选型。
 - Grid: 12-column；Doctor 默认 central findings 7 columns + evidence/care 5 columns。
 - Spacing: 4px base；8/12/16/24/32。
 - Responsive behavior: ≥1280 三栏；1024–1279 右栏 drawer；<1024 列表/详情主从切换。
