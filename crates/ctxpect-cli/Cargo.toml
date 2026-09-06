@@ -1,0 +1,22 @@
+[package]
+name = "ctxpect-cli"
+description = "ctxpect command-line entry; this slice ships inspect only."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "ctxpect"
+path = "src/main.rs"
+
+[dependencies]
+ctxpect-collect = { path = "../ctxpect-collect" }
+ctxpect-core = { path = "../ctxpect-core" }
+ctxpect-fs = { path = "../ctxpect-fs" }
+ctxpect-resolve = { path = "../ctxpect-resolve" }
+ctxpect-schema = { path = "../ctxpect-schema" }
+
+[lints]
+workspace = true

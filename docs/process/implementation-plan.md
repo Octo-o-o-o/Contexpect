@@ -1,6 +1,6 @@
 # 实施计划：F-01–F-18 × WP-01–WP-12
 
-> 状态：规范（尚未实施产品运行时）
+> 状态：规范；WP-02 已按切片启动，其余未进入阶段的运行时尚未实施。完成状态以各阶段有效交付记录为准。
 > 这是完整交付的施工顺序，不是范围裁剪。禁止用 MVP、试验版或 TODO 占位符替代任何工作包。
 
 Acceptance cutoff：`2026-09-04T23:59:59+08:00`。WP-02 不得在八份 `acceptance/` 工件通过独立评审前开始。
@@ -36,7 +36,7 @@ packages/ui                         React/TypeScript app
 packages/ui-tokens                  design tokens from 02-design-system.md
 ```
 
-已创建：`Cargo.toml`（workspace）、`crates/ctxpect-core`（claim 真值模型：轴、unknown reason code、9 条诚实性 invariant）、`crates/ctxpect-schema`（canonical JSON 与内容摘要，与验收生成器字节一致）。其余路径在对应工作包开始前不创建。
+已创建：`Cargo.toml`（workspace）、`crates/ctxpect-core`（claim 真值模型：轴、unknown reason code、10 条诚实性 invariant）、`crates/ctxpect-schema`（已声明范围内的 legacy canonical JSON 与内容摘要）。当前另有 `crates/ctxpect-fs`、`crates/ctxpect-collect` 的阶段实现，以及本切片新建的 `crates/ctxpect-resolve`、`crates/ctxpect-cli`；存在源码不表示已通过其完整验收；以相应阶段合同和有效交付记录为准。其余路径在对应工作包开始前不创建。
 
 OS lanes：`macos-27-arm64`（已捕获）、`ubuntu-24.04-x86_64`（官方 `ubuntu-24.04.4-live-server-amd64.iso` SHA-256 已冻结）、`windows-11-24h2-x86_64`（官方 build `26100.9278` 已冻结；ISO digest 为 `digest-not-published-by-source`）。详见 `docs/research/2026-09-04-source-backed-coordinates.md` 与 `acceptance/artifact-digest-manifest.json`。
 
@@ -79,6 +79,8 @@ OS lanes：`macos-27-arm64`（已捕获）、`ubuntu-24.04-x86_64`（官方 `ubu
 | Release artifacts | `ctxpect` 开发快照（内部），非产品完成 |
 
 验收：fixtures 全绿；重复扫描 digest 稳定；未知版本 fail-closed；无 UI/daemon/账号完成核心检查。
+
+2026-09-05 排程补充：按[统一交付方案](../plan/2026-09-05-contexpect-evidence-first-delivery.astra.md)接续现有 fs/collect → 单 anchor 可解释 inspect → 尽早受控原生对账 → 其余 anchor 分别扩展。下一切片只补它需要的规范与来源，ECC 按实际消费者的未覆盖缺口并入；不新开独立 ECC 批，也不修改活动 fs/collect 的冻结范围。只读核心验收后可按 PRD §18 准备早期形成性反馈。上述切片通过不等于完整 WP-02 完成，不豁免原 oracle、坐标、静态语料和安全门禁。
 
 ---
 
@@ -296,4 +298,4 @@ Cursor user instructions 保持 export-only。Codex/Grok 无独立 scoped-rule p
 | cargo-test | `cargo test --workspace` |
 | cargo-clippy | `cargo clippy --workspace --all-targets` |
 
-WP-01 的**文档与合同**部分在 foundation 完成：根开源文件、canonical docs、八份 acceptance 工件、生成夹具，以及上表前六条门禁。WP-02 第一刀（`ctxpect-core` 真值模型与 `ctxpect-schema` 规范化）追加 cargo-build、cargo-test 与 cargo-clippy 三条门禁；WP-02 其余 crate（collect / resolve / doctor / cli）尚未开始。
+WP-01 的**文档与合同**部分在 foundation 完成：根开源文件、canonical docs、八份 acceptance 工件、生成夹具，以及上表前六条门禁。WP-02 第一刀（`ctxpect-core` 真值模型与 `ctxpect-schema` 规范化）追加 cargo-build、cargo-test 与 cargo-clippy 三条门禁；fs/collect 的后续切片已有阶段实现；本切片新建了 `ctxpect-resolve` 与 `ctxpect-cli`。存在源码不表示已通过其完整验收。`doctor` 等其余 crate 尚未开始。

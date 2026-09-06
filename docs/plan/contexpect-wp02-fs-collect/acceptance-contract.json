@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "task": "contexpect-wp02",
+  "stage": "fs-collect",
+  "cycle": "c1",
+  "base_head": "b05c272b808343cde19883b29beae153161fdfa6",
+  "scope_note": "WP-02 第二刀：crates/ctxpect-fs（路径包含与不安全条目拒绝）+ crates/ctxpect-collect（被动资产发现与稳定摘要）。不含 resolve / doctor / receipt / adapters / cli，不含 archive 解压、SSH collector、Windows junction。",
+  "required_dimensions": ["containment", "passivity", "determinism"],
+  "acceptance_items": [
+    {
+      "id": "A1",
+      "severity": "P0",
+      "statement": "路径包含：任何解析后落在扫描 root 之外的路径必须被拒绝并给出具体原因，至少覆盖 `..` 逃逸、绝对路径、指向 root 外的 symlink、指向 root 外的多级 symlink、以及中间目录为 symlink 的情形。拒绝必须是 fail-closed（返回错误），不得静默跳过或降级为部分读取。"
+    },
+    {
+      "id": "A2",
+      "severity": "P0",
+      "statement": "非常规条目：socket、FIFO、device 等非 regular file 不得被当作内容读取；它们必须被识别为非常规并以 indeterminate 记录，扫描不得因此阻塞或失败整棵树。"
+    },
+    {
+      "id": "A3",
+      "severity": "P0",
+      "statement": "TOCTOU：路径通过校验之后、读取之前被替换为指向 root 外的 symlink 时，读取必须失败，且绝不返回 root 外的内容。该性质由一个真实执行替换的测试证明，不能只靠代码审读。"
+    },
+    {
+      "id": "A4",
+      "severity": "P0",
+      "statement": "被动扫描零执行：扫描一棵含可执行 hook / script / MCP 声明的 fixture 树后，这些程序留下的标记文件必须不存在。产品代码中不得出现 std::process::Command 或任何进程创建路径（由针对源码的测试强制）。"
+    },
+    {
+      "id": "A5",
+      "severity": "P0",
+      "statement": "默认排除：`.git`、依赖目录（node_modules / target / vendor）、构建产物、`.env`、私钥文件（id_rsa 等）默认不读取正文。被排除项可以出现在清单里并标注排除原因，但其内容与内容摘要必须缺席。"
+    },
+    {
+      "id": "A6",
+      "severity": "P0",
+      "statement": "重复扫描摘要稳定：同一棵树连续扫描两次，清单摘要逐字节相同，且与文件系统遍历顺序、mtime 无关；任一被收录文件的内容变化必须使摘要变化。"
+    },
+    {
+      "id": "A7",
+      "severity": "P1",
+      "statement": "如实标注：symlink（含 root 内的合法 symlink）、hard link、内容重复必须被识别并在清单中如实记录，不得把 symlink 当作独立副本、也不得把重复内容自动判定为同一资产。"
+    },
+    {
+      "id": "A8",
+      "severity": "P1",
+      "statement": "大小与保留上限：普通文件允许流式读取全文并计算全文件摘要；仅在内存保留不超过 MAX_READ_BYTES（当前 1 MiB）的正文前缀，另有固定大小的流式读取/摘要缓冲。超过保留阈值时必须标明保留正文已截断及原因/实际长度，不能将前缀冒充完整正文。该阈值不是总 I/O 或扫描时长上限；A6 对全文内容变化的摘要要求不变。"
+    },
+    {
+      "id": "A9",
+      "severity": "P1",
+      "statement": "既有九条门禁零回归；不创建本切片范围外的 crate 目录或空骨架；新增 crate 保持零第三方依赖。"
+    },
+    {
+      "id": "A10",
+      "severity": "P1",
+      "statement": "描述纪律（承接 wp02-core 的 owner 裁决）：新增模块的文档必须含「这些测试观察什么」与「它们不观察什么」两节，后者逐条列出未覆盖面。不得写推断性强度断言。"
+    }
+  ],
+  "required_gates": [
+    "docs-structure",
+    "acceptance-validation",
+    "traceability-validation",
+    "corpus-validation",
+    "semantic-team-validation",
+    "validator-negative-tests",
+    "cargo-build",
+    "cargo-test",
+    "cargo-clippy"
+  ],
+  "out_of_scope": [
+    "resolve / doctor / receipt / adapters-sdk / adapters / cli crates",
+    "archive traversal 与压缩炸弹（需解压实现）",
+    "SSH collector、远端与容器 environment profile",
+    "Windows junction 与 case-sensitivity 行为（当前 OS lane 为 macos-27-arm64）",
+    "SQLite store、daemon、UI"
+  ],
+  "evidence_requirements": [
+    "A1–A3 与 A6 必须由真实文件系统操作的测试证明，不接受纯内存模拟。",
+    "A4 的零执行必须同时由行为测试（标记文件缺席）与源码测试（无进程创建 API）证明。",
+    "每条声称关闭的验收项须有反向验证：移除被测机制后对应测试转红。"
+  ]
+}

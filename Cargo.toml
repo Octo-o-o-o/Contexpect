@@ -1,7 +1,11 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/ctxpect-cli",
+    "crates/ctxpect-collect",
     "crates/ctxpect-core",
+    "crates/ctxpect-fs",
+    "crates/ctxpect-resolve",
     "crates/ctxpect-schema",
 ]
 

@@ -58,3 +58,37 @@ core.*
 # Generated local receipts that may contain paths
 /tmp/
 /scratch/
+
+# Internal delivery process — not published
+# 内部交付过程记录：竞品借鉴评估、产品价值/差距分析、内部评审与实施编排、
+# 监督交付的控制面产物。这些不是产品规范，也不面向使用者或贡献者。
+/docs/archive/
+/docs/research/2026-09-05-ecc-astra-review.md
+/docs/research/2026-09-05-ecc-borrowing-plan.md
+/docs/research/2026-09-05-ecc-everything-claude-code-research.md
+/docs/research/2026-09-05-ecc-final-review.md
+/docs/research/2026-09-05-ecc-project-research.md
+/docs/research/2026-09-05-ecc-review-and-delivery.md
+/docs/research/2026-09-05-ecc-review-r1.md
+/docs/research/2026-09-05-ecc-review-r2.md
+/docs/research/2026-09-05-ecc-review-r3.md
+/docs/research/2026-09-05-ecc-unified-research.md
+/docs/research/ecc-evidence-index.json
+/docs/research/ecc-final/
+/docs/plan/2026-09-05-ecc-borrowing-assessment.astra.md
+/docs/plan/2026-09-05-ecc-borrowing-assessment.fable.md
+/docs/plan/2026-09-05-ecc-borrowing-consolidated.fable.md
+/docs/plan/2026-09-05-ecc-borrowing-final.md
+/docs/plan/2026-09-05-ecc-implementation-prompt.md
+/docs/plan/2026-09-05-contexpect-product-value-and-gaps.Astra.md
+/docs/plan/2026-09-05-contexpect-evidence-first-delivery.astra.md
+/docs/plan/2026-09-05-contexpect-evidence-first-implementation-prompt.astra.md
+/docs/review/2026-09-05-contexpect-project-assessment.fable.md
+/docs/review/2026-09-05-contexpect-unified-delivery/
+/docs/plan/*-cycle.json
+/docs/plan/contexpect-wp02-fs-collect/implement-*-report.md
+/docs/plan/contexpect-wp02-fs-collect/repair-*-report.md
+/docs/plan/contexpect-docs-semantic-team-c2/control.json
+/docs/plan/contexpect-docs-semantic-team-c2/policy.frozen.json
+/docs/plan/contexpect-docs-semantic-team-c2/acceptance.frozen.json
+/docs/plan/contexpect-docs-semantic-team-c2/coverage-matrix.json

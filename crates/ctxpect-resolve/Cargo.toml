@@ -1,0 +1,21 @@
+[package]
+name = "ctxpect-resolve"
+description = "Static Codex instructions resolver for the WP-02 inspect slice."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ctxpect-collect = { path = "../ctxpect-collect" }
+ctxpect-core = { path = "../ctxpect-core" }
+ctxpect-fs = { path = "../ctxpect-fs" }
+ctxpect-schema = { path = "../ctxpect-schema" }
+
+[dev-dependencies]
+ctxpect-core = { path = "../ctxpect-core" }
+ctxpect-fs = { path = "../ctxpect-fs" }
+
+[lints]
+workspace = true

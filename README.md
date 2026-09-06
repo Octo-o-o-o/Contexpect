@@ -1,6 +1,7 @@
 # Contexpect
 
-> 状态：规范与验收合同已冻结；**尚未实施产品运行时**。
+> 状态：规范与验收合同已冻结；产品运行时**尚未实施**。
+> WP-02 的开发切片提供了可构建的只读 `ctxpect inspect`（见[快速开始](#快速开始)）。
 > Expected. Observed. Reconciled.
 
 Contexpect 是一个 local-first 的可视化 AI coding context 核对与控制工具。它解释指定设备、工具版本、项目、工作目录和任务下，哪些上下文按规则应该出现，哪些被运行时实际观察到，哪些仍不可见，并帮助用户安全地对齐、同步、管理和验证这些上下文。
@@ -9,7 +10,65 @@ CLI 名称：`ctxpect`
 核心产物：Context Receipt  
 默认桌面入口：Context Doctor（工作流名，不是独立品牌）
 
-本仓库当前交付的是完整产品合同、架构文档、开源治理文件和 PRD §17.0 验收基线。Rust workspace、Tauri 2 桌面壳、React/TypeScript UI 和 SQLite/FTS5 运行时**尚未实现**。不要把生成夹具或设计图理解为已经跑通的产品。
+本仓库当前交付的是完整产品合同、架构文档、开源治理文件、PRD §17.0 验收基线，以及 WP-02
+的 Rust workspace 开发切片。Tauri 2 桌面壳、React/TypeScript UI、SQLite/FTS5 存储、daemon
+与同步运行时**尚未实施**。不要把生成夹具或设计图理解为已经跑通的产品，也不要把单 anchor 的
+静态 `inspect` 当作完整 WP-02。
+
+## 快速开始
+
+需要 Rust 1.90+（edition 2024）。构建与试跑都在本地离线完成，不访问网络、不启动任何 harness、
+不读取你的真实 home 或 session。
+
+```bash
+cargo build --release -p ctxpect-cli
+```
+
+对仓库内的开发语料跑一次静态检查：
+
+```bash
+CORPUS=acceptance/corpus/development/static/inputs
+./target/release/ctxpect inspect --offline --project "$CORPUS/dev__static__codex__0.147.0__cli__macos-27-arm64__instructions__positive"
+```
+
+输出会说明：检查的 scope 与坐标、required 集合的结果、每条规则**为什么**纳入或排除、
+依据在哪个文件、什么仍不确定、以及下一步需要什么证据。
+
+三种结果各看一次（exit code 是结果的一部分）：
+
+| 命令尾部 | 含义 | exit |
+| --- | --- | ---: |
+| `..._instructions__positive` | 规则命中，指令被纳入 | 0 |
+| `..._ignore__04` | 被 `.ctxpect-ignore` 排除，required 判定为 absent | 2 |
+| `--require tool-invocation ..._tool-invocation__indeterminate` | 本切片未解析该能力，诚实报 Unknown | 3 |
+
+完整参数见 `ctxpect --help`。常用的几个：`--json` 输出机器可读结果；`--codex-home <dir>`
+显式授权一个包含全局 `AGENTS.md` 的目录（不传则按 G5 报 `permission_not_granted`，不会去猜
+`$HOME` 或 `$CODEX_HOME`）；`--cwd <rel>` 指定项目内的工作目录。CLI 参考里列出但本切片未实施的
+子命令与参数会明确拒绝，不会被静默忽略。
+
+### 这个切片能做什么、不能做什么
+
+能：对 Codex CLI 0.147.0 / cli / macOS lane 的 instructions（AGENTS.md 链）做静态解析，
+给出带来源链和 scope 的解释、稳定的开发快照摘要，以及路径脱敏后的 JSON/human 输出。
+
+不能：执行任何 harness、hook、MCP 或 plugin；读取真实私人 home、session 或凭据正文；
+断言运行时事实。所有 model-visible / use-evidence / outcome-affecting 一律报
+`indeterminate`，并指明需要 native runtime snapshot 才能确定。其余 17 个 adapter family、
+其余 capability、Receipt 签名、diff/store/daemon/UI 都尚未实施。
+
+## 当前实现状态
+
+| 工作包 | 内容 | 状态 |
+| --- | --- | --- |
+| WP-01 | 契约、fixture 与威胁模型 | 文档与合同部分已交付 |
+| WP-02 | Core collector、resolver 与 CLI | 进行中：`ctxpect-core`/`-schema`/`-fs`/`-collect`/`-resolve`/`-cli` 已有阶段实现与阶段验收记录 |
+| WP-03 | SQLite、snapshot、diff 与 evidence ledger | 尚未开始 |
+| WP-04 | Inspector UI 与本地 API（Tauri 2 + React） | 尚未开始 |
+| WP-05 – WP-12 | daemon、projection、同步、生态、advisor、policy、集成验收 | 尚未开始 |
+
+存在源码不代表已通过该阶段的完整验收；以各阶段合同与有效交付记录为准。详见
+[实施计划](docs/process/implementation-plan.md)。
 
 ## 为什么存在
 

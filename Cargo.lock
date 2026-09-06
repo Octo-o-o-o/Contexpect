@@ -3,9 +3,45 @@
 version = 4
 
 [[package]]
+name = "ctxpect-cli"
+version = "0.1.0"
+dependencies = [
+ "ctxpect-collect",
+ "ctxpect-core",
+ "ctxpect-fs",
+ "ctxpect-resolve",
+ "ctxpect-schema",
+]
+
+[[package]]
+name = "ctxpect-collect"
+version = "0.1.0"
+dependencies = [
+ "ctxpect-fs",
+ "ctxpect-schema",
+]
+
+[[package]]
 name = "ctxpect-core"
 version = "0.1.0"
 dependencies = [
+ "ctxpect-schema",
+]
+
+[[package]]
+name = "ctxpect-fs"
+version = "0.1.0"
+dependencies = [
+ "ctxpect-schema",
+]
+
+[[package]]
+name = "ctxpect-resolve"
+version = "0.1.0"
+dependencies = [
+ "ctxpect-collect",
+ "ctxpect-core",
+ "ctxpect-fs",
  "ctxpect-schema",
 ]
 

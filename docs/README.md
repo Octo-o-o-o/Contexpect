@@ -1,7 +1,9 @@
 # Contexpect 文档索引
 
 > 状态：规范（尚未实施产品运行时）
-> 当前仓库是产品定义、架构合同与验收基线；没有可运行的 `ctxpect` 或 Tauri 应用。
+> 当前仓库是产品定义、架构合同与验收基线。WP-02 的开发切片已提供可构建的
+> `ctxpect inspect`（Codex instructions 单 anchor，静态只读）；Tauri 桌面应用、
+> daemon、SQLite 存储与其余 CLI 子命令尚未实施。
 
 ## 阅读顺序
 

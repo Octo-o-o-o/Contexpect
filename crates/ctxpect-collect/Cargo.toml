@@ -1,0 +1,15 @@
+[package]
+name = "ctxpect-collect"
+description = "Passive asset discovery producing a stable inventory digest."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ctxpect-fs = { path = "../ctxpect-fs" }
+ctxpect-schema = { path = "../ctxpect-schema" }
+
+[lints]
+workspace = true

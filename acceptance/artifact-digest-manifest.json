@@ -27,7 +27,7 @@
       "schema_id": "projection-matrix"
     },
     {
-      "digest_sha256": "34fd56d54f2f86e97cbdde1a8b5d033e67acba3f48e3244c6981ce544ea36c63",
+      "digest_sha256": "999d49e002406b974b0af6afba358451958ebf73e992e2b79c7c5fb03dbae63c",
       "path": "acceptance/traceability.csv",
       "schema_id": "traceability"
     },

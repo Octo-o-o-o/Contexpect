@@ -15,7 +15,7 @@ pub mod json;
 pub mod sha256;
 
 pub use json::{canonical_json, parse, ParseError, Value};
-pub use sha256::{sha256_hex, sha256_text};
+pub use sha256::{sha256_hex, sha256_text, Hasher};
 
 /// SHA-256 of a value's canonical JSON form.
 ///

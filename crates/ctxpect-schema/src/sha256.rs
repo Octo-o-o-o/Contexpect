@@ -59,6 +59,90 @@ fn compress(state: &mut [u32; 8], block: &[u8; 64]) {
     }
 }
 
+/// Incremental SHA-256, for data too large to hold in memory.
+///
+/// Digesting a large file by reading it whole defeats the point of a read cap, so
+/// callers that stream feed chunks here instead.
+#[derive(Debug, Clone)]
+pub struct Hasher {
+    state: [u32; 8],
+    buffer: [u8; 64],
+    buffered: usize,
+    total_bytes: u64,
+}
+
+impl Default for Hasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Hasher {
+    #[must_use]
+    pub const fn new() -> Hasher {
+        Hasher {
+            state: H0,
+            buffer: [0u8; 64],
+            buffered: 0,
+            total_bytes: 0,
+        }
+    }
+
+    /// Feed the next chunk.
+    pub fn update(&mut self, mut data: &[u8]) {
+        self.total_bytes = self.total_bytes.wrapping_add(data.len() as u64);
+
+        if self.buffered > 0 {
+            let room = 64 - self.buffered;
+            let take = room.min(data.len());
+            self.buffer[self.buffered..self.buffered + take].copy_from_slice(&data[..take]);
+            self.buffered += take;
+            data = &data[take..];
+            if self.buffered < 64 {
+                // The buffer is still short and `data` is spent; returning here
+                // keeps the tail assignment below from clearing what we buffered.
+                return;
+            }
+            let block = self.buffer;
+            compress(&mut self.state, &block);
+            self.buffered = 0;
+        }
+
+        let mut chunks = data.chunks_exact(64);
+        for chunk in &mut chunks {
+            let mut block = [0u8; 64];
+            block.copy_from_slice(chunk);
+            compress(&mut self.state, &block);
+        }
+        let rest = chunks.remainder();
+        self.buffer[..rest.len()].copy_from_slice(rest);
+        self.buffered = rest.len();
+    }
+
+    /// Finish and return the lowercase hex digest.
+    #[must_use]
+    pub fn finish(mut self) -> String {
+        let bit_len = self.total_bytes.wrapping_mul(8);
+        let mut tail = [0u8; 128];
+        tail[..self.buffered].copy_from_slice(&self.buffer[..self.buffered]);
+        tail[self.buffered] = 0x80;
+        let tail_len = if self.buffered < 56 { 64 } else { 128 };
+        tail[tail_len - 8..tail_len].copy_from_slice(&bit_len.to_be_bytes());
+        for block in tail[..tail_len].chunks_exact(64) {
+            let mut buf = [0u8; 64];
+            buf.copy_from_slice(block);
+            compress(&mut self.state, &buf);
+        }
+
+        let mut out = String::with_capacity(64);
+        for word in self.state {
+            use std::fmt::Write as _;
+            let _ = write!(out, "{word:08x}");
+        }
+        out
+    }
+}
+
 /// Lowercase hex SHA-256 of the given bytes.
 #[must_use]
 pub fn sha256_hex(data: &[u8]) -> String {
@@ -133,6 +217,50 @@ mod tests {
             sha256_hex(&[b'a'; 64]),
             "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb"
         );
+    }
+
+    #[test]
+    fn incremental_matches_one_shot() {
+        // Both axes matter. review-2 found an earlier version using a single data
+        // length (1000, i.e. 40 bytes into the final block), so `finish()`'s
+        // `buffered < 56` threshold was never approached from either side:
+        // changing it to `<=` left the test green. Lengths now straddle every
+        // padding boundary.
+        let lengths = [
+            0usize, 1, 54, 55, 56, 57, 63, 64, 65, 111, 118, 119, 120, 121, 127, 128, 129, 1000,
+            4096,
+        ];
+        let chunk_sizes = [1usize, 7, 55, 56, 63, 64, 65, 100, 4096];
+
+        for length in lengths {
+            let data: Vec<u8> = (0..length).map(|i| (i % 251) as u8).collect();
+            let expected = sha256_hex(&data);
+            for chunk_size in chunk_sizes {
+                let mut hasher = Hasher::new();
+                for chunk in data.chunks(chunk_size.max(1)) {
+                    hasher.update(chunk);
+                }
+                assert_eq!(
+                    hasher.finish(),
+                    expected,
+                    "length {length} with chunk size {chunk_size} diverged"
+                );
+            }
+            // Empty updates interleaved must not disturb the state.
+            let mut hasher = Hasher::new();
+            for chunk in data.chunks(9) {
+                hasher.update(&[]);
+                hasher.update(chunk);
+                hasher.update(&[]);
+            }
+            assert_eq!(hasher.finish(), expected, "length {length} with empty updates");
+        }
+    }
+
+    #[test]
+    fn the_default_hasher_is_the_new_one() {
+        assert_eq!(Hasher::default().finish(), Hasher::new().finish());
+        assert_eq!(Hasher::default().finish(), sha256_hex(&[]));
     }
 
     #[test]
