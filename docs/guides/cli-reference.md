@@ -169,7 +169,7 @@ CTXPECT_PRINCIPAL_SECRET=<secret> ctxpect exception request \
 
 `copy` 经唯一 authority `authorize_store_apply`，并在写入前重新核对两件事：源字节仍与核验时一致（否则 `assets.source_changed`），落点自 preview 以来未被他人改动（否则 `assets.concurrent_hash`，并发编辑得以保留）。复制成功后写入 `store` 的 lock 条目、审计记录，以及一份 **post-Receipt**——复制改变了项目，之后的状态要被观测而不是假定。
 
-`rollback` 恢复先前字节；若这次复制是新建文件，则删除它。
+`rollback` 恢复先前字节；若这次复制是新建文件，则删除它。**回滚同样产生 post-Receipt**：撤销也改变了项目，若不观测，最后一条记录描述的会是撤销之前、也就是已经不成立的那个状态。`apply` 与 `rollback` 的 post-Receipt id 因此可以对照——被观测的文件恢复原状时，id 也回到原值，回滚的效果由此可核验而不只是被声称。
 
 ### lock 与 SBOM
 

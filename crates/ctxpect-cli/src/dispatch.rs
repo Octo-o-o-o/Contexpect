@@ -915,7 +915,15 @@ fn projection_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
     let backup = ctxpect_projection::backup_dir(store.root(), tx);
     let result = proj_rollback(&root, &backup, &intent.target_rel)
         .map_err(|err| fail(err.code, err.message))?;
-    ok("rollback", 0, result)
+    // A rollback changes the project just as an apply does, so the state
+    // after it is observed rather than assumed. Without this, the only
+    // recorded observation would be the one from before the rollback.
+    let post = post_receipt(args, &store)?;
+    ok(
+        "rollback",
+        0,
+        merge(result, [("post_receipt_id", string(&post))]),
+    )
 }
 
 /// Merge extra fields into an object body.
@@ -976,6 +984,22 @@ fn new_adoption(id: &str, state: &str, source_digest: &str, pinned: Option<&str>
             pinned.map_or(Value::Null, string),
         ),
     ])
+}
+
+/// Observe the project after a mutation and return the Receipt's id.
+///
+/// R05 requires a post-Receipt for every mutation. Apply and copy had one;
+/// the rollbacks did not, so undoing a change left the last recorded
+/// observation describing the state before the undo.
+fn post_receipt(args: &ProductArgs, store: &Store) -> Result<String, InspectFailure> {
+    let inspect_args = inspect_args(args)?;
+    let report = inspect(inspect_args)?;
+    let receipt = persist_inspect(store, &report.envelope, "one-shot")?;
+    Ok(receipt
+        .get("receipt_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string())
 }
 
 /// One standard's verified state and this project's adoption of it.
@@ -1350,19 +1374,14 @@ fn assets_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
 
             // Post-Receipt: the copy changed the project, so the state after it
             // is observed rather than assumed.
-            let inspect_args = inspect_args(args)?;
-            let report = inspect(inspect_args)?;
-            let receipt = persist_inspect(&store, &report.envelope, "one-shot")?;
+            let post = post_receipt(args, &store)?;
             ok(
                 "assets copy",
                 0,
                 object([
                     ("transaction", meta),
                     ("plan", plan.to_value()),
-                    (
-                        "post_receipt_id",
-                        string(receipt.get("receipt_id").and_then(Value::as_str).unwrap_or("")),
-                    ),
+                    ("post_receipt_id", string(&post)),
                     ("lock", asset_lock(&store)),
                 ]),
             )
@@ -1383,7 +1402,12 @@ fn assets_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
             let result = ctxpect_assets::rollback(&root, &backup)
                 .map_err(|err| fail(err.code, err.message))?;
             let _ = store.audit("assets.rollback", "asset", Some(tx));
-            ok("assets rollback", 0, result)
+            let post = post_receipt(args, &store)?;
+            ok(
+                "assets rollback",
+                0,
+                merge(result, [("post_receipt_id", string(&post))]),
+            )
         }
         "sbom" => {
             let store = open_store(args)?;

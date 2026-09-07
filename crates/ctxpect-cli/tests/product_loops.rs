@@ -1265,6 +1265,88 @@ fn settings_are_validated_whole_and_invariants_are_not_editable() {
     assert!(raw.contains("settings.field_missing"), "{raw}");
 }
 
+/// R05 requires a post-Receipt for every mutation, undo included.
+///
+/// Apply and copy had one; the rollbacks did not, so undoing a change left
+/// the last recorded observation describing the state *before* the undo —
+/// exactly the state that no longer held.
+#[test]
+fn a_rollback_is_followed_by_an_observation() {
+    let scratch = Scratch::new("r05");
+    scratch.write("AGENTS.md", "hello\n");
+    scratch.write("vendor/skill-a.md", "skill body\n");
+    let digest = ctxpect_schema::sha256_hex(b"skill body\n");
+    scratch.write(
+        ".ctxpect/assets.json",
+        format!(
+            r#"{{"schema":"ctxpect-assets-v1","assets":[{{"asset_id":"skill-a","origin":"project:vendor/skill-a.md","license":"MIT","digest":"{digest}","target_rel":".ctxpect/skills/skill-a.md"}}]}}"#
+        ),
+    );
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    let project_s = scratch.path.to_str().unwrap();
+    fs::create_dir_all(&store).unwrap();
+    plant_pass_policy_and_live_exception(&store);
+
+    let post_id = |value: &Value| -> String {
+        value
+            .get("post_receipt_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+
+    // Asset copy, then undo it.
+    let (code, copied, out) = run(&[
+        "assets", "copy", "--json", "--project", project_s, "--store", store_s, "--id", "skill-a",
+    ]);
+    assert_eq!(code, 0, "{out} {copied:?}");
+    assert!(!post_id(&copied).is_empty(), "copy needs a post-Receipt");
+    let tx = copied
+        .pointer(&["transaction", "tx_id"])
+        .and_then(Value::as_str)
+        .expect("tx_id")
+        .to_string();
+
+    let (code, undone, out) = run(&[
+        "assets", "rollback", "--json", "--project", project_s, "--store", store_s, "--id", &tx,
+    ]);
+    assert_eq!(code, 0, "{out} {undone:?}");
+    assert!(
+        !post_id(&undone).is_empty(),
+        "an asset rollback needs a post-Receipt too: {undone:?}"
+    );
+
+    // Projection apply, then undo it. This one changes a file the inspect
+    // actually observes, so the Receipt ids must differ and then come back.
+    let (code, applied, out) = run(&["apply", "--json", "--project", project_s, "--store", store_s]);
+    assert_eq!(code, 0, "{out} {applied:?}");
+    let after_apply = post_id(&applied);
+    assert!(!after_apply.is_empty(), "apply needs a post-Receipt");
+
+    let tx = applied
+        .pointer(&["transaction", "tx_id"])
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .expect("tx_id");
+    let (code, undone, out) = run(&[
+        "rollback", "--json", "--project", project_s, "--store", store_s, "--id", &tx,
+    ]);
+    assert_eq!(code, 0, "{out} {undone:?}");
+    let after_rollback = post_id(&undone);
+    assert!(
+        !after_rollback.is_empty(),
+        "a projection rollback needs a post-Receipt too: {undone:?}"
+    );
+    // The undo restored the observed file, so the observation returns to what
+    // it was — which is what makes the rollback checkable rather than merely
+    // reported.
+    assert_ne!(
+        after_apply, after_rollback,
+        "apply and rollback observed the same state, so nothing was verified"
+    );
+}
+
 /// R04: the same question gets the same answer from the CLI and the API.
 ///
 /// It did not. `GET /api/v1/standards/:id` returned the stored document

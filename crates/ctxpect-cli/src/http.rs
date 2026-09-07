@@ -683,6 +683,35 @@ fn lab_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
     }
 }
 
+/// Observe the project after a mutation and return the Receipt's id.
+fn observe_after_mutation(
+    state: &AppState,
+    project: &Path,
+) -> Result<String, (u16, &'static str, String)> {
+    let args = InspectArgs {
+        json: true,
+        offline: true,
+        project: project.to_path_buf(),
+        cwd: None,
+        harness: "codex".into(),
+        surface: "cli".into(),
+        version: "0.147.0".into(),
+        version_explicit: false,
+        codex_home: None,
+        require: vec!["instructions".into()],
+        os_lane: "macos-27-arm64".into(),
+        store: None,
+    };
+    let report = inspect(args).map_err(|err| json_err(err.code(), &err.message()))?;
+    let receipt = persist_inspect(&state.store, &report.envelope, "one-shot")
+        .map_err(|err| json_err(err.code(), &err.message()))?;
+    Ok(receipt
+        .get("receipt_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string())
+}
+
 /// Asset preview, copy and rollback over the API.
 ///
 /// The asset id names a registry entry, never a path: the registry decides
@@ -713,7 +742,10 @@ fn assets_api(path: &str, state: &AppState) -> (u16, &'static str, String) {
         return match ctxpect_assets::rollback(&root, &backup) {
             Ok(value) => {
                 let _ = state.store.audit("assets.rollback", "asset", Some(id));
-                json_ok(value)
+                match observe_after_mutation(state, &project) {
+                    Ok(post) => json_ok(merge_fields(value, [("post_receipt_id", string(&post))])),
+                    Err(refusal) => refusal,
+                }
             }
             Err(err) => json_err(err.code, &err.message),
         };
@@ -1469,7 +1501,12 @@ fn rollback_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
     let tx = parsed.get("tx_id").and_then(Value::as_str).unwrap_or("");
     let target = parsed.get("target").and_then(Value::as_str).unwrap_or("AGENTS.md");
     match proj_rollback(&root, &ctxpect_projection::backup_dir(state.store.root(), tx), target) {
-        Ok(v) => json_ok(v),
+        // R05: a rollback changes the project, so the state after it is
+        // observed rather than assumed.
+        Ok(v) => match observe_after_mutation(state, project) {
+            Ok(post) => json_ok(merge_fields(v, [("post_receipt_id", string(&post))])),
+            Err(refusal) => refusal,
+        },
         Err(err) => json_err(err.code, &err.message),
     }
 }

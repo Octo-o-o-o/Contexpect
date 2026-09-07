@@ -57,6 +57,12 @@ Receipt append 不进 mutation 门禁的理由：它只增不改（`put_receipt`
 
 这条边界与 `2026-09-06` 可视化闭环补充方案第三方评审 review-3 §9 第 1 条的字面清单有出入：该清单把 `doctor --store` 列入补授权范围。此处显式记录该分歧与理由，不静默绕过；若后续判定 Receipt append 也应受门禁，改动落在 `persist_inspect` 一处。
 
+## 撤销也是 mutation
+
+R05 的 post-Receipt 要求覆盖**撤销**。`apply` 与 `assets copy` 原本有 post-Receipt，四处 `rollback`（CLI 与 API 各两处）都没有——于是撤销之后，最后一条被记录的观测描述的是撤销**之前**的状态，也就是已经不成立的那个。四处均已补齐。
+
+这条要求不是形式主义：`apply` 改动被观测的文件后 Receipt id 变化，`rollback` 恢复它之后 id 回到原值，两者对照即可核验撤销确实生效，而不是只被声称生效。
+
 ## 后果
 
 - `exception.identity_source_uncovered` 不再是产品的终态，V13/L06 通道可用。
