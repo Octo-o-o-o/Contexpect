@@ -133,14 +133,13 @@ fn handle_client(mut stream: TcpStream, state: &AppState) -> Result<(), ()> {
         }
     }
     let host = headers.get("host").cloned().unwrap_or_default();
-    if !host.starts_with("127.0.0.1") && !host.starts_with("localhost") && !host.is_empty() {
+    // A missing Host is refused rather than assumed local: HTTP/1.1 requires
+    // it, and "absent" is not evidence of anything.
+    if !is_loopback_authority(&host) {
         return write_res(&mut stream, 403, "application/json", r#"{"error":{"code":"api.host"}}"#);
     }
     let origin = headers.get("origin").cloned().unwrap_or_default();
-    if !origin.is_empty()
-        && !origin.starts_with("http://127.0.0.1")
-        && !origin.starts_with("http://localhost")
-    {
+    if !origin.is_empty() && !is_loopback_origin(&origin) {
         return write_res(&mut stream, 403, "application/json", r#"{"error":{"code":"api.origin"}}"#);
     }
     if method != "GET" && method != "HEAD" {
@@ -156,6 +155,39 @@ fn handle_client(mut stream: TcpStream, state: &AppState) -> Result<(), ()> {
     }
     let (status, ctype, body_out) = route(method, path, body, state);
     write_res(&mut stream, status, ctype, &body_out)
+}
+
+/// The host part of an authority, without the port.
+///
+/// IPv6 literals are bracketed (`[::1]:7420`), so the first `:` is not the
+/// port separator there.
+fn authority_host(authority: &str) -> &str {
+    match authority.strip_prefix('[') {
+        Some(rest) => rest.split(']').next().unwrap_or(""),
+        None => authority.split(':').next().unwrap_or(""),
+    }
+}
+
+/// Whether an authority names this machine's loopback interface.
+///
+/// The comparison is exact. A prefix test would accept `127.0.0.1.evil.com`,
+/// which is the standard DNS-rebinding bypass: an attacker registers that
+/// name, points it at 127.0.0.1, and the browser then sends a Host header
+/// that passes while the page's origin is the attacker's.
+fn is_loopback_authority(authority: &str) -> bool {
+    matches!(authority_host(authority), "127.0.0.1" | "localhost" | "::1")
+}
+
+/// Whether an `Origin` names a loopback HTTP origin. Scheme and host are both
+/// checked; the host part is matched exactly, for the reason above.
+fn is_loopback_origin(origin: &str) -> bool {
+    let Some((scheme, authority)) = origin.split_once("://") else {
+        return false;
+    };
+    if scheme != "http" && scheme != "https" {
+        return false;
+    }
+    is_loopback_authority(authority)
 }
 
 fn write_res(stream: &mut TcpStream, status: u16, ctype: &str, body: &str) -> Result<(), ()> {

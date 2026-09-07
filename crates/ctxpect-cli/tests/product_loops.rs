@@ -911,6 +911,28 @@ fn http_call(addr: &str, method: &str, path: &str, body: &str) -> (u16, String) 
     (status, buf)
 }
 
+/// Like [`http_call`], with the request's headers under the caller's control.
+///
+/// `http_call` always sends a well-formed loopback `Host`, which is exactly
+/// what the origin checks are supposed to accept; testing what they reject
+/// needs a way to send something else.
+fn http_call_headers(addr: &str, path: &str, extra_headers: &str) -> (u16, String) {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    let mut stream = TcpStream::connect(addr).expect("connect");
+    let req = format!("GET {path} HTTP/1.1\r\n{extra_headers}Connection: close\r\n\r\n");
+    stream.write_all(req.as_bytes()).unwrap();
+    stream.flush().unwrap();
+    let mut buf = String::new();
+    stream.read_to_string(&mut buf).unwrap();
+    let status = buf
+        .split_whitespace()
+        .nth(1)
+        .and_then(|item| item.parse().ok())
+        .unwrap_or(0);
+    (status, buf)
+}
+
 fn http_json(raw: &str) -> Value {
     let body = raw.split("\r\n\r\n").nth(1).unwrap_or("").trim();
     parse(body).unwrap_or(Value::Null)
@@ -1241,6 +1263,65 @@ fn settings_are_validated_whole_and_invariants_are_not_editable() {
     );
     assert_eq!(code, 400, "{raw}");
     assert!(raw.contains("settings.field_missing"), "{raw}");
+}
+
+/// Host and Origin are matched exactly, not by prefix.
+///
+/// A prefix test accepts `127.0.0.1.evil.com`, which is the standard
+/// DNS-rebinding bypass: the attacker registers that name, points it at
+/// 127.0.0.1, and the browser then sends a Host header that passes while the
+/// page's origin belongs to the attacker.
+#[test]
+fn loopback_checks_match_the_host_exactly() {
+    let scratch = Scratch::new("origin");
+    scratch.write("AGENTS.md", "hello\n");
+    let store = scratch.path.join("store");
+    let (_child, listen) = start_daemon(&scratch, &store);
+    let port = listen.rsplit(':').next().unwrap_or("0").to_string();
+
+    for host in [
+        "127.0.0.1.evil.com",
+        "localhost.evil.com",
+        "127.0.0.1evil.com",
+        "evil.com",
+    ] {
+        let (status, raw) =
+            http_call_headers(&listen, "/api/v1/health", &format!("Host: {host}\r\n"));
+        assert_eq!(status, 403, "host `{host}` must be refused: {raw}");
+        assert!(raw.contains("api.host"), "host `{host}`: {raw}");
+    }
+
+    // A missing Host is refused rather than assumed local: HTTP/1.1 requires
+    // it, and "absent" is not evidence of anything.
+    let (status, raw) = http_call_headers(&listen, "/api/v1/health", "");
+    assert_eq!(status, 403, "{raw}");
+    assert!(raw.contains("api.host"), "{raw}");
+
+    for origin in [
+        "http://127.0.0.1.evil.com",
+        "http://localhost.evil.com",
+        // No scheme at all is not an origin.
+        "127.0.0.1",
+    ] {
+        let (status, raw) = http_call_headers(
+            &listen,
+            "/api/v1/health",
+            &format!("Host: 127.0.0.1:{port}\r\nOrigin: {origin}\r\n"),
+        );
+        assert_eq!(status, 403, "origin `{origin}` must be refused: {raw}");
+        assert!(raw.contains("api.origin"), "origin `{origin}`: {raw}");
+    }
+
+    // The legitimate loopback forms still work, with and without an Origin.
+    for headers in [
+        format!("Host: 127.0.0.1:{port}\r\n"),
+        format!("Host: localhost:{port}\r\n"),
+        format!("Host: 127.0.0.1:{port}\r\nOrigin: http://127.0.0.1:{port}\r\n"),
+        format!("Host: localhost:{port}\r\nOrigin: http://localhost:{port}\r\n"),
+    ] {
+        let (status, raw) = http_call_headers(&listen, "/api/v1/health", &headers);
+        assert_eq!(status, 200, "headers `{headers}` should be accepted: {raw}");
+    }
 }
 
 /// The static file server must not hand out files from outside the UI root.
