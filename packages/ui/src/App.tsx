@@ -107,7 +107,15 @@ export function App() {
       <nav className="nav" aria-label="primary">
         <div className="brand">Contexpect</div>
         {NAV.map((item) => (
-          <NavLink key={item.to} to={item.to} className={({ isActive }) => (isActive ? "active" : "")}>
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) => (isActive ? "active" : "")}
+            // Below 1024px the label is collapsed visually. An explicit name
+            // keeps the link identifiable to assistive tech regardless of how
+            // a given AT treats visually-hidden text (WCAG 2.2 SC 2.4.4, 4.1.2).
+            aria-label={t(locale, item.key)}
+          >
             <span>{t(locale, item.key)}</span>
           </NavLink>
         ))}

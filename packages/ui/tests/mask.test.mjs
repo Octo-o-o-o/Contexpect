@@ -52,3 +52,24 @@ test("the masked project field is read-only and not aria-hidden", () => {
   assert.ok(input.includes("readOnly={!showProject}"), "masked field is read-only");
   assert.ok(input.includes("aria-label"), "masked state is announced by label");
 });
+
+test("collapsed navigation keeps an accessible name", () => {
+  // Below 1024px the nav labels collapse. Removing them from the
+  // accessibility tree leaves every link unnamed for screen readers
+  // (WCAG 2.2 SC 2.4.4 and 4.1.2), which is what `display: none` did.
+  const css = readFileSync(join(root, "../src/app.css"), "utf8");
+  const collapsed = css.slice(css.indexOf("max-width: 1023px"), css.indexOf("max-width: 767px"));
+  assert.ok(
+    !/\.nav a span\s*\{[^}]*display:\s*none/.test(collapsed),
+    "nav labels must not be display:none — that also hides them from assistive tech",
+  );
+  assert.match(collapsed, /clip:\s*rect/, "labels should be visually hidden, not removed");
+
+  // The explicit label does not depend on how a given AT treats
+  // visually-hidden text.
+  assert.match(
+    app,
+    /aria-label=\{t\(locale, item\.key\)\}/,
+    "nav links need an explicit accessible name",
+  );
+});

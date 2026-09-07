@@ -61,7 +61,17 @@ input, textarea { border: 1px solid var(--border); border-radius: 8px; padding: 
 }
 @media (max-width: 1023px) {
   .shell { grid-template-columns: 64px 1fr; }
-  .nav a span { display: none; }
+  /* Collapse the labels visually only. `display: none` would also remove
+     them from the accessibility tree, leaving every nav link unnamed for
+     screen readers (WCAG 2.2 SC 2.4.4 and 4.1.2). */
+  .nav a span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
 }
 @media (max-width: 767px) {
   .shell { display: block; }

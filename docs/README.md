@@ -50,6 +50,7 @@
 - [process/implementation-plan.md](process/implementation-plan.md)
 - [可视化与完整产品闭环补充实施方案](process/2026-09-06-contexpect-visualization-closure-supplement.md) — 2026-09-06 基线对账；14 个主入口与 2 个配套入口、共用视觉合同及剩余闭环
 - [process/test-strategy.md](process/test-strategy.md)
+- [process/2026-09-08-keyboard-and-responsive-verification.md](process/2026-09-08-keyboard-and-responsive-verification.md) — 键盘/焦点/响应式/隐私边界取证；逐项标注取证强度与未覆盖项
 - [process/release.md](process/release.md)
 - [process/dependency-and-provenance.md](process/dependency-and-provenance.md)
 
