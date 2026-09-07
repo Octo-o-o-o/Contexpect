@@ -50,6 +50,8 @@
 | A5 | 表单校验错误可在字段上感知（SC 3.3.1 / 4.1.2） | DOM 读取 | **初次失败 → 已修**，见下节 |
 | A6 | 存在跳过导航的机制（SC 2.4.1） | **真实按键** + 点击 | **初次缺失 → 已实现**，见下节 |
 | A7 | main / nav landmark 与表格名称（SC 1.3.1） | DOM 读取 | **初次缺失 → 已补**，见下节 |
+| A8 | 文档标题随路由变化（SC 2.4.2） | DOM 读取 | **初次缺失 → 已实现**，见下节 |
+| A9 | 每页恰好一个 `h1`（SC 1.3.1） | DOM 读取 | **初次两处双 h1 → 已修**，见下节 |
 | P1 | 201 字符长路径不撑破布局 | DOM 读取 | 通过：页面与 topbar 均无横向溢出 |
 | I1 | en 模式下无中文残留 | DOM 读取 | 通过：16 个入口逐一切换后，唯一中文是语言选择器的「简体中文」（语言名应以该语言书写） |
 | I2 | 长译文不撑破布局 | DOM 读取 | **初次失败 → 已修**，见下节 |
@@ -123,6 +125,18 @@ Settings 的校验错误原本只渲染成页面底部的一个列表，字段�
 现在：`<a className="skip-link" href="#main-content">` 是页面的第一个 Tab 目标，平时移出屏幕、获得焦点时显示；主区改为 `<main id="main-content" tabIndex={-1}>`（`-1` 使其可作为焦点目标但不进 Tab 序列）；表格加 `<caption className="sr-only">`。窄视口的只读界面同样用 `<main>`。
 
 实测（Tab 是真实按键）：页面加载后第一次 Tab 即落在 skip link 上，其 `left` 由 -9999 变为 8 即可见；激活后 `location.hash` 变为 `#main-content` 且 `document.activeElement` 就是 `MAIN#main-content`。激活用的是点击而非 Enter——Enter 仍受前述按键 `key` 为空的工具限制。
+
+### A8 / A9 标题不随路由变化、两处双 h1（已修）
+
+`document.title` 固定为 `Contexpect`，16 个入口全都一样。在单页应用里换路由就是换页，标题不变意味着屏幕阅读器用户切页后不知道到了哪里，浏览器历史与标签页也无从区分（WCAG 2.2 SC 2.4.2 Page Titled）。现在标题由路由推出，形如「凭据 · Contexpect」。
+
+`CarePlanPage` 与 `IntegrationsPage` 各有自己的 `h1`，其中嵌套的 `StateView` 又渲染了一个，于是这两页各有两个 `h1`，文档大纲含混（SC 1.3.1）。`StateView` 因此加了 `headingLevel`，嵌套使用时降为 `h2`。
+
+**顺带查出一处路由表与实现的不一致**：`/receipts/:id` 在 `App.tsx` 里有 `<Route>`，却没写进 `routes.ts`。后果不止是标题匹配不到——**C04 页面契约的测试从 `routes.ts` 取路由清单，因此这条明细路由从未被契约检查过**。同类问题还有 `/care-plan/:findingId` 的 nav 键 `care` 在 i18n 表里不存在，标题因此回退成键名「care · Contexpect」。
+
+两处都已修，并加了两条守卫：`routes.ts` 声明的路由集合必须与 `App.tsx` 渲染的完全一致；每个路由的 nav 键必须在 i18n 表里有对应条目。
+
+实测 8 条路径（含 6 条 `:id` 明细页）标题均正确，每页 `h1` 计数均为 1。
 
 ### R7 断点切换的取证受工具限制
 

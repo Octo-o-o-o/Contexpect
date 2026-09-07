@@ -3,6 +3,7 @@ export const ROUTES = [
   { path: "/inspector", id: "V02", nav: "inspector" },
   { path: "/compare", id: "V03", nav: "compare" },
   { path: "/receipts", id: "V04", nav: "receipts" },
+  { path: "/receipts/:id", id: "V04", nav: "receipts" },
   { path: "/assets", id: "V05", nav: "assets" },
   { path: "/assets/:id", id: "V05", nav: "assets" },
   { path: "/sessions", id: "V06", nav: "sessions" },
@@ -41,3 +42,22 @@ export const NAV = [
   { to: "/team/compliance", key: "team" },
   { to: "/settings", key: "settings" },
 ] as const;
+
+/**
+ * The nav key for a pathname, matching `:param` segments.
+ *
+ * Used to title the document: a single-page app that never updates its title
+ * leaves every route reading as the same page (WCAG 2.2 SC 2.4.2).
+ */
+export function navKeyForPath(pathname: string): string | null {
+  const path = pathname.replace(/\/+$/, "") || "/";
+  // Longest pattern first, so `/receipts/:id` wins over `/receipts`.
+  const ordered = [...ROUTES].sort((a, b) => b.path.length - a.path.length);
+  for (const route of ordered) {
+    const pattern = new RegExp(
+      `^${route.path.replace(/:[A-Za-z]+/g, "[^/]+").replace(/\//g, "\\/")}$`,
+    );
+    if (pattern.test(path)) return route.nav;
+  }
+  return null;
+}

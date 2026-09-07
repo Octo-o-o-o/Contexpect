@@ -156,6 +156,7 @@ export const zh = {
   settingsProblemCount: "有字段未通过校验",
   skipToContent: "跳到主内容",
   findingsTableCaption: "本次诊断的发现列表",
+  care: "处置计划",
 };
 
 export const en = {
@@ -316,4 +317,5 @@ export const en = {
   settingsProblemCount: "Fields failing validation",
   skipToContent: "Skip to content",
   findingsTableCaption: "Findings from this diagnosis",
+  care: "Care plan",
 };

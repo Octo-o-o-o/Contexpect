@@ -1,6 +1,6 @@
 import { NavLink, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
-import { NAV } from "./routes";
+import { NAV, navKeyForPath } from "./routes";
 import { t, type Locale } from "./i18n";
 import { asObj, postJson, requestJson, type Json } from "./api";
 import { projectFieldValue, projectVisible, revealed } from "./mask";
@@ -39,6 +39,15 @@ export function App() {
   const [hold, setHold] = useState(false);
   const narrow = useNarrowViewport();
   const loc = useLocation();
+
+  useEffect(() => {
+    // Route changes are page changes here. Leaving the title fixed makes
+    // every route read as the same page to assistive tech, to browser
+    // history and to tab strips (WCAG 2.2 SC 2.4.2).
+    const key = navKeyForPath(loc.pathname);
+    const page = key ? t(locale, key) : "";
+    document.title = page ? `${page} · Contexpect` : "Contexpect";
+  }, [loc.pathname, locale]);
   const isRevealed = revealed(hold, privacy);
   const showProject = projectVisible(privacy, hold);
 
@@ -1045,16 +1054,21 @@ function StateView({
   route,
   title,
   locale,
+  headingLevel = 1,
 }: {
   path: string;
   route: string;
   title: string;
   locale: Locale;
+  /** Use 2 when this view sits inside a page that already has an `h1`;
+      two `h1`s in one document make the outline ambiguous (SC 1.3.1). */
+  headingLevel?: 1 | 2;
 }) {
   const res = useResource(path);
+  const Heading = headingLevel === 2 ? "h2" : "h1";
   return (
     <section className="panel">
-      <h1>{title}</h1>
+      <Heading>{title}</Heading>
       {res.status === "loading" ? (
         <p role="status">
           {t(locale, "loading")}{" "}
@@ -1863,6 +1877,7 @@ function CarePlanPage({ locale }: { locale: Locale }) {
         route="/care-plan/:findingId"
         title={t(locale, "plan")}
         locale={locale}
+        headingLevel={2}
       />
     </section>
   );
@@ -1879,6 +1894,7 @@ function IntegrationsPage({ locale }: { locale: Locale }) {
         route="/integrations"
         title={t(locale, "catalog")}
         locale={locale}
+        headingLevel={2}
       />
     </section>
   );
