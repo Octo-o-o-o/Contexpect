@@ -1353,6 +1353,74 @@ fn the_cli_and_the_api_answer_the_same_question_identically() {
             "{label}: CLI and API disagree\nCLI: {cli_out}"
         );
     }
+
+    // Receipt detail: same document from both.
+    let (code, receipts, out) = run(&["receipt", "list", "--json", "--store", store_s]);
+    let receipt_id = if code == 0 {
+        receipts
+            .get("receipts")
+            .and_then(Value::as_array)
+            .and_then(<[Value]>::first)
+            .and_then(|item| item.get("receipt_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    } else {
+        // `receipt list` may not exist; fall back to the store index.
+        let _ = out;
+        fs::read_to_string(store.join("index.json"))
+            .ok()
+            .and_then(|text| parse(&text).ok())
+            .and_then(|value| {
+                value
+                    .as_array()
+                    .and_then(<[Value]>::first)
+                    .and_then(|item| item.get("receipt_id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+    };
+
+    if let Some(id) = receipt_id {
+        let (_, cli_json, cli_out) = run(&["receipt", "show", "--json", "--store", store_s, "--id", &id]);
+        let (status, api_json) = get_json(&listen, &format!("/api/v1/receipts/{id}"));
+        assert_eq!(status, 200, "{api_json:?}");
+        assert_eq!(
+            strip(&cli_json),
+            strip(&api_json),
+            "receipt show: CLI and API disagree\nCLI: {cli_out}"
+        );
+
+        // Diagnosis: the CLI also runs an inspect, so it carries that step's
+        // metadata. The diagnosis itself must match, and the API must name
+        // the Receipt it rests on — a diagnosis that does not is uncheckable.
+        let drop_inspect_meta = |value: &Value| -> Value {
+            match value {
+                Value::Object(map) => Value::Object(
+                    map.iter()
+                        .filter(|(key, _)| {
+                            !matches!(key.as_str(), "inspect_exit_code" | "snapshot_schema")
+                        })
+                        .map(|(key, item)| (key.clone(), item.clone()))
+                        .collect(),
+                ),
+                other => other.clone(),
+            }
+        };
+        let (_, cli_doc, _) = run(&[
+            "doctor", "--json", "--project", project_s, "--store", store_s,
+        ]);
+        let (status, api_doc) = get_json(&listen, &format!("/api/v1/doctor?receipt_id={id}"));
+        assert_eq!(status, 200, "{api_doc:?}");
+        assert!(
+            api_doc.get("receipt_id").and_then(Value::as_str).is_some(),
+            "the API diagnosis must name its Receipt: {api_doc:?}"
+        );
+        assert_eq!(
+            strip(&drop_inspect_meta(&cli_doc)),
+            strip(&drop_inspect_meta(&api_doc)),
+            "doctor: the diagnosis itself must match"
+        );
+    }
 }
 
 /// Security headers are present, and no cross-origin grant is advertised.

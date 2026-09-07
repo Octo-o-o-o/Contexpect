@@ -108,7 +108,9 @@ Drawer：Esc 关闭、焦点返回、未保存编辑确认、执行中关闭不�
 - **不发 `Access-Control-Allow-Origin`**：没有任何东西需要跨源访问——UI 由本 daemon 提供，开发时 vite 代理 `/api`，两种情况都是同源。该头此前存在但漏了端口，因而匹配不上任何真实 origin：一条什么也没授予、看起来却像策略的规则，迟早会被人「修」成真正的授权。
 - **请求体必须是 JSON 对象**。空体表示「无参数」，可以；数组或标量则报 `api.body_not_object`——它们不携带处理函数要读的任何字段，接受它们等于用静默的默认值执行请求，再把结果当成功回给调用方。
 
-**同一问题只有一个答案**（R04）。`GET /api/v1/standards/:id` 与 `ctxpect standard status`、`GET /api/v1/exceptions/:id` 与 `ctxpect exception status` 调用的是同一个函数，而不是各写一遍。此前 API 直接返回存储的标准文档，既不含本项目的采纳状态，也把「不存在」报成错误而非报成 `absent`——同一个查询给出两种答案。逐项对照已固化为测试。
+**诊断报告指明它依据的 Receipt**。`GET /api/v1/doctor` 的响应带 `receipt_id`：一份不说明所依据观测的诊断无法被核验，尤其是在省略 `receipt_id` 参数、由会话的当前 Receipt 决定时。
+
+**同一问题只有一个答案**（R04）。`GET /api/v1/standards/:id` 与 `ctxpect standard status`、`GET /api/v1/exceptions/:id` 与 `ctxpect exception status` 调用的是同一个函数，而不是各写一遍。此前 API 直接返回存储的标准文档，既不含本项目的采纳状态，也把「不存在」报成错误而非报成 `absent`——同一个查询给出两种答案。逐项对照已固化为测试，覆盖 standard（存在与不存在）、exception、policy、assets、receipt 明细与 doctor。`doctor` 的对照剔除 CLI 因额外执行 inspect 而携带的元信息，比较诊断本身。
 
 主要路径：`/api/v1/health`、`/inspect`、`/receipts`、`/receipts/:id/verify`、`/receipts/:id/delete`、`/doctor`、`/diff`、`/integrations`、`/settings`、`/settings/schema`、`/sessions`、`/monitor`、`/policy`、`/exceptions`、`/exceptions/:id`、`/standards`、`/standards/:id`、`/assets`、`/assets/:id/preview`、`/assets/:id/copy`、`/assets/:tx/rollback`、`/sync`、`/sync/preview`、`/sync/apply`、`/advisor`、`/lab`、`/team/compliance`、`/care-plan/:id`、`/apply`、`/rollback`。
 

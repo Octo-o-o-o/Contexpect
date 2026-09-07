@@ -575,6 +575,16 @@ fn doctor_api(full: &str, state: &AppState) -> (u16, &'static str, String) {
     match receipt {
         Ok(v) => {
             let mut diagnosis = diagnose(&v);
+            // A diagnosis that does not name the observation it rests on
+            // cannot be checked against that observation. The CLI reports
+            // this; the API did not, so a caller using the session's current
+            // Receipt had no way to tell which one that was.
+            if let Value::Object(map) = &mut diagnosis {
+                map.insert(
+                    "receipt_id".into(),
+                    v.get("receipt_id").cloned().unwrap_or(Value::Null),
+                );
+            }
             if let Some(symptom) = query(full, "symptom")
                 && let Value::Object(map) = &mut diagnosis
             {
