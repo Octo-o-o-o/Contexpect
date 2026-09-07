@@ -157,6 +157,7 @@ export const zh = {
   skipToContent: "跳到主内容",
   findingsTableCaption: "本次诊断的发现列表",
   care: "处置计划",
+  settingsNotEnforced: "本切片不执行此项",
 };
 
 export const en = {
@@ -318,4 +319,5 @@ export const en = {
   skipToContent: "Skip to content",
   findingsTableCaption: "Findings from this diagnosis",
   care: "Care plan",
+  settingsNotEnforced: "Not enforced in this slice",
 };

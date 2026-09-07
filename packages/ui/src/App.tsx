@@ -1329,6 +1329,7 @@ function SettingsField({
   locale,
   disabled,
   problems,
+  unenforced,
   onChange,
 }: {
   path: string;
@@ -1337,6 +1338,8 @@ function SettingsField({
   locale: Locale;
   disabled: boolean;
   problems: SettingsProblem[];
+  /** Reasons, by field path, for settings the store does not act on. */
+  unenforced: Json;
   onChange: (path: string, value: unknown) => void;
 }) {
   const kind = String(spec.kind ?? "");
@@ -1355,6 +1358,7 @@ function SettingsField({
             locale={locale}
             disabled={disabled}
             problems={problems}
+            unenforced={unenforced}
             onChange={onChange}
           />
         ))}
@@ -1365,9 +1369,17 @@ function SettingsField({
   // The field's own problem, if any. Announcing it on the control itself is
   // what lets someone who tabs onto the field know it is wrong — a summary
   // list elsewhere on the page does not do that (WCAG 2.2 SC 3.3.1, 4.1.2).
+  // A field the store validates but never acts on must say so, or it reads
+  // as a working knob.
+  const notEnforced = typeof unenforced[path] === "string" ? String(unenforced[path]) : "";
   const problem = problems.find((item) => item.path === path);
   const invalid = problem !== undefined;
   const describedBy = invalid ? problemId(path) : undefined;
+  const notEnforcedNote = notEnforced ? (
+    <span className="muted" data-testid={`unenforced-${path}`}>
+      {t(locale, "settingsNotEnforced")}: {notEnforced}
+    </span>
+  ) : null;
   const errorNote = problem ? (
     <span id={problemId(path)} className="field-error">
       <code>{problem.code}</code> — {problem.message}
@@ -1397,6 +1409,7 @@ function SettingsField({
           onChange={(e) => onChange(path, e.target.checked)}
         />
         {errorNote}
+        {notEnforcedNote}
       </label>
     );
   }
@@ -1419,6 +1432,7 @@ function SettingsField({
           ))}
         </select>
         {errorNote}
+        {notEnforcedNote}
       </label>
     );
   }
@@ -1444,6 +1458,7 @@ function SettingsField({
           }}
         />
         {errorNote}
+        {notEnforcedNote}
       </label>
     );
   }
@@ -1731,6 +1746,7 @@ function SyncPage({ locale }: { locale: Locale }) {
  */
 function SettingsPage({ locale }: { locale: Locale }) {
   const [schema, setSchema] = useState<Json>({});
+  const [unenforced, setUnenforced] = useState<Json>({});
   const [saved, setSaved] = useState<Json>({});
   const [draft, setDraft] = useState<Json>({});
   const [load, setLoad] = useState<StateVerdict | null>(null);
@@ -1753,6 +1769,7 @@ function SettingsPage({ locale }: { locale: Locale }) {
       return;
     }
     const fields = asObj(asObj(schemaResult.data).fields);
+    setUnenforced(asObj(asObj(schemaResult.data).unenforced));
     // Project onto the schema: the response envelope carries keys that are
     // not settings, and sending them back would be refused.
     const stored = projectToSchema(fields, valueResult.data) as Json;
@@ -1811,6 +1828,7 @@ function SettingsPage({ locale }: { locale: Locale }) {
                 locale={locale}
                 disabled={saving}
                 problems={problems}
+                unenforced={unenforced}
                 onChange={(path, value) => setDraft((current) => setPath(current, path, value))}
               />
             ))}

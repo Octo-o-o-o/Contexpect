@@ -48,6 +48,10 @@ pub const SETTINGS_SCHEMA: &[(&str, FieldSpec)] = &[
     (
         "resource_limits",
         FieldSpec::Object(&[
+            // Recorded and validated, but this process does not bound its
+            // own resident memory: doing so portably needs cgroups or
+            // setrlimit, which this slice does not use. The published schema
+            // says so, rather than letting the field read as a working knob.
             (
                 "daemon_rss_mb",
                 FieldSpec::Int {
@@ -211,10 +215,26 @@ pub fn validate_settings(value: &Value) -> Result<(), StoreError> {
 }
 
 /// The schema as a document, for the API and the UI editor.
+/// Fields the product stores and validates but does not act on, with the
+/// reason. Publishing this stops a setting from reading as a working knob.
+pub const UNENFORCED_FIELDS: &[(&str, &str)] = &[(
+    "resource_limits.daemon_rss_mb",
+    "this process does not bound its own resident memory; doing so portably needs cgroups or setrlimit, which this slice does not use",
+)];
+
 #[must_use]
 pub fn settings_schema() -> Value {
     object([
         ("schema", string("ctxpect-settings-schema-v1")),
+        (
+            "unenforced",
+            object(
+                UNENFORCED_FIELDS
+                    .iter()
+                    .map(|(path, reason)| (*path, string(*reason)))
+                    .collect::<Vec<_>>(),
+            ),
+        ),
         (
             "fields",
             object(

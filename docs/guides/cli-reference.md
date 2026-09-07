@@ -116,6 +116,17 @@ CTXPECT_PRINCIPAL_SECRET=<secret> ctxpect exception request \
 
 `POST /api/v1/exceptions` 返回 `api.identity_required`。HTTP 请求不能安全携带登记密钥，因此 daemon 无法建立所需身份；它明确失败，而不是造一条 requester 为字面量 `user` 的例外。
 
+## 资源限制哪些真的生效
+
+`settings.resource_limits` 的两个字段处理方式不同，因为一个能执行、一个不能：
+
+| 字段 | 状态 |
+| --- | --- |
+| `scan_files` | **生效**。`collect` 的目录遍历在达到该值时停止，输出随即带 `complete: false` 与 `reason_code: scan.file_limit_reached`。被截断的清单是**未知的**清单而不是更小的清单，因此它的 `inventory_digest` 与完整扫描不同，不能被当作完整 manifest 读。 |
+| `daemon_rss_mb` | **不执行**。进程无法可移植地限制自身常驻内存——那需要 cgroups 或 setrlimit，本切片都不用。`GET /api/v1/settings/schema` 的 `unenforced` 字段公布这一点，Settings 界面据此在该字段旁标注「本切片不执行此项」。 |
+
+两者此前都只是被存储与校验、从不被读取：配置它们没有任何效果。把能做的做了，做不到的说清楚，比让两个字段都看起来像可用开关要好。
+
 ## 资产复制 executor
 
 `ctxpect assets preview|copy|rollback` 是资产的唯一复制 executor。它**不是包管理器**：不解析依赖、不下载、不理解版本区间。它只做一件事——把一份**仓内登记已声明**的文件复制到项目内声明的落点，作为可回滚的事务，并记录落地了什么。

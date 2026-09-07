@@ -187,6 +187,8 @@ C04 明确要求「对不适用状态给理由，不能机械制造伪状态」�
 | V08 Sync | 预览、应用 | 预览给出 transport/semantic；应用后显示 `transport: success` 与 `semantic: structural-only`、`reconciliation: indeterminate` | 应用只在**干净预览之后**可用，冲突时禁用；transport 与 semantic 分列显示，且传输结果旁始终标注「传输成功不等于语义已验证」 |
 | V12 Settings | 编辑、保存、撤销 | 保存成功后刷新已保存值并提示；失败保留用户编辑并显示 store 的 reason code | 编辑器由 `/api/v1/settings/schema` 生成，不硬编码字段；保存中禁用按钮防重复提交 |
 
+**不生效的设置会被标注出来**。`GET /api/v1/settings/schema` 的 `unenforced` 字段列出「存储并校验、但产品不据以行动」的字段及原因，编辑器在该字段旁显示它。当前只有 `resource_limits.daemon_rss_mb` 在列（进程无法可移植地限制自身常驻内存）；`scan_files` 已真正约束 `collect` 的遍历，因此不在列。
+
 **Settings 的验证在 store，不在 UI**。`put_settings` 校验整份文档：枚举取值、整数区间、未知字段、缺失字段，以及 `unmask_does_not_grant_egress` 这类**产品不变量**——它被记为 `const_bool`，设置不能把它改成 `false`。UI 侧的即时校验只是便利，发出相同的 reason code，最终判定仍以 store 为准（R04）。`analysis_adapter` 目前只接受 `none`：本切片没有已实现的 LLM adapter，允许填别的值会让 advisor 声称一条不存在的分析路径。
 
 **资产的来源与落点由仓内登记决定**，不由界面或请求体决定。未登记、无许可证、或字节与登记摘要不符的资产在预览阶段就被拒绝，因此不会留下半个文件。详见 [cli-reference 的资产复制 executor](cli-reference.md#资产复制-executor)。

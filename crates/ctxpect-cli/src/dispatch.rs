@@ -412,7 +412,22 @@ fn collect_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
         .as_ref()
         .ok_or_else(|| fail("usage.invalid", "`--project` is required".into()))?;
     let root = Root::new(project).map_err(|err| fail("io.missing", err.to_string()))?;
-    let inventory = scan(&root).map_err(|err| fail("io.unresolvable", err.to_string()))?;
+    // `resource_limits.scan_files` is a setting, so it has to actually bound
+    // the walk; storing it without enforcing it would make configuring it a
+    // no-op.
+    let file_limit = args
+        .store
+        .as_ref()
+        .and_then(|path| Store::open(path).ok())
+        .and_then(|store| store.settings().ok())
+        .and_then(|settings| {
+            settings
+                .pointer(&["resource_limits", "scan_files"])
+                .and_then(Value::as_i64)
+        })
+        .and_then(|value| usize::try_from(value).ok());
+    let inventory = ctxpect_collect::scan_with_limit(&root, file_limit)
+        .map_err(|err| fail("io.unresolvable", err.to_string()))?;
     let mut residue = Vec::new();
     let mut entries = Vec::new();
     for entry in &inventory.entries {
@@ -453,6 +468,25 @@ fn collect_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
         0,
         object([
             ("inventory_digest", string(inventory.digest())),
+            // A truncated walk is an unknown inventory, not a smaller one.
+            // Saying so here keeps its digest from being read as a complete
+            // manifest.
+            ("complete", Value::Bool(!inventory.truncated)),
+            (
+                "file_limit",
+                inventory
+                    .file_limit
+                    .and_then(|limit| i64::try_from(limit).ok())
+                    .map_or(Value::Null, Value::Int),
+            ),
+            (
+                "reason_code",
+                string(if inventory.truncated {
+                    "scan.file_limit_reached"
+                } else {
+                    "ok"
+                }),
+            ),
             ("entries", array(entries)),
             ("config_residue", array(residue)),
             (

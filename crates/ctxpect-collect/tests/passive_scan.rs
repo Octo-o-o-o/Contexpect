@@ -1,6 +1,6 @@
 //! Passivity, exclusion and digest stability, against a real filesystem.
 
-use ctxpect_collect::{scan, Entry, Inventory, Withheld};
+use ctxpect_collect::{scan, scan_with_limit, Entry, Inventory, Withheld};
 use ctxpect_fs::{EntryKind, Root};
 use std::fs;
 use std::path::PathBuf;
@@ -344,7 +344,9 @@ fn every_digest_body_field_moves_the_digest() {
     fn digest_of(entry: Entry) -> String {
         Inventory {
             entries: vec![entry],
-        }
+                      truncated: false,
+                      file_limit: None,
+                  }
         .digest()
     }
 
@@ -408,7 +410,7 @@ fn filesystem_identity_stays_out_of_the_digest() {
         ..with_identity.clone()
     };
 
-    let digest = |entry: Entry| Inventory { entries: vec![entry] }.digest();
+    let digest = |entry: Entry| Inventory { entries: vec![entry], truncated: false, file_limit: None }.digest();
     assert_eq!(digest(with_identity.clone()), digest(without_identity));
     assert_eq!(digest(with_identity), digest(other_identity));
 }
@@ -634,10 +636,14 @@ fn digest_is_independent_of_entry_order() {
 
     let sorted = Inventory {
         entries: vec![a.clone(), b.clone(), c.clone()],
-    };
+                               truncated: false,
+                               file_limit: None,
+                           };
     let shuffled = Inventory {
         entries: vec![c, a, b],
-    };
+                                 truncated: false,
+                                 file_limit: None,
+                             };
     assert_ne!(
         sorted.digest(),
         shuffled.digest(),
@@ -889,4 +895,39 @@ fn entries_are_sorted_by_path() {
     let mut sorted = paths.clone();
     sorted.sort_unstable();
     assert_eq!(paths, sorted);
+}
+
+#[test]
+fn a_file_limit_truncates_and_says_so() {
+    // `resource_limits.scan_files` used to be stored and validated but never
+    // enforced: configuring it changed nothing.
+    let scratch = Scratch::new("limit");
+    for n in 0..12 {
+        scratch.write(&format!("dir{}/file{}.txt", n % 3, n), "x");
+    }
+    let root = scratch.root();
+
+    let full = scan(&root).expect("scan");
+    assert!(!full.truncated, "an unlimited scan is not truncated");
+    assert_eq!(full.file_limit, None);
+    let complete = full.entries.len();
+    assert!(complete >= 12, "expected the files plus their directories");
+
+    let limited = scan_with_limit(&root, Some(5)).expect("scan");
+    assert!(limited.truncated, "hitting the limit must be recorded");
+    assert_eq!(limited.file_limit, Some(5));
+    assert!(
+        limited.entries.len() <= 5,
+        "walk must stop at the limit, got {}",
+        limited.entries.len()
+    );
+
+    // A limit above the tree size changes nothing.
+    let generous = scan_with_limit(&root, Some(complete + 100)).expect("scan");
+    assert!(!generous.truncated);
+    assert_eq!(generous.entries.len(), complete);
+
+    // A truncated inventory is a different inventory: its digest must not
+    // equal the complete one, or a partial scan could pass as a full one.
+    assert_ne!(limited.digest(), full.digest());
 }

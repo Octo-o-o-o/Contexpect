@@ -178,3 +178,26 @@ test("a field's error is announced on the field, not only in a summary", () => {
   // would be announced twice.
   assert.match(app, /settingsProblemCount/);
 });
+
+test("a setting the store does not act on is labelled as such", () => {
+  // `resource_limits.scan_files` and `daemon_rss_mb` were both stored and
+  // validated but never enforced. `scan_files` now bounds the walk;
+  // `daemon_rss_mb` cannot be enforced portably, so the schema publishes that
+  // and the editor shows it rather than presenting a working knob.
+  const app = execFileSync("cat", [join(repo, "packages/ui/src/App.tsx")], { encoding: "utf8" });
+  assert.match(app, /setUnenforced\(asObj\(asObj\(schemaResult\.data\)\.unenforced\)\)/);
+  assert.match(app, /data-testid=\{`unenforced-\$\{path\}`\}/);
+  assert.match(app, /settingsNotEnforced/);
+
+  const settings = execFileSync("cat", [join(repo, "crates/ctxpect-store/src/settings.rs")], {
+    encoding: "utf8",
+  });
+  assert.match(settings, /pub const UNENFORCED_FIELDS/);
+  assert.match(settings, /resource_limits\.daemon_rss_mb/);
+  // scan_files must NOT be listed: it is enforced now.
+  const block = settings.slice(
+    settings.indexOf("pub const UNENFORCED_FIELDS"),
+    settings.indexOf("pub fn settings_schema"),
+  );
+  assert.ok(!block.includes("scan_files"), "scan_files is enforced and must not be listed");
+});

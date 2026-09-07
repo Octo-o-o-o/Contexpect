@@ -644,7 +644,13 @@ fn named_paths_inventory(
         }
     }
     entries.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(Inventory { entries })
+    // This listing is built from an explicit candidate set, not a walk, so no
+    // file limit applies and it is complete by construction.
+    Ok(Inventory {
+        entries,
+        truncated: false,
+        file_limit: None,
+    })
 }
 
 fn candidate_kind(root: &Root, rel: &str) -> Result<Option<EntryKind>, ResolveError> {

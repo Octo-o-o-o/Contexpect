@@ -249,6 +249,14 @@ impl Entry {
 pub struct Inventory {
     /// Entries sorted by path, so the digest does not depend on walk order.
     pub entries: Vec<Entry>,
+    /// True when the walk stopped at the configured file limit.
+    ///
+    /// A truncated inventory is not a smaller inventory — it is an unknown
+    /// one. Callers must not derive a manifest digest from it as though the
+    /// scan had completed.
+    pub truncated: bool,
+    /// The limit that applied, when one did.
+    pub file_limit: Option<usize>,
 }
 
 impl Inventory {
@@ -297,12 +305,27 @@ impl Inventory {
 
 /// Walk `root` and record what is there, without executing anything.
 pub fn scan(root: &Root) -> Result<Inventory, Refusal> {
+    scan_with_limit(root, None)
+}
+
+/// Scan, stopping after `file_limit` entries when one is given.
+///
+/// Stopping is recorded rather than hidden: `Inventory::truncated` says the
+/// walk did not finish, so a caller cannot mistake a partial listing for a
+/// complete one. The limit counts entries visited, which is what the
+/// `resource_limits.scan_files` setting is about.
+pub fn scan_with_limit(root: &Root, file_limit: Option<usize>) -> Result<Inventory, Refusal> {
     let mut entries = Vec::new();
-    walk(root, root.path(), &mut entries)?;
+    let mut truncated = false;
+    walk(root, root.path(), &mut entries, file_limit, &mut truncated)?;
 
     // Sorting by path is what makes the digest independent of directory order.
     entries.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(Inventory { entries })
+    Ok(Inventory {
+        entries,
+        truncated,
+        file_limit,
+    })
 }
 
 fn relative(root: &Root, path: &Path) -> String {
@@ -314,7 +337,17 @@ fn relative(root: &Root, path: &Path) -> String {
         .join("/")
 }
 
-fn walk(root: &Root, dir: &Path, out: &mut Vec<Entry>) -> Result<(), Refusal> {
+fn walk(
+    root: &Root,
+    dir: &Path,
+    out: &mut Vec<Entry>,
+    file_limit: Option<usize>,
+    truncated: &mut bool,
+) -> Result<(), Refusal> {
+    if file_limit.is_some_and(|limit| out.len() >= limit) {
+        *truncated = true;
+        return Ok(());
+    }
     let listing = fs::read_dir(dir).map_err(|error| Refusal::Unresolvable {
         detail: format!("{}: {error}", dir.display()),
     })?;
@@ -330,6 +363,10 @@ fn walk(root: &Root, dir: &Path, out: &mut Vec<Entry>) -> Result<(), Refusal> {
     children.sort();
 
     for child in children {
+        if file_limit.is_some_and(|limit| out.len() >= limit) {
+            *truncated = true;
+            return Ok(());
+        }
         let rel = relative(root, &child);
         let name = child
             .file_name()
@@ -383,7 +420,10 @@ fn walk(root: &Root, dir: &Path, out: &mut Vec<Entry>) -> Result<(), Refusal> {
                 link_count: None,
                 identity: None,
             });
-            walk(root, &child, out)?;
+            walk(root, &child, out, file_limit, truncated)?;
+            if *truncated {
+                return Ok(());
+            }
             continue;
         }
 
