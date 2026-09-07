@@ -15,7 +15,6 @@ use ctxpect_doctor::diagnose;
 use ctxpect_effect::{decide, run_local_instructions_probe, ExperimentContract};
 use ctxpect_fs::Root;
 use ctxpect_importer::import_session;
-use ctxpect_policy::new_exception;
 use ctxpect_projection::{apply as proj_apply, preview as proj_preview, rollback as proj_rollback, Intent};
 use ctxpect_schema::{array, canonical_json, object, parse, string, Value};
 use ctxpect_store::Store;
@@ -40,6 +39,7 @@ pub fn serve(args: &ProductArgs) -> Result<ProductReport, crate::inspect::Inspec
     let addr = listen_addr(args);
     if !addr.starts_with("127.0.0.1:") && !addr.starts_with("localhost:") {
         return Err(crate::inspect::InspectFailure::Io {
+            command: Some("daemon".into()),
             code: "api.bind_refused",
             message: "daemon listens on 127.0.0.1 only".into(),
         });
@@ -50,22 +50,26 @@ pub fn serve(args: &ProductArgs) -> Result<ProductReport, crate::inspect::Inspec
             .clone()
             .or_else(|| args.project.as_ref().map(|p| p.join(".ctxpect/store")))
             .ok_or_else(|| crate::inspect::InspectFailure::Io {
+            command: Some("daemon".into()),
                 code: "usage.invalid",
                 message: "`--store` or `--project` is required".into(),
             })?;
         Store::open(&path).map_err(|err| crate::inspect::InspectFailure::Io {
+            command: Some("daemon".into()),
             code: err.code,
             message: err.message,
         })?
     };
     let _ = fs::write(store.root().join("daemon.pid"), format!("{}", std::process::id()));
     let listener = TcpListener::bind(&addr).map_err(|err| crate::inspect::InspectFailure::Io {
+            command: Some("daemon".into()),
         code: "api.bind",
         message: err.to_string(),
     })?;
     let bound = listener
         .local_addr()
         .map_err(|err| crate::inspect::InspectFailure::Io {
+            command: Some("daemon".into()),
             code: "api.bind",
             message: err.to_string(),
         })?;
@@ -303,14 +307,15 @@ fn api(method: &str, path: &str, full: &str, body: &str, state: &AppState) -> (u
             Err(err) => json_err(err.code, &err.message),
         },
         ("POST", "/api/v1/exceptions") => {
-            if let Err(denied) = require_mutation(state) {
-                return denied;
-            }
-            let rec = new_exception("ex-api", "user", "project", 9_999_999_999);
-            if let Err(err) = state.store.put_named("exceptions", "ex-api", &rec) {
-                return json_err(err.code, &err.message);
-            }
-            json_ok(rec)
+            // The exception lifecycle is gated on a verified enrolled
+            // principal, and that needs the enrolled secret. The secret must
+            // not travel in an HTTP request, so this endpoint cannot
+            // establish identity and says so instead of minting an
+            // exception whose requester is the literal string "user".
+            json_err(
+                "api.identity_required",
+                "creating an exception requires a verified enrolled principal;                  use `ctxpect exception request --principal <id>` with                  $CTXPECT_PRINCIPAL_SECRET, which the daemon API cannot carry",
+            )
         }
         ("GET", p) if p.starts_with("/api/v1/standards/") => match strip_id(p, "/api/v1/standards/") {
             Some(id) => standard_get(state, id),
@@ -540,6 +545,10 @@ fn advisor_api(body: &str) -> (u16, &'static str, String) {
 }
 
 fn lab_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
+    // Running an experiment writes its result into the store.
+    if let Err(denied) = require_mutation(state) {
+        return denied;
+    }
     let parsed = parse(body).unwrap_or_else(|_| object::<String>([]));
     let n = parsed.get("n").and_then(Value::as_i64).unwrap_or(4);
     let experiment_id = parsed
@@ -575,7 +584,11 @@ fn lab_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
     let treatment: Vec<i64> = (0..n).map(|_| run_local_instructions_probe(true)).collect();
     match decide(&contract, &control, &treatment, changed) {
         Ok(v) => {
-            let _ = state.store.put_named("experiments", &experiment_id, &v);
+            if let Err(err) = state.store.put_named("experiments", &experiment_id, &v) {
+                // A result the store refused to keep must not be returned as
+                // if it had been recorded.
+                return json_err(err.code, &err.message);
+            }
             json_ok(v)
         }
         Err(err) => json_err(err.code, &err.message),

@@ -215,14 +215,24 @@ impl Store {
         read_json(&self.root.join("index.json"))
     }
 
+    /// Write a named document. Like [`Store::put_receipt`], the write lands in
+    /// the audit chain: a store mutation that leaves no trace is not
+    /// reconstructable afterwards.
     pub fn put_named(&self, folder: &str, id: &str, value: &Value) -> Result<(), StoreError> {
         validate_id(id)?;
         validate_id(folder)?;
         fs::create_dir_all(self.root.join(folder))?;
+        let existed = self.root.join(format!("{folder}/{id}.json")).exists();
         atomic_write(
             &self.root.join(format!("{folder}/{id}.json")),
             &canonical_json(value),
-        )
+        )?;
+        self.audit(
+            if existed { "named.replace" } else { "named.put" },
+            &format!("{folder}/{id}"),
+            None,
+        )?;
+        Ok(())
     }
 
     pub fn get_named(&self, folder: &str, id: &str) -> Result<Value, StoreError> {
@@ -231,14 +241,25 @@ impl Store {
         read_json(&self.root.join(format!("{folder}/{id}.json")))
     }
 
-    pub fn delete_named(&self, folder: &str, id: &str) -> Result<(), StoreError> {
+    /// Delete a named document, returning whether one was actually there.
+    ///
+    /// The caller needs that distinction: reporting a deletion that removed
+    /// nothing reads as a destructive action that never happened. The
+    /// deletion is audited either way.
+    pub fn delete_named(&self, folder: &str, id: &str) -> Result<bool, StoreError> {
         validate_id(id)?;
         validate_id(folder)?;
         let path = self.root.join(format!("{folder}/{id}.json"));
-        if path.exists() {
+        let existed = path.exists();
+        if existed {
             fs::remove_file(path)?;
         }
-        Ok(())
+        self.audit(
+            "named.delete",
+            &format!("{folder}/{id}"),
+            Some(if existed { "removed" } else { "absent" }),
+        )?;
+        Ok(existed)
     }
 
     pub fn list_named(&self, folder: &str) -> Result<Vec<String>, StoreError> {

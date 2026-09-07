@@ -114,5 +114,5 @@ Drawer：Esc 关闭、焦点返回、未保存编辑确认、执行中关闭不�
 
 - **C04 全套页面状态**：16 个入口里，Doctor 以外多数页面仍是 API JSON 转储，没有按页实现 empty/loading/error/partial/stale/offline/permission-denied/unsupported-version/connector-missing 与主要动作闭环。
 - **应用截图、Tauri 桌面壳、OS WebView / a11y / 屏幕阅读器 / ≤2s 性能证据**：未采集，不得当作已覆盖。
-- **例外批准身份源**：UI/API 不能用调用方自报角色完成 approve。没有外部身份源；`exception.identity_source_uncovered` fail-closed。
+- **例外批准身份源**：UI/API 不能用调用方自报角色完成 approve。身份来自仓内已登记 principals + 调用方持有的登记密钥，而密钥只经环境变量传入 CLI，HTTP 请求无法安全携带。因此 `POST /api/v1/exceptions` 明确返回 `api.identity_required`，例外生命周期只经 CLI。
 - **i18n**：导航、Doctor、以及 Checkup / Inspector / Settings / Care Plan / Integrations 的页面正文已接进 zh/en 表。API JSON 转储字段名仍是英文协议键。`ui-unit` 只做字符串表 grep，不渲染组件。

@@ -119,6 +119,9 @@ pub struct ProductArgs {
     pub reason: Option<String>,
     pub actor: Option<String>,
     pub role: Option<String>,
+    /// Enrolled principal id. Identity is the id *plus* the enrolled secret,
+    /// which arrives through the environment and never through argv.
+    pub principal: Option<String>,
     pub dest: Option<PathBuf>,
     pub mapping: Option<String>,
     pub session: Option<String>,
@@ -190,6 +193,7 @@ where
     let mut reason = None;
     let mut actor = None;
     let mut role = None;
+    let mut principal = None;
     let mut dest = None;
     let mut mapping = None;
     let mut session = None;
@@ -331,6 +335,10 @@ where
                 }
                 "role" => {
                     role = Some(need_value("role", inline, &mut iter, command.as_deref())?);
+                }
+                "principal" => {
+                    principal =
+                        Some(need_value("principal", inline, &mut iter, command.as_deref())?);
                 }
                 "dest" => {
                     dest = Some(need_value("dest", inline, &mut iter, command.as_deref())?);
@@ -519,6 +527,7 @@ where
             reason,
             actor,
             role,
+            principal,
             dest: dest.map(PathBuf::from),
             mapping,
             session,

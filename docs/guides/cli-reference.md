@@ -34,7 +34,7 @@ ctxpect [--json] [--offline] [--config <path>] [--project <dir>] [--cwd <dir>]
 | `ctxpect intent validate\|show\|project\|preview` | WP-06 | CanonicalIntent；harness-native projection |
 | `ctxpect apply` / `ctxpect rollback` | WP-06 | 唯一 authority；无合格 executor 则只导出 plan |
 | `ctxpect standard validate\|publish\|preview\|adopt\|pin\|update\|status\|leave\|rollback\|revoke` | WP-07 | TeamContextStandard；git/file local-first |
-| `ctxpect exception request\|approve\|reject\|revoke\|status` | WP-11 | 受控例外；过期 fail-closed。`approve`/`reject`/`revoke` 拒绝调用方自报 `--role`/`--actor`；本切片无外部身份源，reason code `exception.identity_source_uncovered` |
+| `ctxpect exception request\|approve\|reject\|revoke\|status` | WP-11 | 受控例外；过期 fail-closed。`--role`/`--actor` 仍是调用方自报、不构成授权；身份来自仓内已登记 principals（见「例外批准的身份源」） |
 | `ctxpect assets` | WP-08 | catalog / validate / 展示 APM lock |
 | `ctxpect advisor` | WP-09 | 显式同意、payload preview |
 | `ctxpect experiment` | WP-10 | Effect Lab |
@@ -54,13 +54,82 @@ ctxpect [--json] [--offline] [--config <path>] [--project <dir>] [--cwd <dir>]
 
 Unknown 不得自动映射为 0。组织可以把 indeterminate 降为非阻断，但必须写入 Receipt，且不改变 claim。
 
-命令特定错误写入 JSON envelope 的 `error.code`（例如 `align.byte-equality-not-semantic`、`standard.unsigned`、`exception.expired`、`exception.identity_source_uncovered`），不新增第五种 exit code。`align` 把 byte/hash 相等当作语义通过时必须非 0。
+命令特定错误写入 JSON envelope 的 `error.code`（例如 `align.byte-equality-not-semantic`、`standard.unsigned`、`exception.expired`、`principal.secret_mismatch`、`exception.approver_role_required`），不新增第五种 exit code。`align` 把 byte/hash 相等当作语义通过时必须非 0。
 
 `policy show`（无 `--from`）读取与 `apply` 相同的 store policy / exception 集合，并调用同一 `authorize_mutation` 判定。无 layers 时 `verdict=unknown`、`reason_code=policy.unknown`，不是 pass。`policy eval --from <file>` 只评价该文件，不替代 store 判定。
 
-## 未覆盖：例外批准的身份源
+## 例外批准的身份源：仓内已登记 principals
 
-`ctxpect exception approve|reject|revoke` 不把调用方自报的 `--role` / `--actor` 当作授权证据。本切片没有 IdP、OS 用户绑定或已登记 principals。因此批准路径 fail-closed，`error.code=exception.identity_source_uncovered`。把已批准例外写入 store 只能由 store 外的运营动作完成；产品命令不能自批自用。
+> 选型理由、被否决的替代方案与 mutation 门禁边界见 [ADR 0005](../adr/0005-exception-identity-and-mutation-boundary.md)。
+
+`ctxpect exception approve|reject|revoke` 不把调用方自报的 `--role` / `--actor` 当作授权证据。身份的唯一来源是**项目内受版本控制的 principals 登记**，配合调用方实际持有的登记密钥。
+
+### 登记文件
+
+`<project>/.ctxpect/principals.json`，随项目进版本控制，因此「谁可以申请、谁可以批准」与代码在同一处评审：
+
+```json
+{
+  "schema": "ctxpect-principals-v1",
+  "principals": [
+    {
+      "principal_id": "alice",
+      "roles": ["requester"],
+      "key_id": "k-alice",
+      "key_digest": "<enrollment digest>"
+    },
+    {
+      "principal_id": "carol",
+      "roles": ["approver"],
+      "key_id": "k-carol",
+      "key_digest": "<enrollment digest>",
+      "self_approval": false
+    }
+  ]
+}
+```
+
+`roles` 只接受 `requester` 与 `approver`；出现其它取值时整条登记被拒（`principal.role_unknown`），不静默忽略。
+
+### 登记摘要与密钥
+
+`key_digest = HMAC-SHA256(secret, "ctxpect-principal-enrollment-v1:" + principal_id)`。摘要绑定到 `principal_id`，因此一份登记不能被挪用给另一个 principal。
+
+密钥本身**不入库、不进 argv**，只经环境变量 `CTXPECT_PRINCIPAL_SECRET` 传入：argv 在进程列表里可见，也会进入 redaction roots，两处都不该出现 secret。
+
+**登记摘要随项目公开**，因此 `secret` 必须是高熵随机材料；低熵口令可以由公开摘要离线暴力破解。
+
+### 身份与授权
+
+```bash
+CTXPECT_PRINCIPAL_SECRET=<secret> ctxpect exception request \
+  --project <dir> --store <dir> --id ex-1 --principal alice
+```
+
+- `request` 的授权来自 principals 登记，**不来自已批准例外**。否则创建第一条例外需要先有一条已批准例外，整条通道自锁。
+- `approve` / `reject` / `revoke` 要求 `approver` 角色。
+- 默认四眼：请求者不批准自己的请求，除非该 principal 在登记里显式写了 `"self_approval": true`。
+- 状态机终态即终态：`requested → approved|rejected`、`approved → revoked`；已 `rejected`/`revoked` 的例外不能被复活（`exception.transition_invalid`）。
+- 决策写入 `decided_by`，其中 `identity_kind = "enrolled-local-principal"`、`org_identity = false`。持有本地登记密钥不是组织身份，输出不会把它说成组织身份。
+
+### daemon API 不提供此通道
+
+`POST /api/v1/exceptions` 返回 `api.identity_required`。HTTP 请求不能安全携带登记密钥，因此 daemon 无法建立所需身份；它明确失败，而不是造一条 requester 为字面量 `user` 的例外。
+
+## `standard` 各子命令的实际语义
+
+`preview` / `adopt` / `pin` / `update` / `status` 是五个不同的操作，不是同一次读取的五个别名。采纳状态写在 store 的 `adoptions/<standard_id>.json`（`schema: ctxpect-adoption-v1`）。
+
+| 子命令 | 写状态 | 前置条件 | 说明 |
+| --- | --- | --- | --- |
+| `status` | 否 | 无 | 读 standard 与本项目采纳状态；缺失即报 `absent` |
+| `preview` | 否 | standard 存在且验签通过 | 报告 `adopt` 将写入什么（`would_write`），并标 `writes_state: false` |
+| `adopt` | 是 | 未采纳 | 建立采纳，记录 `source_digest`；重复采纳报 `standard.already_adopted` |
+| `pin` | 是 | 已采纳 | 固定到当前 `manifest_digest`，`state` 变 `pinned` |
+| `update` | 是 | 已采纳且 standard 已变化 | 跟进到当前版本，返回 `from_digest`/`to_digest`；无变化报 `standard.already_current` |
+| `leave` / `rollback` / `revoke` | 是 | standard 存在 | 破坏性删除；不存在时报 `standard.absent`，不谎报删除成功 |
+
+`adopt` / `pin` / `update` / `publish` / `validate` / `leave` / `rollback` / `revoke` 都经过唯一 authority `authorize_store_apply`，并写入审计链。
 
 ## JSON envelope（计划）
 

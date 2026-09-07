@@ -24,8 +24,15 @@ pub struct InspectReport {
 
 pub enum InspectFailure {
     Usage(UsageError),
-    Io { code: &'static str, message: String },
-    Internal { message: String },
+    Io {
+        code: &'static str,
+        message: String,
+        command: Option<String>,
+    },
+    Internal {
+        message: String,
+        command: Option<String>,
+    },
 }
 
 impl InspectFailure {
@@ -40,16 +47,52 @@ impl InspectFailure {
     pub fn message(&self) -> String {
         match self {
             InspectFailure::Usage(err) => err.message.clone(),
-            InspectFailure::Io { message, .. } | InspectFailure::Internal { message } => {
+            InspectFailure::Io { message, .. } | InspectFailure::Internal { message, .. } => {
                 message.clone()
             }
         }
     }
 
+    /// The command this failure actually came from. `None` when the failure
+    /// was raised before any command was resolved; it is never silently
+    /// reported as `inspect`.
     pub fn command(&self) -> Option<&str> {
         match self {
             InspectFailure::Usage(err) => err.command.as_deref(),
-            _ => Some("inspect"),
+            InspectFailure::Io { command, .. } | InspectFailure::Internal { command, .. } => {
+                command.as_deref()
+            }
+        }
+    }
+
+    /// Attribute a failure to the command that raised it. An attribution
+    /// already carried by the failure wins, so an inner command is not
+    /// overwritten by its dispatcher.
+    #[must_use]
+    pub fn in_command(self, command: &str) -> Self {
+        match self {
+            InspectFailure::Usage(mut err) => {
+                if err.command.is_none() {
+                    err.command = Some(command.to_string());
+                }
+                InspectFailure::Usage(err)
+            }
+            InspectFailure::Io {
+                code,
+                message,
+                command: existing,
+            } => InspectFailure::Io {
+                code,
+                message,
+                command: existing.or_else(|| Some(command.to_string())),
+            },
+            InspectFailure::Internal {
+                message,
+                command: existing,
+            } => InspectFailure::Internal {
+                message,
+                command: existing.or_else(|| Some(command.to_string())),
+            },
         }
     }
 }
@@ -81,6 +124,7 @@ pub fn inspect(args: InspectArgs) -> Result<InspectReport, InspectFailure> {
             return Err(InspectFailure::Io {
                 code: "io.cwd_outside_project",
                 message: "`<cwd>` is outside `<project>`".to_string(),
+                command: Some("inspect".into()),
             });
         }
         Err(refusal) => {
@@ -946,7 +990,10 @@ fn render_human(input: HumanRender<'_>) -> String {
 fn map_resolve(error: ResolveError) -> InspectFailure {
     match error {
         ResolveError::Fs(refusal) => io_from_refusal(&refusal, "<project>"),
-        ResolveError::Internal(message) => InspectFailure::Internal { message },
+        ResolveError::Internal(message) => InspectFailure::Internal {
+            message,
+            command: Some("inspect".into()),
+        },
     }
 }
 
@@ -963,7 +1010,11 @@ pub fn rel_display(root: &Path, inner: &Path) -> String {
 
 fn io_from_refusal(refusal: &Refusal, placeholder: &'static str) -> InspectFailure {
     let (code, message) = map_refusal(refusal, placeholder);
-    InspectFailure::Io { code, message }
+    InspectFailure::Io {
+        code,
+        message,
+        command: Some("inspect".into()),
+    }
 }
 
 fn map_refusal(refusal: &Refusal, placeholder: &'static str) -> (&'static str, String) {
@@ -1021,20 +1072,27 @@ fn io_kind_label(detail: &str) -> &'static str {
 }
 
 pub fn error_envelope(failure: &InspectFailure) -> Value {
-    obj([
+    let command = failure.command();
+    let mut fields = vec![
         ("schema_version", Value::Int(1)),
-        ("command", opt_s(failure.command())),
+        ("command", opt_s(command)),
         ("exit_code", Value::Int(1)),
-        ("receipt_kind", s(RECEIPT_KIND)),
-        ("schema", s(SCHEMA)),
-        (
-            "error",
-            obj([
-                ("code", s(failure.code())),
-                ("message", s(failure.message())),
-            ]),
-        ),
-    ])
+    ];
+    // `receipt_kind` / `schema` describe the development snapshot that
+    // `inspect` produces. Every other command has a different envelope, so
+    // stamping them here would mislabel the failure.
+    if command == Some("inspect") {
+        fields.push(("receipt_kind", s(RECEIPT_KIND)));
+        fields.push(("schema", s(SCHEMA)));
+    }
+    fields.push((
+        "error",
+        obj([
+            ("code", s(failure.code())),
+            ("message", s(failure.message())),
+        ]),
+    ));
+    obj(fields)
 }
 
 pub fn error_human(failure: &InspectFailure) -> String {

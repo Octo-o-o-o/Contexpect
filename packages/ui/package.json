@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/routes.test.mjs tests/i18n.test.mjs"
+    "test": "node --test tests/routes.test.mjs tests/i18n.test.mjs tests/mask.test.mjs"
   },
   "dependencies": {
     "react": "18.3.1",

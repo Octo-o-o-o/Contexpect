@@ -35,6 +35,11 @@ pub struct ProductReport {
 }
 
 pub fn run_product(args: ProductArgs) -> Result<ProductReport, InspectFailure> {
+    let command = args.command.clone();
+    dispatch_product(args).map_err(|failure| failure.in_command(&command))
+}
+
+fn dispatch_product(args: ProductArgs) -> Result<ProductReport, InspectFailure> {
     match args.command.as_str() {
         "collect" | "inventory" => collect_cmd(&args),
         "doctor" => doctor_cmd(&args),
@@ -63,8 +68,14 @@ pub fn run_product(args: ProductArgs) -> Result<ProductReport, InspectFailure> {
     }
 }
 
+/// Raise a dispatch failure without an attribution; `run_product` stamps the
+/// command that was actually running.
 fn fail(code: &'static str, message: String) -> InspectFailure {
-    InspectFailure::Io { code, message }
+    InspectFailure::Io {
+        code,
+        message,
+        command: None,
+    }
 }
 
 fn ok(command: &str, exit: i32, body: Value) -> Result<ProductReport, InspectFailure> {
@@ -151,6 +162,52 @@ fn store_mutation_decision(
     let layers = load_policy_layers(store, project);
     let exceptions = load_exceptions(store);
     authorize_mutation(layers.as_ref(), &exceptions, now_unix(), true)
+}
+
+/// Environment variable carrying the enrolled principal secret.
+///
+/// It is read from the environment, never from argv: argv is visible in
+/// process listings and is captured by the redaction roots, and a secret
+/// belongs in neither.
+pub(crate) const PRINCIPAL_SECRET_ENV: &str = "CTXPECT_PRINCIPAL_SECRET";
+
+/// Path of the version-controlled principal registry inside a project.
+pub(crate) const PRINCIPAL_REGISTRY_REL: &str = ".ctxpect/principals.json";
+
+fn load_principal_registry(project: Option<&Path>) -> Option<Value> {
+    let path = project?.join(PRINCIPAL_REGISTRY_REL);
+    let text = fs::read_to_string(path).ok()?;
+    parse(&text).ok()
+}
+
+/// Verify the caller against the project's enrolled principal registry.
+///
+/// The result is auditable evidence, so both outcomes are recorded. The
+/// secret itself is never part of the record.
+fn verify_caller(
+    store: &Store,
+    args: &ProductArgs,
+) -> Result<ctxpect_policy::PrincipalProof, InspectFailure> {
+    let Some(principal_id) = args.principal.as_deref() else {
+        return Err(fail(
+            "principal.absent",
+            format!(
+                "`--principal <id>` and ${PRINCIPAL_SECRET_ENV} are required; `--actor` / `--role` are caller-attested and are not identity"
+            ),
+        ));
+    };
+    let registry = load_principal_registry(args.project.as_deref());
+    let secret = std::env::var(PRINCIPAL_SECRET_ENV).unwrap_or_default();
+    match ctxpect_policy::verify_principal(registry.as_ref(), principal_id, secret.as_bytes()) {
+        Ok(proof) => {
+            let _ = store.audit("principal.verified", "principal", Some(principal_id));
+            Ok(proof)
+        }
+        Err(err) => {
+            let _ = store.audit("principal.rejected", "principal", Some(err.code));
+            Err(fail(err.code, err.message))
+        }
+    }
 }
 
 pub(crate) fn authorize_store_apply(
@@ -594,6 +651,9 @@ fn preflight_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
         ("receipt_id", string(&id)),
         ("eligible_source", string("static-task-probe")),
     ]);
+    // The Receipt above is an append-only observation. The preflight intent
+    // is a planned change, so persisting it is a mutation.
+    let _auth = authorize_store_apply(&store, args.project.as_deref())?;
     store
         .put_named("intents", &format!("preflight_{id}"), &preflight)
         .map_err(|err| fail(err.code, err.message))?;
@@ -786,11 +846,13 @@ fn projection_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
     }
     let store = open_store(args)?;
     let previewed = proj_preview(&root, &intent).map_err(|err| fail(err.code, err.message))?;
-    store
-        .put_named("intents", &intent.intent_id, &intent.to_value())
-        .map_err(|err| fail(err.code, err.message))?;
     if args.command == "apply" {
+        // Authorize before persisting. Writing the intent first leaves a
+        // record of a mutation that policy went on to refuse.
         let _auth = authorize_store_apply(&store, Some(project.as_path()))?;
+        store
+            .put_named("intents", &intent.intent_id, &intent.to_value())
+            .map_err(|err| fail(err.code, err.message))?;
         let backup = ctxpect_projection::backup_dir(store.root(), &previewed.tx_id);
         let result = proj_apply(&root, &intent, &previewed, &backup, true)
             .map_err(|err| fail(err.code, err.message))?;
@@ -814,10 +876,73 @@ fn projection_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
         .as_deref()
         .ok_or_else(|| fail("usage.invalid", "`--id <tx>` is required for rollback".into()))?;
     let _auth = authorize_store_apply(&store, Some(project.as_path()))?;
+    store
+        .put_named("intents", &intent.intent_id, &intent.to_value())
+        .map_err(|err| fail(err.code, err.message))?;
     let backup = ctxpect_projection::backup_dir(store.root(), tx);
     let result = proj_rollback(&root, &backup, &intent.target_rel)
         .map_err(|err| fail(err.code, err.message))?;
     ok("rollback", 0, result)
+}
+
+/// Merge extra fields into an object body.
+fn merge<'a>(base: Value, extra: impl IntoIterator<Item = (&'a str, Value)>) -> Value {
+    let mut map = match base {
+        Value::Object(map) => map,
+        other => {
+            let mut map = std::collections::BTreeMap::new();
+            map.insert("result".to_string(), other);
+            map
+        }
+    };
+    for (key, value) in extra {
+        map.insert(key.to_string(), value);
+    }
+    Value::Object(map)
+}
+
+fn standard_digest(doc: &Value) -> String {
+    doc.get("manifest_digest")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+fn load_standard(store: &Store, id: &str) -> Result<Value, InspectFailure> {
+    store.get_named("standards", id).map_err(|_| {
+        fail(
+            "standard.absent",
+            format!("standard `{id}` is not present in this store"),
+        )
+    })
+}
+
+fn adoption_of(store: &Store, id: &str) -> Option<Value> {
+    store.get_named("adoptions", id).ok()
+}
+
+fn require_adoption(store: &Store, id: &str) -> Result<Value, InspectFailure> {
+    adoption_of(store, id).ok_or_else(|| {
+        fail(
+            "standard.not_adopted",
+            format!("standard `{id}` is not adopted; run `standard adopt` first"),
+        )
+    })
+}
+
+/// An adoption record. `source_digest` is the standard this project tracks;
+/// `pinned_digest` is set only when the adoption is pinned to it.
+fn new_adoption(id: &str, state: &str, source_digest: &str, pinned: Option<&str>) -> Value {
+    object([
+        ("schema", string("ctxpect-adoption-v1")),
+        ("standard_id", string(id)),
+        ("state", string(state)),
+        ("source_digest", string(source_digest)),
+        (
+            "pinned_digest",
+            pinned.map_or(Value::Null, string),
+        ),
+    ])
 }
 
 fn standard_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
@@ -826,6 +951,9 @@ fn standard_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
     let id = args.id.clone().unwrap_or_else(|| "std-local".into());
     match sub {
         "validate" | "publish" => {
+            // Publishing a standard writes a signed team contract into the
+            // store. That is a mutation and goes through the one authority.
+            let _auth = authorize_store_apply(&store, args.project.as_deref())?;
             let payload = args.text.clone().unwrap_or_else(|| id.clone());
             let unsigned = object([
                 ("standard_id", string(&id)),
@@ -867,32 +995,157 @@ fn standard_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
             let verified = verify_standard_document(&store, &stored)?;
             ok(&format!("standard {sub}"), 0, verified)
         }
-        "preview" | "adopt" | "pin" | "update" | "status" => {
+        "status" => {
+            // Read-only. Reports the standard and this project's adoption of
+            // it, and reports absence as absence.
+            let adoption = store.get_named("adoptions", &id).ok();
             match store.get_named("standards", &id) {
                 Ok(doc) => {
                     let verified = verify_standard_document(&store, &doc)?;
-                    ok(&format!("standard {sub}"), 0, verified)
+                    ok(
+                        "standard status",
+                        0,
+                        merge(
+                            verified,
+                            [("adoption", adoption.unwrap_or(Value::Null))],
+                        ),
+                    )
                 }
                 Err(_) => ok(
-                    &format!("standard {sub}"),
+                    "standard status",
                     0,
                     object([
                         ("standard_id", string(&id)),
                         ("status", string("absent")),
                         ("signed", Value::Bool(false)),
+                        ("adoption", adoption.unwrap_or(Value::Null)),
                     ]),
                 ),
             }
         }
-        "leave" | "rollback" | "revoke" => {
+        "preview" => {
+            // Read-only by contract: it states what `adopt` would write and
+            // writes nothing itself.
+            let doc = load_standard(&store, &id)?;
+            let verified = verify_standard_document(&store, &doc)?;
+            let current = adoption_of(&store, &id);
+            ok(
+                "standard preview",
+                0,
+                merge(
+                    verified,
+                    [
+                        ("current_adoption", current.clone().unwrap_or(Value::Null)),
+                        (
+                            "would_write",
+                            new_adoption(&id, "adopted", &standard_digest(&doc), None),
+                        ),
+                        ("writes_state", Value::Bool(false)),
+                    ],
+                ),
+            )
+        }
+        "adopt" => {
+            let _auth = authorize_store_apply(&store, args.project.as_deref())?;
+            let doc = load_standard(&store, &id)?;
+            verify_standard_document(&store, &doc)?;
+            if adoption_of(&store, &id).is_some() {
+                return Err(fail(
+                    "standard.already_adopted",
+                    format!("standard `{id}` is already adopted; use `update` or `pin`"),
+                ));
+            }
+            let record = new_adoption(&id, "adopted", &standard_digest(&doc), None);
             store
+                .put_named("adoptions", &id, &record)
+                .map_err(|err| fail(err.code, err.message))?;
+            let _ = store.audit("standard.adopt", "adoption", Some(&id));
+            ok(
+                "standard adopt",
+                0,
+                merge(record, [("previous_adoption", Value::Null)]),
+            )
+        }
+        "pin" => {
+            let _auth = authorize_store_apply(&store, args.project.as_deref())?;
+            let doc = load_standard(&store, &id)?;
+            verify_standard_document(&store, &doc)?;
+            let previous = require_adoption(&store, &id)?;
+            let digest = standard_digest(&doc);
+            let record = new_adoption(&id, "pinned", &digest, Some(&digest));
+            store
+                .put_named("adoptions", &id, &record)
+                .map_err(|err| fail(err.code, err.message))?;
+            let _ = store.audit("standard.pin", "adoption", Some(&id));
+            ok(
+                "standard pin",
+                0,
+                merge(record, [("previous_adoption", previous)]),
+            )
+        }
+        "update" => {
+            let _auth = authorize_store_apply(&store, args.project.as_deref())?;
+            let doc = load_standard(&store, &id)?;
+            verify_standard_document(&store, &doc)?;
+            let previous = require_adoption(&store, &id)?;
+            let from = previous
+                .get("source_digest")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let to = standard_digest(&doc);
+            if from == to {
+                return Err(fail(
+                    "standard.already_current",
+                    format!("adoption of `{id}` already tracks the current standard"),
+                ));
+            }
+            let was_pinned =
+                previous.get("state").and_then(Value::as_str) == Some("pinned");
+            let record = new_adoption(
+                &id,
+                if was_pinned { "pinned" } else { "adopted" },
+                &to,
+                was_pinned.then_some(to.as_str()),
+            );
+            store
+                .put_named("adoptions", &id, &record)
+                .map_err(|err| fail(err.code, err.message))?;
+            let _ = store.audit("standard.update", "adoption", Some(&id));
+            ok(
+                "standard update",
+                0,
+                merge(
+                    record,
+                    [
+                        ("previous_adoption", previous),
+                        ("from_digest", string(&from)),
+                        ("to_digest", string(&to)),
+                    ],
+                ),
+            )
+        }
+        "leave" | "rollback" | "revoke" => {
+            // A destructive delete. It needs the same authority as any other
+            // mutation, and it must not report success for a standard that
+            // was never there.
+            let _auth = authorize_store_apply(&store, args.project.as_deref())?;
+            let removed = store
                 .delete_named("standards", &id)
                 .map_err(|err| fail(err.code, err.message))?;
+            if !removed {
+                return Err(fail(
+                    "standard.absent",
+                    format!("standard `{id}` is not present; nothing was removed"),
+                ));
+            }
+            let _ = store.audit(&format!("standard.{sub}"), "standard", Some(&id));
             ok(
                 &format!("standard {sub}"),
                 0,
                 object([
                     ("standard_id", string(&id)),
+                    ("removed", Value::Bool(true)),
                     ("personal_files_preserved", Value::Bool(true)),
                 ]),
             )
@@ -907,15 +1160,37 @@ fn exception_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
     let id = args.id.clone().unwrap_or_else(|| "ex-1".into());
     match sub {
         "request" => {
-            let _auth = authorize_store_apply(&store, args.project.as_deref())?;
-            let rec = new_exception(&id, args.actor.as_deref().unwrap_or("user"), "project", 9_999_999_999);
+            // Requesting an exception is authorized by the enrolled principal
+            // registry, not by an approved exception. Gating it on
+            // `authorize_store_apply` would require an approved exception in
+            // order to ask for the first one.
+            let proof = verify_caller(&store, args)?;
+            if !proof.has_role("requester") {
+                return Err(fail(
+                    "exception.requester_role_required",
+                    format!(
+                        "principal `{}` is not enrolled as a requester",
+                        proof.principal_id()
+                    ),
+                ));
+            }
+            if store.get_named("exceptions", &id).is_ok() {
+                return Err(fail(
+                    "exception.already_exists",
+                    format!("exception `{id}` already exists; requesting again would overwrite its state"),
+                ));
+            }
+            let rec = new_exception(&id, proof.principal_id(), "project", 9_999_999_999);
             store
                 .put_named("exceptions", &id, &rec)
                 .map_err(|err| fail(err.code, err.message))?;
+            let _ = store.audit("exception.requested", "exception", Some(&id));
             ok("exception request", 0, rec)
         }
         "approve" | "reject" | "revoke" => {
-            // `--role` / `--actor` are caller-attested and are not identity.
+            // `--role` / `--actor` are caller-attested and are not identity;
+            // the authority here is a verified enrolled principal.
+            let proof = verify_caller(&store, args)?;
             let rec = store
                 .get_named("exceptions", &id)
                 .map_err(|err| fail(err.code, err.message))?;
@@ -924,12 +1199,16 @@ fn exception_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
                 "reject" => "rejected",
                 _ => "revoked",
             };
-            let _ = (args.actor.as_deref(), args.role.as_deref());
-            let updated = transition(&rec, "unused", "unused", next)
+            let updated = transition(&rec, &proof, next, now_unix())
                 .map_err(|err| fail(err.code, err.message))?;
             store
                 .put_named("exceptions", &id, &updated)
                 .map_err(|err| fail(err.code, err.message))?;
+            let _ = store.audit(
+                &format!("exception.{next}"),
+                "exception",
+                Some(&format!("{id} by {}", proof.principal_id())),
+            );
             ok(&format!("exception {sub}"), 0, updated)
         }
         "status" => {
@@ -982,6 +1261,7 @@ fn advisor_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
     .map_err(|err| fail(err.code, err.message))?;
     if let Some(store) = args.store.as_ref() {
         let store = Store::open(store).map_err(|err| fail(err.code, err.message))?;
+        let _auth = authorize_store_apply(&store, args.project.as_deref())?;
         let id = out
             .get("candidate_id")
             .and_then(Value::as_str)
@@ -1032,6 +1312,7 @@ fn experiment_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
     let result = decide(&contract, &control, &treatment, false)
         .map_err(|err| fail(err.code, err.message))?;
     if let Some(store) = &store {
+        let _auth = authorize_store_apply(store, args.project.as_deref())?;
         store
             .put_named("experiments", &experiment_id, &result)
             .map_err(|err| fail(err.code, err.message))?;

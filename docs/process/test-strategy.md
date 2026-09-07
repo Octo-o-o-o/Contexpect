@@ -79,7 +79,7 @@ cwd 见下表。env：不强制 `CARGO_NET_OFFLINE`，不设 `CI`。fixture：`p
 | 名称 | cwd | 命令 | 版本 |
 | --- | --- | --- | --- |
 | ui-routes | 仓库根 | `python3 scripts/check_ui_routes.py` | Python 3.12 |
-| ui-unit | `packages/ui` | `pnpm test`（`node --test tests/routes.test.mjs tests/i18n.test.mjs`） | Node ≥22，pnpm 11.20.0 |
+| ui-unit | `packages/ui` | `pnpm test`（`node --test tests/routes.test.mjs tests/i18n.test.mjs tests/mask.test.mjs`） | Node ≥22，pnpm 11.20.0 |
 | ui-typecheck | `packages/ui` | `pnpm typecheck` | typescript 5.7.3 |
 | ui-build | `packages/ui` | `pnpm build` | vite 6.0.11 |
 

@@ -160,6 +160,11 @@ exit code:
 凭据正文。model-visible、use-evidence、outcome-affecting 一律报 indeterminate，
 需要 native runtime snapshot 才能确定。
 
+例外生命周期身份:
+  --principal <id>    仓内 .ctxpect/principals.json 里已登记的 principal。
+                      密钥经环境变量 CTXPECT_PRINCIPAL_SECRET 传入，不走 argv。
+                      --role / --actor 是调用方自报，不构成授权。
+
 完整命令合同见 docs/guides/cli-reference.md
 ";
 

@@ -59,6 +59,7 @@
 - [adr/0002-trust-boundaries.md](adr/0002-trust-boundaries.md)
 - [adr/0003-encrypted-sync-and-signing.md](adr/0003-encrypted-sync-and-signing.md)
 - [adr/0004-adapter-isolation.md](adr/0004-adapter-isolation.md)
+- [adr/0005-exception-identity-and-mutation-boundary.md](adr/0005-exception-identity-and-mutation-boundary.md) — 例外授权的身份源（仓内已登记 principals）与 mutation 门禁边界
 
 ## PRD §17.0 验收工件
 

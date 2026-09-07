@@ -73,6 +73,40 @@ fn run(args: &[&str]) -> (i32, Value, String) {
     (code, json, stdout)
 }
 
+/// Run the binary holding an enrolled principal secret. The secret goes
+/// through the environment, exactly as the product requires.
+fn run_as(secret: &str, args: &[&str]) -> (i32, Value, String) {
+    let output = Command::new(bin())
+        .args(args)
+        .env("CTXPECT_PRINCIPAL_SECRET", secret)
+        .output()
+        .expect("spawn");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let code = output.status.code().unwrap_or(255);
+    let json = parse(stdout.trim()).unwrap_or_else(|_| {
+        parse(&format!(
+            "{{\"parse_failed\":true,\"stdout\":{}}}",
+            serde_quote(&stdout)
+        ))
+        .unwrap_or(Value::Null)
+    });
+    (code, json, stdout)
+}
+
+/// Enroll `alice` (requester) and `carol` (approver) in a project registry.
+/// The digests are computed by the product's own enrollment function, so the
+/// fixture cannot drift from the code that checks it.
+fn enroll_principals(project: &Path) {
+    fs::create_dir_all(project.join(".ctxpect")).unwrap();
+    let registry = format!(
+        r#"{{"schema":"ctxpect-principals-v1","principals":[{{"principal_id":"alice","roles":["requester"],"key_digest":"{}"}},{{"principal_id":"carol","roles":["approver"],"key_digest":"{}"}}]}}"#,
+        ctxpect_policy::enrollment_digest("alice", b"alice-secret"),
+        ctxpect_policy::enrollment_digest("carol", b"carol-secret"),
+    );
+    fs::write(project.join(".ctxpect/principals.json"), registry).unwrap();
+    fs::write(project.join(".ctxpect/policy.json"), PASS_LAYERS).unwrap();
+}
+
 fn serde_quote(text: &str) -> String {
     format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n"))
 }
@@ -472,6 +506,18 @@ fn l10_single_pair_not_causal_and_n_locked() {
         Some("inconclusive")
     );
     assert_eq!(json.get("causal").and_then(Value::as_bool), Some(false));
+
+    // Persisting an experiment result is a store mutation. Without authority
+    // it is refused and nothing is written.
+    let (code, json, out) = run(&[
+        "experiment", "--json", "--n", "4", "--id", "e-lock", "--store", store_s,
+    ]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("policy.unknown"));
+    assert!(!store.join("experiments/e-lock.json").exists());
+
+    fs::create_dir_all(&store).unwrap();
+    plant_pass_policy_and_live_exception(&store);
     let (code, json, out) = run(&[
         "experiment",
         "--json",
@@ -650,44 +696,106 @@ fn exception_approve_cannot_self_attest_role() {
     let scratch = Scratch::new("ex");
     let store = scratch.path.join("store");
     let store_s = store.to_str().unwrap();
+    let project_s = scratch.path.to_str().unwrap();
+    enroll_principals(&scratch.path);
+
+    // Naming yourself is not identity: no principal, no request.
     let (code, json, out) = run(&[
-        "exception",
-        "request",
-        "--json",
-        "--store",
-        store_s,
-        "--id",
+        "exception", "request", "--json", "--store", store_s, "--project", project_s, "--id",
         "ex-1",
     ]);
     assert_eq!(code, 1, "{out} {json:?}");
-    assert_eq!(err_code(&json), Some("policy.unknown"));
+    assert_eq!(err_code(&json), Some("principal.absent"));
     assert!(!store.join("exceptions/ex-1.json").exists());
 
-    fs::create_dir_all(store.join("exceptions")).unwrap();
-    let planted = r#"{"exception_id":"ex-1","requester":"user","scope":"project","state":"requested","expires_at":4102444800,"approver":null}"#;
-    fs::write(store.join("exceptions/ex-1.json"), planted).unwrap();
+    // Holding the wrong secret is not identity either.
+    let (code, json, out) = run_as(
+        "not-the-enrolled-secret",
+        &[
+            "exception", "request", "--json", "--store", store_s, "--project", project_s, "--id",
+            "ex-1", "--principal", "alice",
+        ],
+    );
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("principal.secret_mismatch"));
+    assert!(!store.join("exceptions/ex-1.json").exists());
+
+    // An enrolled requester may request.
+    let (code, json, out) = run_as(
+        "alice-secret",
+        &[
+            "exception", "request", "--json", "--store", store_s, "--project", project_s, "--id",
+            "ex-1", "--principal", "alice",
+        ],
+    );
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("requester").and_then(Value::as_str), Some("alice"));
+
+    // `--role` / `--actor` remain caller-attested and grant nothing: alice is
+    // enrolled as a requester only, and claiming a role does not change that.
+    let (code, json, out) = run_as(
+        "alice-secret",
+        &[
+            "exception", "approve", "--json", "--store", store_s, "--project", project_s, "--id",
+            "ex-1", "--principal", "alice", "--role", "lead", "--actor", "same-user",
+        ],
+    );
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("exception.approver_role_required"));
+    let after_denied = fs::read_to_string(store.join("exceptions/ex-1.json")).unwrap();
+    assert!(after_denied.contains("\"requested\""), "{after_denied}");
+
+    // A mutation is still fail-closed while nothing is approved.
     let (code, json, out) = run(&[
-        "exception",
-        "approve",
-        "--json",
-        "--store",
-        store_s,
-        "--id",
-        "ex-1",
-        "--role",
-        "lead",
-        "--actor",
-        "same-user",
+        "standard", "publish", "--json", "--store", store_s, "--project", project_s, "--id",
+        "std-x", "--text", "hello",
     ]);
     assert_eq!(code, 1, "{out} {json:?}");
-    assert_eq!(
-        err_code(&json),
-        Some("exception.identity_source_uncovered")
+    assert_eq!(err_code(&json), Some("policy.approval_required"));
+
+    // An enrolled approver, who is not the requester, can approve.
+    let (code, json, out) = run_as(
+        "carol-secret",
+        &[
+            "exception", "approve", "--json", "--store", store_s, "--project", project_s, "--id",
+            "ex-1", "--principal", "carol",
+        ],
     );
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("state").and_then(Value::as_str), Some("approved"));
     assert_eq!(
-        fs::read_to_string(store.join("exceptions/ex-1.json")).unwrap(),
-        planted
+        json.pointer(&["decided_by", "principal_id"]).and_then(Value::as_str),
+        Some("carol")
     );
+    // The decision is recorded as a local principal, never as an org identity.
+    assert_eq!(
+        json.pointer(&["decided_by", "org_identity"]).and_then(Value::as_bool),
+        Some(false)
+    );
+
+    // That approval is what unblocks the mutation — the bootstrap deadlock is
+    // gone, and the gate itself is not.
+    let (code, json, out) = run(&[
+        "standard", "publish", "--json", "--store", store_s, "--project", project_s, "--id",
+        "std-x", "--text", "hello",
+    ]);
+    assert_eq!(code, 0, "{out} {json:?}");
+
+    // Revoking closes it again.
+    let (code, _json, _out) = run_as(
+        "carol-secret",
+        &[
+            "exception", "revoke", "--json", "--store", store_s, "--project", project_s, "--id",
+            "ex-1", "--principal", "carol",
+        ],
+    );
+    assert_eq!(code, 0);
+    let (code, json, out) = run(&[
+        "standard", "publish", "--json", "--store", store_s, "--project", project_s, "--id",
+        "std-y", "--text", "hello",
+    ]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("policy.approval_required"));
 }
 
 #[test]
@@ -695,6 +803,10 @@ fn standard_signature_rejects_payload_and_mac_tamper() {
     let scratch = Scratch::new("std");
     let store = scratch.path.join("store");
     let store_s = store.to_str().unwrap();
+    // Publishing a standard is a store mutation and needs the same authority
+    // as any other; this test is about signatures, so grant it up front.
+    fs::create_dir_all(&store).unwrap();
+    plant_pass_policy_and_live_exception(&store);
     let (code, json, out) = run(&[
         "standard",
         "publish",
@@ -904,9 +1016,12 @@ fn daemon_health_and_inspect_via_localhost() {
                 .unwrap_or(0);
             assert_eq!(session_ids, 0, "sessions written without authorization");
 
+            // The API cannot carry an enrolled principal secret, so it cannot
+            // establish the identity the exception lifecycle requires. It says
+            // so instead of minting an exception with a made-up requester.
             let (estatus, eraw) = http_call(&listen, "POST", "/api/v1/exceptions", "{}");
             assert_eq!(estatus, 400, "{eraw}");
-            assert!(eraw.contains("policy.unknown"), "{eraw}");
+            assert!(eraw.contains("api.identity_required"), "{eraw}");
             assert!(!store.join("exceptions/ex-api.json").exists());
 
             let (rstatus, rraw) = http_call(

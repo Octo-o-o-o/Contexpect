@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type ClipboardEvent, type KeyboardEvent }
 import { NAV } from "./routes";
 import { t, type Locale } from "./i18n";
 import { asObj, getJson, postJson, type Json } from "./api";
+import { projectFieldValue, projectVisible, revealed } from "./mask";
 
 const FACETS = [
   "installed",
@@ -13,10 +14,6 @@ const FACETS = [
   "outcome-affecting",
 ] as const;
 
-function revealed(hold: boolean, privacy: "default" | "screenshot"): boolean {
-  return hold && privacy !== "screenshot";
-}
-
 export function App() {
   const [locale, setLocale] = useState<Locale>("zh-CN");
   const [privacy, setPrivacy] = useState<"default" | "screenshot">("default");
@@ -26,10 +23,9 @@ export function App() {
   const [status, setStatus] = useState<"idle" | "loading" | "error" | "stale">("idle");
   const [error, setError] = useState("");
   const [hold, setHold] = useState(false);
-  const [projectFocused, setProjectFocused] = useState(false);
   const loc = useLocation();
   const isRevealed = revealed(hold, privacy);
-  const showProject = privacy === "default" || isRevealed || projectFocused;
+  const showProject = projectVisible(privacy, hold);
 
   function confirmCopy(event: ClipboardEvent) {
     if (!isRevealed) {
@@ -92,14 +88,16 @@ export function App() {
           <label>
             {t(locale, "project")}
             <input
-              value={showProject ? project : project ? "••••" : ""}
+              value={projectFieldValue(project, showProject)}
               onChange={(e) => setProject(e.target.value)}
-              onFocus={() => setProjectFocused(true)}
-              onBlur={() => setProjectFocused(false)}
               onCopy={confirmCopy}
               data-mask
               data-revealed={showProject ? "true" : "false"}
-              aria-hidden={!showProject}
+              // Read-only while masked: otherwise editing writes the mask
+              // characters back into the real project path. `aria-hidden`
+              // must not appear on a focusable element, so the masked state
+              // is announced through the label instead of hiding the field.
+              readOnly={!showProject}
               aria-label={showProject ? t(locale, "project") : t(locale, "masked")}
               placeholder="<project>"
             />
@@ -226,7 +224,6 @@ function MaskedText({
       className="mono"
       data-mask
       data-revealed={hold ? "true" : "false"}
-      aria-hidden={!hold}
       aria-label={hold ? undefined : t(locale, "masked")}
       onCopy={onCopy}
     >
