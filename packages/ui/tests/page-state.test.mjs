@@ -251,3 +251,34 @@ test("declared actions correspond to controls that exist in the UI", () => {
     assert.ok(uiSource.includes(marker), `${marker} is declared but not rendered`);
   }
 });
+
+test("the narrow viewport renders a read-only surface, not the full shell", () => {
+  // C06: below 768px the product is a read-only Receipt/notification view.
+  // Hiding the navigation while still rendering the whole app would leave no
+  // way to move between pages.
+  assert.match(uiSource, /const NARROW_QUERY = "\(max-width: 767px\)"/);
+  assert.match(uiSource, /if \(narrow\) \{/, "App must branch on the narrow viewport");
+  assert.match(uiSource, /<NarrowReadOnly/, "the narrow branch renders the read-only view");
+
+  const view = uiSource.slice(
+    uiSource.indexOf("function NarrowReadOnly("),
+    uiSource.indexOf("/** i18n key for each C04 state's label"),
+  );
+  assert.ok(view.length > 0, "NarrowReadOnly must exist");
+  assert.ok(!view.includes("NAV.map"), "the read-only view does not render the full navigation");
+  // Notifications have no endpoint in this slice; the view must not present
+  // that as "none yet".
+  assert.match(view, /notifications\.unimplemented/);
+});
+
+test("narrow detection does not rely on the change event alone", () => {
+  // A viewport change that delivers no `change` event would otherwise strand
+  // the user in the wrong layout until a reload.
+  const hook = uiSource.slice(
+    uiSource.indexOf("function useNarrowViewport"),
+    uiSource.indexOf("function NarrowReadOnly("),
+  );
+  assert.match(hook, /addEventListener\("change", sync\)/);
+  assert.match(hook, /addEventListener\("resize", sync\)/);
+  assert.match(hook, /removeEventListener\("resize", sync\)/, "the resize listener is cleaned up");
+});

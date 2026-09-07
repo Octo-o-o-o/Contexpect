@@ -74,6 +74,8 @@ input, textarea { border: 1px solid var(--border); border-radius: 8px; padding: 
   }
 }
 @media (max-width: 767px) {
+  /* The shell is not rendered at this width — `NarrowReadOnly` replaces it —
+     so these rules only cover a resize before React re-renders. */
   .shell { display: block; }
   .nav { display: none; }
 }
@@ -87,3 +89,8 @@ dialog ul { margin: 12px 0; padding-left: 20px; }
 .settings-form { display: grid; gap: 8px; margin: 12px 0; }
 .settings-form label.row { justify-content: space-between; gap: 12px; }
 .settings-form fieldset { border: 1px solid var(--line, #d8dee3); border-radius: 6px; padding: 8px 12px; }
+
+/* C06 narrow viewport: a read-only surface, not the full shell. */
+.narrow { display: grid; gap: 12px; padding: 12px; }
+.narrow ul { list-style: none; padding: 0; display: grid; gap: 6px; }
+.narrow li button { width: 100%; text-align: left; }

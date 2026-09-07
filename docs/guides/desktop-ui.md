@@ -189,6 +189,14 @@ C04 明确要求「对不适用状态给理由，不能机械制造伪状态」�
 
 **Sync API 的目标是固定的**：`POST /api/v1/sync/preview|apply` 只对 `<store>/sync/folder` 操作。从请求体接受目的地路径等于让页面内容驱动任意文件写入，因此跨设备传输仍只走 CLI 的显式 `--dest`。`bundle_id` 会被写入 append-only 日志，故校验字符集并拒绝 `..`。
 
+### 窄视口（<768）
+
+C06 规定该宽度下产品是**只读的 Receipt/通知界面**，不是完整应用。实现上 <768 不渲染完整 shell，改由 `NarrowReadOnly` 提供 Receipt 列表与明细的只读查看；明细沿用默认遮罩，tombstone 条目单独标注，以免被读作仍然存在的 Receipt。
+
+通知显示 `notifications.unimplemented`：store 会创建 `notifications` 目录，但本切片没有任何端点产生或读取通知。「暂无通知」与「功能不存在」是两个不同的断言，界面说的是后者。
+
+窄屏检测同时监听 `matchMedia` 的 `change` 与 `window` 的 `resize`，并从查询对象读结果而非从事件读——只依赖 `change` 时，一个不派发该事件的视口变化会把用户困在错误布局里直到刷新。
+
 ### Drawer 契约
 
 Doctor 的证据抽屉是**常驻区域**而非模态，因此没有打开/关闭、焦点返回与 Esc 可言；

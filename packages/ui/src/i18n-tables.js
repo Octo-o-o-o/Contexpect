@@ -148,6 +148,11 @@ export const zh = {
   assetsLoss: "损失",
   assetsCopied: "已复制，可回滚",
   assetsUnlicensed: "锁文件中存在没有许可证的组件",
+  narrowTitle: "Contexpect 只读视图",
+  narrowReadOnly: "窗口宽度低于 768px，此处只提供凭据与通知的只读查看。需要完整功能请把窗口调宽。",
+  notifications: "通知",
+  narrowNotificationsUnimplemented: "本切片没有实现通知的产生与读取，因此这里不是「暂无通知」",
+  receiptTombstoned: "已删除（仅存 tombstone）",
 };
 
 export const en = {
@@ -300,4 +305,9 @@ export const en = {
   assetsLoss: "Loss",
   assetsCopied: "Copied; can be rolled back",
   assetsUnlicensed: "Components in the lock without a license",
+  narrowTitle: "Contexpect read-only view",
+  narrowReadOnly: "Below 768px this is a read-only view of Receipts and notifications. Widen the window for the full application.",
+  notifications: "Notifications",
+  narrowNotificationsUnimplemented: "This slice implements neither producing nor reading notifications, so this is not \"no notifications yet\"",
+  receiptTombstoned: "deleted (tombstone only)",
 };

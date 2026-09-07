@@ -31,6 +31,7 @@ export function App() {
   const [verdict, setVerdict] = useState<StateVerdict | null>(null);
   const [lastSymptom, setLastSymptom] = useState<string | undefined>(undefined);
   const [hold, setHold] = useState(false);
+  const narrow = useNarrowViewport();
   const loc = useLocation();
   const isRevealed = revealed(hold, privacy);
   const showProject = projectVisible(privacy, hold);
@@ -101,6 +102,19 @@ export function App() {
     const list = doctor.findings;
     return Array.isArray(list) ? (list as Json[]) : [];
   }, [doctor]);
+
+  if (narrow) {
+    // C06: below 768px the product is a read-only Receipt/notification
+    // surface, not the full application with its navigation removed.
+    return (
+      <NarrowReadOnly
+        locale={locale}
+        privacy={privacy}
+        hold={isRevealed}
+        onCopy={confirmCopy}
+      />
+    );
+  }
 
   return (
     <div className="shell" data-privacy={privacy} lang={locale}>
@@ -729,6 +743,122 @@ function ComparePage({ locale }: { locale: Locale }) {
       </div>
       {diff ? <pre className="mono">{JSON.stringify(diff, null, 2)}</pre> : null}
     </section>
+  );
+}
+
+/**
+ * Whether the viewport is below the C06 narrow breakpoint.
+ *
+ * Kept in sync with `app.css`: one breakpoint value, two consumers.
+ */
+const NARROW_QUERY = "(max-width: 767px)";
+
+function useNarrowViewport(): boolean {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(NARROW_QUERY).matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia(NARROW_QUERY);
+    // Read the query rather than the event, and listen on `resize` as well:
+    // a viewport change that does not deliver a `change` event would
+    // otherwise strand the user in the wrong layout until a reload.
+    const sync = () => setNarrow(query.matches);
+    query.addEventListener("change", sync);
+    window.addEventListener("resize", sync);
+    sync();
+    return () => {
+      query.removeEventListener("change", sync);
+      window.removeEventListener("resize", sync);
+    };
+  }, []);
+  return narrow;
+}
+
+/**
+ * The C06 narrow viewport: read-only Receipts and notifications.
+ *
+ * Below 768px the full application is not offered. Previously the navigation
+ * was simply hidden, which left the whole app rendered with no way to move
+ * between pages; this view is the read-only surface the spec actually asks
+ * for, and it says so rather than looking like a degraded full app.
+ */
+function NarrowReadOnly({
+  locale,
+  privacy,
+  hold,
+  onCopy,
+}: {
+  locale: Locale;
+  privacy: "default" | "screenshot";
+  hold: boolean;
+  onCopy: (event: ClipboardEvent) => void;
+}) {
+  const list = useResource("/api/v1/receipts");
+  const [selected, setSelected] = useState("");
+  const detail = useResource(selected ? `/api/v1/receipts/${selected}` : "/api/v1/health");
+  const rows = useMemo(() => {
+    const items = asObj(list.data).receipts;
+    return Array.isArray(items) ? (items as Json[]) : [];
+  }, [list.data]);
+
+  return (
+    <div className="narrow" data-privacy={privacy} lang={locale}>
+      <header className="panel">
+        <h1>{t(locale, "narrowTitle")}</h1>
+        <p className="muted">{t(locale, "narrowReadOnly")}</p>
+      </header>
+
+      <section className="panel">
+        <h2>{t(locale, "receipts")}</h2>
+        <StateBanner
+          route="/receipts"
+          status={list.status}
+          reasonCode={list.reasonCode}
+          retryable={list.retryable}
+          locale={locale}
+          onRetry={list.retry}
+        />
+        {rows.length === 0 ? null : (
+          <ul>
+            {rows.map((row) => {
+              const id = String(row.receipt_id ?? "");
+              return (
+                <li key={id}>
+                  <button
+                    type="button"
+                    aria-pressed={selected === id}
+                    onClick={() => setSelected(id === selected ? "" : id)}
+                  >
+                    {id} · {String(row.receipt_kind ?? "")}
+                    {/* A tombstone is not a Receipt; the list must not read
+                        as if the record is still there. */}
+                    {row.tombstone === true ? ` · ${t(locale, "receiptTombstoned")}` : ""}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {selected ? (
+          <MaskedText
+            text={JSON.stringify(detail.data, null, 2)}
+            hold={hold}
+            locale={locale}
+            onCopy={onCopy}
+          />
+        ) : null}
+      </section>
+
+      <section className="panel">
+        <h2>{t(locale, "notifications")}</h2>
+        {/* No endpoint writes or serves notifications in this slice; saying
+            "none" would be indistinguishable from "none yet". */}
+        <p role="status" data-testid="narrow-notifications">
+          {t(locale, "narrowNotificationsUnimplemented")} · {t(locale, "reasonCodeLabel")}:{" "}
+          <code>notifications.unimplemented</code>
+        </p>
+      </section>
+    </div>
   );
 }
 
