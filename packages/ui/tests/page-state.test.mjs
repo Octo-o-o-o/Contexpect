@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
 import { STATES, classifyFailure, classifyPayload } from "../src/page-state.js";
 import { PAGE_CONTRACTS, contractFor, stateApplies } from "../src/page-contract.js";
 import { ROUTE_PATHS } from "./route-paths.mjs";
+
+const root = dirname(fileURLToPath(import.meta.url));
+const uiSource = readFileSync(join(root, "../src/App.tsx"), "utf8");
+const httpSource = readFileSync(join(root, "../../../crates/ctxpect-cli/src/http.rs"), "utf8");
 
 /** Every state C04 names, excluding the internal `ok`. */
 const C04_STATES = STATES.filter((state) => state !== "ok");
@@ -133,4 +141,103 @@ test("loading, ok, empty, error and offline are applicable everywhere", () => {
 test("stateApplies resolves detail routes through their list route", () => {
   assert.equal(stateApplies("/assets/:id", "connector-missing"), true);
   assert.equal(stateApplies("/sessions/:id", "connector-missing"), false);
+});
+
+// ---- C04 requires more than states: entry/back, selection, DTO, actions,
+// ---- landing points, persistence and sensitive-data boundaries. These
+// ---- assertions keep those declarations honest against the real code.
+
+
+/** Literal API paths and path prefixes the daemon actually routes. */
+function backendRoutes() {
+  const literals = [...httpSource.matchAll(/"(GET|POST|PUT|DELETE)",\s*"(\/api\/v1[^"]*)"/g)].map(
+    (m) => ({ method: m[1], path: m[2], prefix: false }),
+  );
+  const prefixes = [...httpSource.matchAll(/starts_with\("(\/api\/v1[^"]*)"\)/g)].map((m) => ({
+    method: "*",
+    path: m[1],
+    prefix: true,
+  }));
+  return [...literals, ...prefixes];
+}
+
+function routedByBackend(declared) {
+  const concrete = declared.path.replace(/:[A-Za-z]+/g, "x");
+  return backendRoutes().some((route) => {
+    if (route.prefix) return concrete.startsWith(route.path);
+    return route.path === concrete && (route.method === declared.method || route.method === "*");
+  });
+}
+
+test("every declared query names an endpoint the daemon actually routes", () => {
+  for (const contract of PAGE_CONTRACTS) {
+    assert.ok(Array.isArray(contract.query) && contract.query.length > 0, contract.route);
+    for (const declared of contract.query) {
+      assert.ok(
+        routedByBackend(declared),
+        `${contract.route} declares ${declared.method} ${declared.path}, which the daemon does not route`,
+      );
+    }
+  }
+});
+
+test("every page declares entry, back, selection, persistence and sensitivity", () => {
+  const validRoutes = new Set(ROUTE_PATHS);
+  for (const contract of PAGE_CONTRACTS) {
+    for (const field of ["entry", "selection", "persistence", "sensitive"]) {
+      const text = contract[field];
+      assert.equal(typeof text, "string", `${contract.route}.${field}`);
+      // Substantive, not a placeholder.
+      assert.ok(text.length >= 10, `${contract.route}.${field} is too thin: ${text}`);
+      assert.match(text, /[一-鿿]/, `${contract.route}.${field}`);
+    }
+    assert.ok(
+      validRoutes.has(contract.back),
+      `${contract.route} returns to ${contract.back}, which is not a route`,
+    );
+  }
+});
+
+test("every action states its effect and where success lands", () => {
+  for (const contract of PAGE_CONTRACTS) {
+    assert.ok(Array.isArray(contract.actions), contract.route);
+    for (const action of contract.actions) {
+      for (const field of ["id", "label", "effect", "lands"]) {
+        assert.ok(action[field], `${contract.route}/${action.id ?? "?"}.${field} missing`);
+      }
+      // A landing point must say what changes, not merely that it succeeded.
+      assert.ok(
+        action.lands.length >= 8,
+        `${contract.route}/${action.id}: landing point is too thin`,
+      );
+    }
+  }
+});
+
+test("a page that writes can be refused, and one that cannot write says so", () => {
+  for (const contract of PAGE_CONTRACTS) {
+    const writes = contract.query.some((q) => q.method !== "GET" && !/inspect|doctor/.test(q.path));
+    if (writes) {
+      assert.ok(
+        contract.applicable.includes("permission-denied"),
+        `${contract.route} writes, so a refusal must be a declared state`,
+      );
+    }
+  }
+});
+
+test("declared actions correspond to controls that exist in the UI", () => {
+  // Guards against a contract promising an action the page never renders.
+  const withActions = PAGE_CONTRACTS.filter((c) => c.actions.length > 0).map((c) => c.route);
+  assert.deepEqual(withActions.sort(), ["/compare", "/doctor", "/receipts", "/settings", "/sync"]);
+  for (const marker of [
+    "receiptVerify",
+    "receiptDelete",
+    "syncPreview",
+    "syncApply",
+    "settingsSave",
+    "settingsRevert",
+  ]) {
+    assert.ok(uiSource.includes(marker), `${marker} is declared but not rendered`);
+  }
 });
