@@ -110,7 +110,7 @@ fn open_store(args: &ProductArgs) -> Result<Store, InspectFailure> {
     Store::open(&path).map_err(|err| fail(err.code, err.message))
 }
 
-fn now_unix() -> i64 {
+pub(crate) fn now_unix() -> i64 {
     i64::try_from(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)

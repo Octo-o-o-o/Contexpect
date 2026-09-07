@@ -916,6 +916,275 @@ fn http_json(raw: &str) -> Value {
     parse(body).unwrap_or(Value::Null)
 }
 
+/// Start a daemon on an ephemeral port and return it with its address.
+fn start_daemon(scratch: &Scratch, store: &Path) -> (ChildGuard, String) {
+    use std::thread;
+    use std::time::Duration;
+
+    let mut child = ChildGuard::new(
+        Command::new(bin())
+            .args([
+                "daemon",
+                "start",
+                "--project",
+                scratch.path.to_str().unwrap(),
+                "--store",
+                store.to_str().unwrap(),
+                "--listen",
+                "127.0.0.1:0",
+            ])
+            .spawn()
+            .expect("daemon"),
+    );
+    let addr_file = store.join("daemon.addr");
+    let mut listen = String::new();
+    for _ in 0..80 {
+        if child.child().try_wait().expect("try_wait").is_some() {
+            panic!("daemon exited before bind");
+        }
+        if let Ok(text) = fs::read_to_string(&addr_file) {
+            let text = text.trim();
+            if !text.is_empty() {
+                listen = text.to_string();
+                break;
+            }
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(!listen.is_empty(), "daemon did not write daemon.addr");
+    for _ in 0..80 {
+        let (status, raw) = http_call(&listen, "GET", "/api/v1/health", "");
+        if status == 200 && raw.contains("ok") {
+            return (child, listen);
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    panic!("daemon never became healthy");
+}
+
+fn get_json(listen: &str, path: &str) -> (u16, Value) {
+    let (status, raw) = http_call(listen, "GET", path, "");
+    (status, http_json(&raw))
+}
+
+/// `/monitor`, `/sync`, `/team/compliance` and `/care-plan/:id` used to answer
+/// with fixed constants. Each assertion below would pass against those
+/// constants only by accident, and the staleness flip cannot pass at all.
+#[test]
+fn read_only_endpoints_report_computed_state_not_constants() {
+    let scratch = Scratch::new("endpoints");
+    scratch.write("AGENTS.md", "hello\n");
+    let store = scratch.path.join("store");
+    let (_child, listen) = start_daemon(&scratch, &store);
+
+    // ---- Before any inspect: unknown, and unknown is not `false` or `0`. ----
+    let (status, monitor) = get_json(&listen, "/api/v1/monitor");
+    assert_eq!(status, 200);
+    assert_eq!(
+        monitor.pointer(&["staleness", "status"]).and_then(Value::as_str),
+        Some("unknown"),
+        "{monitor:?}"
+    );
+    assert_eq!(
+        monitor.get("current_receipt_id").cloned(),
+        Some(Value::Null),
+        "{monitor:?}"
+    );
+
+    let (status, compliance) = get_json(&listen, "/api/v1/team/compliance");
+    assert_eq!(status, 200);
+    // Absent evidence must not be reported as a clean zero.
+    assert_eq!(compliance.get("unknown"), Some(&Value::Null), "{compliance:?}");
+    assert_eq!(compliance.get("drift"), Some(&Value::Null), "{compliance:?}");
+    assert_eq!(
+        compliance.pointer(&["freshness", "status"]).and_then(Value::as_str),
+        Some("unknown"),
+        "{compliance:?}"
+    );
+    // The privacy invariants hold regardless.
+    assert_eq!(compliance.get("redacted").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        compliance.get("member_bodies_included").and_then(Value::as_bool),
+        Some(false)
+    );
+
+    // A care plan for a Receipt that does not exist is an error, not a plan.
+    let (status, plan) = get_json(&listen, "/api/v1/care-plan/f_anything");
+    assert_eq!(status, 400, "{plan:?}");
+    assert_eq!(err_code(&plan), Some("api.no_current_receipt"));
+
+    // ---- After an inspect. ----
+    let (status, _) = http_call(
+        &listen,
+        "POST",
+        "/api/v1/inspect",
+        &format!(
+            r#"{{"project":{},"harness":"codex"}}"#,
+            serde_quote(scratch.path.to_str().unwrap())
+        ),
+    );
+    assert_eq!(status, 200);
+
+    // Evidence is unchanged, so the Receipt is current — and something was
+    // actually compared to reach that verdict.
+    let (_, monitor) = get_json(&listen, "/api/v1/monitor");
+    assert_eq!(
+        monitor.pointer(&["staleness", "status"]).and_then(Value::as_str),
+        Some("current"),
+        "{monitor:?}"
+    );
+    assert!(
+        monitor
+            .pointer(&["staleness", "compared"])
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            > 0,
+        "a `current` verdict with nothing compared is a constant: {monitor:?}"
+    );
+
+    // An unknown finding id is not found, rather than answered generically.
+    let (status, plan) = get_json(&listen, "/api/v1/care-plan/f_not_a_real_finding");
+    assert_eq!(status, 400, "{plan:?}");
+    assert_eq!(err_code(&plan), Some("api.not_found"));
+
+    // A real finding's plan is read off that finding.
+    let (_, doctor) = get_json(&listen, "/api/v1/doctor");
+    let finding = doctor
+        .get("findings")
+        .and_then(Value::as_array)
+        .and_then(<[Value]>::first)
+        .expect("at least one finding");
+    let finding_id = finding
+        .get("finding_id")
+        .and_then(Value::as_str)
+        .expect("finding_id");
+    let (status, plan) = get_json(&listen, &format!("/api/v1/care-plan/{finding_id}"));
+    assert_eq!(status, 200, "{plan:?}");
+    assert_eq!(
+        plan.get("finding_id").and_then(Value::as_str),
+        Some(finding_id)
+    );
+    assert_eq!(plan.get("title").cloned(), finding.get("title").cloned());
+    assert_eq!(
+        plan.get("treatment_locked").cloned(),
+        finding.pointer(&["treatment", "locked"]).cloned(),
+        "the plan must mirror this finding's treatment: {plan:?}"
+    );
+    assert_eq!(
+        plan.get("authority").cloned(),
+        finding.pointer(&["placement", "authority"]).cloned()
+    );
+
+    // ---- Change the project: the verdict must flip. ----
+    scratch.write("AGENTS.md", "hello changed\n");
+    let (_, monitor) = get_json(&listen, "/api/v1/monitor");
+    assert_eq!(
+        monitor.pointer(&["staleness", "status"]).and_then(Value::as_str),
+        Some("stale"),
+        "changed evidence must make the Receipt stale: {monitor:?}"
+    );
+    let changed: Vec<&str> = monitor
+        .pointer(&["staleness", "changed_evidence"])
+        .and_then(Value::as_array)
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(changed.contains(&"AGENTS.md"), "{changed:?}");
+
+    // ---- Sync reports its real state and stays honest about E2EE. ----
+    let (status, sync) = get_json(&listen, "/api/v1/sync");
+    assert_eq!(status, 200);
+    assert_eq!(
+        sync.get("encryption").and_then(Value::as_str),
+        Some("unavailable"),
+        "E2EE is not implemented and must not be reported as available"
+    );
+    assert_eq!(
+        sync.get("transport_success_is_verified").and_then(Value::as_bool),
+        Some(false)
+    );
+    // One Receipt exists by now, so this count is computed, not a literal 0.
+    assert_eq!(
+        sync.get("syncable_receipts").and_then(Value::as_i64),
+        Some(1),
+        "{sync:?}"
+    );
+}
+
+/// Team compliance counts what the store actually holds.
+#[test]
+fn team_compliance_counts_real_standards_and_exceptions() {
+    let scratch = Scratch::new("compliance");
+    scratch.write("AGENTS.md", "hello\n");
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    let project_s = scratch.path.to_str().unwrap();
+    fs::create_dir_all(&store).unwrap();
+    plant_pass_policy_and_live_exception(&store);
+
+    let (code, json, out) = run(&[
+        "standard", "publish", "--json", "--store", store_s, "--project", project_s, "--id",
+        "std-a", "--text", "rules",
+    ]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    let (code, json, out) = run(&[
+        "standard", "adopt", "--json", "--store", store_s, "--project", project_s, "--id", "std-a",
+    ]);
+    assert_eq!(code, 0, "{out} {json:?}");
+
+    let (_child, listen) = start_daemon(&scratch, &store);
+    let (status, compliance) = get_json(&listen, "/api/v1/team/compliance");
+    assert_eq!(status, 200);
+
+    assert_eq!(
+        compliance.pointer(&["standard_status", "total"]).and_then(Value::as_i64),
+        Some(1),
+        "{compliance:?}"
+    );
+    // `signed` is re-derived by verifying the stored record, not read off a
+    // `signed` field the record could simply claim.
+    assert_eq!(
+        compliance.pointer(&["standard_status", "signed"]).and_then(Value::as_i64),
+        Some(1)
+    );
+    assert_eq!(
+        compliance.pointer(&["standard_status", "adopted"]).and_then(Value::as_i64),
+        Some(1)
+    );
+    assert_eq!(
+        compliance
+            .pointer(&["standard_status", "standards"])
+            .and_then(Value::as_array)
+            .and_then(<[Value]>::first)
+            .and_then(|item| item.get("adoption_state"))
+            .and_then(Value::as_str),
+        Some("adopted")
+    );
+    // The planted exception is live and is counted as granting.
+    assert_eq!(
+        compliance.pointer(&["exception", "live"]).and_then(Value::as_i64),
+        Some(1),
+        "{compliance:?}"
+    );
+
+    // Tampering with the stored standard must drop the signed count: the
+    // endpoint verifies, it does not trust the record's own claim.
+    let path = store.join("standards/std-a.json");
+    let original = fs::read_to_string(&path).unwrap();
+    let mut tampered = parse(&original).unwrap();
+    if let Value::Object(map) = &mut tampered {
+        map.insert("payload_digest".into(), Value::Str("00".repeat(32)));
+    }
+    fs::write(&path, canonical_json(&tampered)).unwrap();
+    let (_, compliance) = get_json(&listen, "/api/v1/team/compliance");
+    assert_eq!(
+        compliance.pointer(&["standard_status", "signed"]).and_then(Value::as_i64),
+        Some(0),
+        "a tampered standard must not count as signed: {compliance:?}"
+    );
+}
+
 #[test]
 fn daemon_health_and_inspect_via_localhost() {
     use std::thread;

@@ -106,13 +106,29 @@ Drawer：Esc 关闭、焦点返回、未保存编辑确认、执行中关闭不�
 
 主要路径：`/api/v1/health`、`/inspect`、`/receipts`、`/doctor`、`/diff`、`/integrations`、`/settings`、`/sessions`、`/monitor`、`/policy`、`/exceptions`、`/standards`、`/sync`、`/advisor`、`/lab`、`/team/compliance`、`/care-plan/:id`、`/apply`、`/rollback`。
 
+### 四个只读端点报告什么
+
+以下端点此前返回固定常量。现在它们各自计算真实状态，且在算不出时报 Unknown 而不是补一个好看的默认值。
+
+| 端点 | 计算方式 | 算不出时 |
+| --- | --- | --- |
+| `/monitor` | 对当前 Receipt 声明的每条 evidence 重算 `whole_digest` 与记录值比对，得出 `staleness.status = current\|stale\|unknown`，并列出 `changed_evidence` / `unreadable_evidence` | 无当前 Receipt 或有 evidence 读不到 → `unknown`，附 `reason_code`；不报 `stale: false` |
+| `/sync` | 从 settings 读 `vault_required`，从 store 数本地 bundle 与可同步 Receipt | E2EE 未实现，如实报 `encryption: "unavailable"` + `sync.e2ee_unimplemented`；无远端传输报 `sync.no_remote_transport` |
+| `/team/compliance` | standards 逐条**重新验签**后计数，adoptions 给出真实采纳态与 pinned digest，exceptions 逐条过 `exception_status` 只计存活的；drift/unknown/freshness 取当前 Receipt 的诊断 | 无当前 Receipt → `drift`/`unknown` 为 `null`、`freshness.status = unknown`；不报 0 |
+| `/care-plan/:id` | 在当前 Receipt 的诊断结果里定位该 finding，返回它自己的 `treatment` 与 `placement` | 无当前 Receipt → `api.no_current_receipt`；id 不在诊断里 → `api.not_found`；不为未知 id 回显一份通用计划 |
+
+`/monitor` 的 `mode: "oneshot"` 与 `daemon_required: false` 仍是常量，因为它们是架构事实：本产品按需观测，不常驻 watcher，CLI 不依赖 daemon。`/team/compliance` 的 `redacted` / `member_bodies_included` 同理，是隐私不变量。
+
+`/team/compliance` 的 `disclosure.scope = "this-store-only"`：本切片没有团队传输，它统计的是本地 store，不是跨成员汇总。
+
 ## 启动教程
 
 见 [user-guide](user-guide.md)「只读桌面主链」。本文件不是已完成全 OS WebView 验收的声明。
 
 ## 本切片明确未做 / 未覆盖
 
-- **C04 全套页面状态**：16 个入口里，Doctor 以外多数页面仍是 API JSON 转储，没有按页实现 empty/loading/error/partial/stale/offline/permission-denied/unsupported-version/connector-missing 与主要动作闭环。
+- **C04 全套页面状态**：16 个入口里，Doctor 以外多数页面仍是 API JSON 转储，没有按页实现 empty/loading/error/partial/stale/offline/permission-denied/unsupported-version/connector-missing 与主要动作闭环。上述四个端点现在返回真实状态与 Unknown 理由码，但**页面仍只是转储这份 JSON**，没有按状态渲染。
+- **团队汇总**：`/team/compliance` 统计本地 store。没有团队传输，因此它不是跨成员的合规汇总，界面也不得这样呈现。
 - **应用截图、Tauri 桌面壳、OS WebView / a11y / 屏幕阅读器 / ≤2s 性能证据**：未采集，不得当作已覆盖。
 - **例外批准身份源**：UI/API 不能用调用方自报角色完成 approve。身份来自仓内已登记 principals + 调用方持有的登记密钥，而密钥只经环境变量传入 CLI，HTTP 请求无法安全携带。因此 `POST /api/v1/exceptions` 明确返回 `api.identity_required`，例外生命周期只经 CLI。
 - **i18n**：导航、Doctor、以及 Checkup / Inspector / Settings / Care Plan / Integrations 的页面正文已接进 zh/en 表。API JSON 转储字段名仍是英文协议键。`ui-unit` 只做字符串表 grep，不渲染组件。
