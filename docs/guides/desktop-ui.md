@@ -121,13 +121,56 @@ Drawer：Esc 关闭、焦点返回、未保存编辑确认、执行中关闭不�
 
 `/team/compliance` 的 `disclosure.scope = "this-store-only"`：本切片没有团队传输，它统计的是本地 store，不是跨成员汇总。
 
+## C04 页面状态契约
+
+每个入口声明它**能到达**哪些状态，并为到不了的状态给出理由。声明与理由在
+`packages/ui/src/page-contract.js`，判定逻辑在 `page-state.js`，两者都是纯模块，
+由 `packages/ui/tests/page-state.test.mjs` 覆盖。
+
+C04 明确要求「对不适用状态给理由，不能机械制造伪状态」，因此判定只从产品**实际
+会产生**的 reason code 出发：
+
+| 状态 | 判定依据 |
+| --- | --- |
+| `offline` | fetch 本身失败（daemon 不可达），reason code `api.unreachable` |
+| `permission-denied` | envelope 的 `error.code` 以 `policy.` / `principal.` / `exception.` 开头，或是 `api.identity_required`、`advisor.consent_required` |
+| `error` | 其它 envelope 错误 |
+| `stale` | 载荷里 `stale === true`、`staleness.status === "stale"`，或 reason code `evidence_stale` |
+| `unsupported-version` | 载荷里出现 reason code `unsupported_harness_version` |
+| `connector-missing` | 载荷里出现 `connector_required` |
+| `partial` | Unknown 计数 > 0，或出现 `runtime_snapshot_missing` 等表示答案不完整的 reason code |
+| `empty` | 载荷无实质内容（envelope 记账字段不算内容） |
+
+后两类之所以按**载荷内的 reason code** 而不是 HTTP 错误判定：`unsupported_harness_version`
+与 `connector_required` 是 catalog 与 finding 里的 reason code，请求本身是成功的。
+
+失败一律显示 reason code 与可行下一步。**重试只在故障类状态提供**：重试是重发同一个
+请求，不改任何参数，因此不会扩大被拒绝的授权；对 `permission-denied` 提供重试按钮会
+暗示再点一次可能通过，所以不提供。取消用 `AbortController` 真正中止在途请求，取消后
+报 `api.cancelled` 而不是伪装成离线。
+
+若某页出现了它未声明的状态，横幅会标出「本页不适用」，让契约的错误暴露而不是被吞掉。
+
+**接入范围**：V01–V16 全部 16 个入口与 6 个 `:id` 明细页。自取数的页面走 `StateView`；
+`/doctor`、`/checkup`、`/inspector` 共享同一次 inspect + doctor 请求，其判定在顶层算好
+后经 `SharedStateBanner` 渲染同一套横幅；`/compare` 自己取 Receipt 列表与 diff，同样
+经分类器判定。Doctor 里的适配器覆盖行在失败时显示 reason code，而不是渲染成空行——
+空行与「没有 family」是两个不同的断言。
+
+### Drawer 契约
+
+Doctor 的证据抽屉是**常驻区域**而非模态，因此没有打开/关闭、焦点返回与 Esc 可言；
+它需要而此前缺少的是：选中项用 `aria-selected` 宣告、执行中用 `aria-busy` 标记，
+以及**收集证据期间冻结选中**——否则结果会落到另一条 finding 上。重复提交由按钮的
+`disabled` 阻止。抽屉内没有编辑表单，所以没有未保存编辑要处理。
+
 ## 启动教程
 
 见 [user-guide](user-guide.md)「只读桌面主链」。本文件不是已完成全 OS WebView 验收的声明。
 
 ## 本切片明确未做 / 未覆盖
 
-- **C04 全套页面状态**：16 个入口里，Doctor 以外多数页面仍是 API JSON 转储，没有按页实现 empty/loading/error/partial/stale/offline/permission-denied/unsupported-version/connector-missing 与主要动作闭环。上述四个端点现在返回真实状态与 Unknown 理由码，但**页面仍只是转储这份 JSON**，没有按状态渲染。
+- **C04 的动作面部分**：状态、取消/重试与 drawer 契约已实现（见下节），但 C04 同时要求逐页定义**入口与返回路径、URL/选择状态、DTO 与查询、主要动作、成功落点、持久化边界、敏感数据边界**，这些尚未逐页定义；除 Doctor 外，页面正文仍是 API JSON 转储，没有按页设计的呈现与动作闭环。
 - **团队汇总**：`/team/compliance` 统计本地 store。没有团队传输，因此它不是跨成员的合规汇总，界面也不得这样呈现。
 - **应用截图、Tauri 桌面壳、OS WebView / a11y / 屏幕阅读器 / ≤2s 性能证据**：未采集，不得当作已覆盖。
 - **例外批准身份源**：UI/API 不能用调用方自报角色完成 approve。身份来自仓内已登记 principals + 调用方持有的登记密钥，而密钥只经环境变量传入 CLI，HTTP 请求无法安全携带。因此 `POST /api/v1/exceptions` 明确返回 `api.identity_required`，例外生命周期只经 CLI。
