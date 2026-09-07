@@ -13,7 +13,7 @@ use ctxpect_collect::scan;
 use ctxpect_diff::{diff, EquivalenceProfile};
 use ctxpect_doctor::diagnose;
 use ctxpect_effect::{decide, run_local_instructions_probe, ExperimentContract};
-use ctxpect_fs::Root;
+use ctxpect_fs::{Refusal, Root};
 use ctxpect_importer::import_session;
 use ctxpect_policy::exception_status;
 use ctxpect_projection::{apply as proj_apply, preview as proj_preview, rollback as proj_rollback, Intent};
@@ -193,6 +193,28 @@ fn json_err(code: &str, message: &str) -> (u16, &'static str, String) {
     )
 }
 
+/// Parse a request body that is expected to carry named parameters.
+///
+/// An empty body means "no parameters" and is fine. Anything else must be a
+/// JSON **object**: a body that parses as an array or a scalar carries none
+/// of the fields the handler reads, so accepting it would run the request
+/// with silent defaults and report success for parameters the caller never
+/// actually sent.
+fn object_body(body: &str) -> Result<Value, (u16, &'static str, String)> {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return Ok(object::<String>([]));
+    }
+    match parse(trimmed) {
+        Ok(value @ Value::Object(_)) => Ok(value),
+        Ok(_) => Err(json_err(
+            "api.body_not_object",
+            "request body must be a JSON object",
+        )),
+        Err(err) => Err(json_err("api.parse", &err.to_string())),
+    }
+}
+
 fn require_mutation(state: &AppState) -> Result<Value, (u16, &'static str, String)> {
     match authorize_store_apply(&state.store, state.project.as_deref()) {
         Ok(auth) => Ok(auth),
@@ -354,9 +376,9 @@ fn api(method: &str, path: &str, full: &str, body: &str, state: &AppState) -> (u
 }
 
 fn inspect_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
-    let parsed = match parse(body) {
-        Ok(v) => v,
-        Err(err) => return json_err("api.parse", &err.to_string()),
+    let parsed = match object_body(body) {
+        Ok(value) => value,
+        Err(refusal) => return refusal,
     };
     let project = parsed
         .get("project")
@@ -519,7 +541,10 @@ fn diff_api(full: &str, state: &AppState) -> (u16, &'static str, String) {
 }
 
 fn advisor_api(body: &str) -> (u16, &'static str, String) {
-    let parsed = parse(body).unwrap_or_else(|_| object::<String>([]));
+    let parsed = match object_body(body) {
+        Ok(value) => value,
+        Err(refusal) => return refusal,
+    };
     let consent = parsed.get("consent").and_then(Value::as_bool).unwrap_or(false);
     let ack = parsed
         .get("preview_ack")
@@ -536,7 +561,10 @@ fn lab_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
     if let Err(denied) = require_mutation(state) {
         return denied;
     }
-    let parsed = parse(body).unwrap_or_else(|_| object::<String>([]));
+    let parsed = match object_body(body) {
+        Ok(value) => value,
+        Err(refusal) => return refusal,
+    };
     let n = parsed.get("n").and_then(Value::as_i64).unwrap_or(4);
     let experiment_id = parsed
         .get("experiment_id")
@@ -685,7 +713,10 @@ fn valid_bundle_id(id: &str) -> bool {
 /// Preview is read-only. Apply is a store mutation and goes through the one
 /// authority. Neither reports transport success as semantic verification.
 fn sync_api(body: &str, state: &AppState, apply: bool) -> (u16, &'static str, String) {
-    let parsed = parse(body).unwrap_or_else(|_| object::<String>([]));
+    let parsed = match object_body(body) {
+        Ok(value) => value,
+        Err(refusal) => return refusal,
+    };
     let bundle_id = parsed
         .get("bundle_id")
         .and_then(Value::as_str)
@@ -1178,7 +1209,10 @@ fn care_plan_api(method: &str, path: &str, body: &str, state: &AppState) -> (u16
 }
 
 fn apply_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
-    let parsed = parse(body).unwrap_or_else(|_| object::<String>([]));
+    let parsed = match object_body(body) {
+        Ok(value) => value,
+        Err(refusal) => return refusal,
+    };
     let Some(project) = state.project.as_ref() else {
         return json_err("usage.invalid", "project required");
     };
@@ -1332,7 +1366,10 @@ fn url_decode(input: &str) -> String {
 }
 
 fn rollback_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
-    let parsed = parse(body).unwrap_or_else(|_| object::<String>([]));
+    let parsed = match object_body(body) {
+        Ok(value) => value,
+        Err(refusal) => return refusal,
+    };
     let Some(project) = state.project.as_ref() else {
         return json_err("usage.invalid", "project required");
     };
@@ -1374,9 +1411,24 @@ fn static_file(path: &str, state: &AppState) -> (u16, &'static str, String) {
     if rel.contains("..") {
         return json_err("api.path", "rejected");
     }
-    let file = root.join(rel);
-    match fs::read_to_string(&file) {
-        Ok(text) => {
+    // A textual `..` check does not make a path safe: a symlink inside the UI
+    // root points outside it without the request ever containing `..`. The
+    // same containment check that guards project reads guards this one —
+    // it canonicalises first, so it sees where the path actually lands.
+    let Ok(contained_root) = Root::new(root) else {
+        return json_err("api.path", "ui root is unreadable");
+    };
+    let file = match contained_root.contain(root.join(rel)) {
+        Ok(file) => Some(file),
+        Err(Refusal::EscapesRoot { .. }) => {
+            return json_err("api.path", "rejected");
+        }
+        // Unresolvable means "no such file", which is the SPA's own routes
+        // arriving here. Those fall through to index.html.
+        Err(_) => None,
+    };
+    match file.and_then(|file| fs::read_to_string(&file).ok()) {
+        Some(text) => {
             let ctype = if rel.ends_with(".js") {
                 "application/javascript"
             } else if rel.ends_with(".css") {
@@ -1386,11 +1438,16 @@ fn static_file(path: &str, state: &AppState) -> (u16, &'static str, String) {
             };
             (200, ctype, text)
         }
-        Err(_) => {
-            let index = root.join("index.html");
-            match fs::read_to_string(index) {
-                Ok(text) => (200, "text/html; charset=utf-8", text),
-                Err(_) => json_err("api.not_found", path),
+        None => {
+            // index.html is resolved through the same check, so a symlinked
+            // index cannot smuggle content in either.
+            match contained_root
+                .contain(root.join("index.html"))
+                .ok()
+                .and_then(|index| fs::read_to_string(index).ok())
+            {
+                Some(text) => (200, "text/html; charset=utf-8", text),
+                None => json_err("api.not_found", path),
             }
         }
     }

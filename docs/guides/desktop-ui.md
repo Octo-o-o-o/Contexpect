@@ -103,6 +103,8 @@ Drawer：Esc 关闭、焦点返回、未保存编辑确认、执行中关闭不�
 - 只绑定 127.0.0.1
 - Host/Origin 校验；POST 需 `X-Ctxpect-Client: desktop`
 - UI 不计算 Claim
+- **静态文件服务用与读取项目文件相同的包含性检查**：路径先 canonicalize 再验证是否仍在 UI root 内。仅做 `..` 字符串比对是不够的——UI root 内的一个符号链接指向外部，请求里根本不会出现 `..`。不存在的路径回退到 `index.html`（SPA 路由），逃逸出 root 的路径报 `api.path`。
+- **请求体必须是 JSON 对象**。空体表示「无参数」，可以；数组或标量则报 `api.body_not_object`——它们不携带处理函数要读的任何字段，接受它们等于用静默的默认值执行请求，再把结果当成功回给调用方。
 
 主要路径：`/api/v1/health`、`/inspect`、`/receipts`、`/receipts/:id/verify`、`/receipts/:id/delete`、`/doctor`、`/diff`、`/integrations`、`/settings`、`/settings/schema`、`/sessions`、`/monitor`、`/policy`、`/exceptions`、`/standards`、`/assets`、`/assets/:id/preview`、`/assets/:id/copy`、`/assets/:tx/rollback`、`/sync`、`/sync/preview`、`/sync/apply`、`/advisor`、`/lab`、`/team/compliance`、`/care-plan/:id`、`/apply`、`/rollback`。
 

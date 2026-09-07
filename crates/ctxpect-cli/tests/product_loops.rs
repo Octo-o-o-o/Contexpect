@@ -962,6 +962,54 @@ fn start_daemon(scratch: &Scratch, store: &Path) -> (ChildGuard, String) {
     panic!("daemon never became healthy");
 }
 
+/// Same as [`start_daemon`], with a UI root so the static file server runs.
+fn start_daemon_with_ui(scratch: &Scratch, store: &Path, ui_root: &Path) -> (ChildGuard, String) {
+    use std::thread;
+    use std::time::Duration;
+
+    let mut child = ChildGuard::new(
+        Command::new(bin())
+            .args([
+                "daemon",
+                "start",
+                "--project",
+                scratch.path.to_str().unwrap(),
+                "--store",
+                store.to_str().unwrap(),
+                "--ui-root",
+                ui_root.to_str().unwrap(),
+                "--listen",
+                "127.0.0.1:0",
+            ])
+            .spawn()
+            .expect("daemon"),
+    );
+    let addr_file = store.join("daemon.addr");
+    let mut listen = String::new();
+    for _ in 0..80 {
+        if child.child().try_wait().expect("try_wait").is_some() {
+            panic!("daemon exited before bind");
+        }
+        if let Ok(text) = fs::read_to_string(&addr_file) {
+            let text = text.trim();
+            if !text.is_empty() {
+                listen = text.to_string();
+                break;
+            }
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(!listen.is_empty(), "daemon did not write daemon.addr");
+    for _ in 0..80 {
+        let (status, raw) = http_call(&listen, "GET", "/api/v1/health", "");
+        if status == 200 && raw.contains("ok") {
+            return (child, listen);
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    panic!("daemon never became healthy");
+}
+
 fn get_json(listen: &str, path: &str) -> (u16, Value) {
     let (status, raw) = http_call(listen, "GET", path, "");
     (status, http_json(&raw))
@@ -1193,6 +1241,73 @@ fn settings_are_validated_whole_and_invariants_are_not_editable() {
     );
     assert_eq!(code, 400, "{raw}");
     assert!(raw.contains("settings.field_missing"), "{raw}");
+}
+
+/// The static file server must not hand out files from outside the UI root.
+///
+/// A textual `..` check does not make a path safe: a symlink inside the root
+/// points outside it without the request ever containing `..`.
+#[cfg(unix)]
+#[test]
+fn a_symlink_inside_the_ui_root_cannot_read_outside_it() {
+    let scratch = Scratch::new("uiroot");
+    scratch.write("AGENTS.md", "hello\n");
+    scratch.write("uiroot/index.html", "<!doctype html><title>ui</title>");
+    scratch.write("secret.txt", "SECRET-OUTSIDE-UIROOT\n");
+    std::os::unix::fs::symlink(
+        scratch.path.join("secret.txt"),
+        scratch.path.join("uiroot/leak.html"),
+    )
+    .expect("symlink");
+
+    let store = scratch.path.join("store");
+    let (_child, listen) = start_daemon_with_ui(&scratch, &store, &scratch.path.join("uiroot"));
+
+    let (status, raw) = http_call(&listen, "GET", "/leak.html", "");
+    assert_eq!(status, 400, "{raw}");
+    assert!(raw.contains("api.path"), "{raw}");
+    assert!(
+        !raw.contains("SECRET-OUTSIDE-UIROOT"),
+        "a symlink must not read outside the UI root: {raw}"
+    );
+
+    // Normal serving still works, including the SPA fallback for app routes.
+    let (status, raw) = http_call(&listen, "GET", "/", "");
+    assert_eq!(status, 200, "{raw}");
+    assert!(raw.contains("<title>ui</title>"), "{raw}");
+    let (status, raw) = http_call(&listen, "GET", "/doctor", "");
+    assert_eq!(status, 200, "{raw}");
+    assert!(raw.contains("<title>ui</title>"), "index fallback: {raw}");
+
+    // A literal traversal is still refused.
+    let (status, raw) = http_call(&listen, "GET", "/../../etc/passwd", "");
+    assert_eq!(status, 400, "{raw}");
+    assert!(raw.contains("api.path"), "{raw}");
+}
+
+/// A request body that is not an object carries none of the fields a handler
+/// reads, so accepting it would run with silent defaults and report success.
+#[test]
+fn a_non_object_request_body_is_refused_rather_than_defaulted() {
+    let scratch = Scratch::new("body");
+    scratch.write("AGENTS.md", "hello\n");
+    let store = scratch.path.join("store");
+    let (_child, listen) = start_daemon(&scratch, &store);
+
+    for body in ["[1,2,3]", "\"hello\"", "42", "null"] {
+        let (status, raw) = http_call(&listen, "POST", "/api/v1/inspect", body);
+        assert_eq!(status, 400, "body {body}: {raw}");
+        assert!(raw.contains("api.body_not_object"), "body {body}: {raw}");
+    }
+
+    // Malformed JSON is a different failure and keeps its own code.
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/inspect", "{not json");
+    assert_eq!(status, 400, "{raw}");
+    assert!(raw.contains("api.parse"), "{raw}");
+
+    // An empty body means "no parameters", which is legitimate.
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/inspect", "");
+    assert_eq!(status, 200, "{raw}");
 }
 
 /// The asset copy executor vets before it writes, and every refusal happens

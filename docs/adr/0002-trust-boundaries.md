@@ -21,6 +21,10 @@
 
 越权或能力不足必须变成稳定 reason code 与 indeterminate/deny，而不是 toast。被动扫描不得执行 hook/MCP/plugin。
 
+## 静态资源服务的包含性检查
+
+daemon 服务 UI 资源时，路径检查与读取项目文件用同一套机制：canonicalize 之后验证是否仍在声明的 root 内。**字符串层面的 `..` 检查不构成边界**——UI root 内的一个符号链接可以指向外部，而请求里根本不会出现 `..`。该问题在 2026-09-08 的一次实测中被确认可复现（root 内的符号链接把 root 外的文件读了出来），随后改为使用 `ctxpect-fs::Root::contain`。
+
 ## 后果
 
 Tauri command allowlist、CSP、路径重新解析、secret redaction-before-log 都是 WP-04/WP-11 的硬门禁。linter 是 defense-in-depth，不是 security boundary。
