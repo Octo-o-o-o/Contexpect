@@ -3,12 +3,19 @@
   --bg-surface: #FCFBF7;
   --bg-shell: #101722;
   --text-primary: #17202B;
-  --text-muted: #66717F;
+  /* Darkened to clear 4.5:1 on --bg-canvas, the lighter of the two grounds. */
+  --text-muted: #656F7D;
   --text-on-shell: #E8E6DC;
   --border: #D9D8D1;
+  /* Interactive components need 3:1 against their background (WCAG 2.2
+     SC 1.4.11). `--border` is decorative — panel edges and row rules — and
+     stays light; controls use this one. */
+  --border-strong: #95937F;
   --verified: #167C70;
-  --suspected: #C88825;
-  --confirmed: #C64F45;
+  /* Darkened to clear 4.5:1 on --bg-surface (SC 1.4.3); hue is unchanged, so
+     the severity language is intact. It was 2.90:1. */
+  --suspected: #9C6A1D;
+  --confirmed: #C54C42;
   --unknown: #6F62B5;
   --info: #2878A8;
   --nav-width: 224px;

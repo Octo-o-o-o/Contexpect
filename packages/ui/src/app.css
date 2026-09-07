@@ -51,9 +51,11 @@ h2 { font-size: 16px; line-height: 24px; font-weight: 650; margin: 0 0 8px; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); }
 button.primary { background: #101722; color: #fff; border: 0; padding: 8px 14px; border-radius: 8px; min-height: 36px; }
-button.secondary { background: transparent; border: 1px solid var(--border); padding: 8px 14px; border-radius: 8px; min-height: 36px; }
+button.secondary { background: transparent; border: 1px solid var(--border-strong); padding: 8px 14px; border-radius: 8px; min-height: 36px; }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
-input, textarea { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; min-height: 36px; background: #fff; }
+/* Controls carry the stronger border: their boundary must be perceivable
+   (WCAG 2.2 SC 1.4.11), unlike a decorative panel edge. */
+input, textarea, select { border: 1px solid var(--border-strong); border-radius: 8px; padding: 8px 10px; min-height: 36px; background: #fff; }
 /* Long lines scroll inside the block. Without this, `white-space: pre` plus
    visible overflow lets one long JSON line widen the whole page — which is
    how a longer translation broke the layout rather than wrapping. */
