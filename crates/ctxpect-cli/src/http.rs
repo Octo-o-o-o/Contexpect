@@ -3,8 +3,9 @@
 use crate::args::{InspectArgs, ProductArgs};
 use crate::catalog::{family_entry, integrations_json};
 use crate::dispatch::{
-    asset_lock, assets_status, authorize_store_apply, effective_store_policy, listen_addr,
-    load_asset_registry, now_unix, persist_inspect, verify_standard_document, ProductReport,
+    asset_lock, assets_status, authorize_store_apply, effective_store_policy, exception_state,
+    listen_addr, load_asset_registry, now_unix, persist_inspect, standard_status,
+    verify_standard_document, ProductReport,
 };
 use crate::inspect::inspect;
 use crate::jsonutil::with_snapshot_digest;
@@ -388,8 +389,20 @@ fn api(method: &str, path: &str, full: &str, body: &str, state: &AppState) -> (u
                 "creating an exception requires a verified enrolled principal;                  use `ctxpect exception request --principal <id>` with                  $CTXPECT_PRINCIPAL_SECRET, which the daemon API cannot carry",
             )
         }
+        // Same function the CLI's `standard status` calls: one question, one
+        // answer (R04).
         ("GET", p) if p.starts_with("/api/v1/standards/") => match strip_id(p, "/api/v1/standards/") {
-            Some(id) => standard_get(state, id),
+            Some(id) => match standard_status(&state.store, id) {
+                Ok(value) => json_ok(value),
+                Err(err) => json_err(err.code(), &err.message()),
+            },
+            None => json_err("api.not_found", p),
+        },
+        ("GET", p) if p.starts_with("/api/v1/exceptions/") => match strip_id(p, "/api/v1/exceptions/") {
+            Some(id) => match exception_state(&state.store, id) {
+                Ok(value) => json_ok(value),
+                Err(err) => json_err(err.code(), &err.message()),
+            },
             None => json_err("api.not_found", p),
         },
         ("GET", "/api/v1/standards") => match state.store.list_named("standards") {
@@ -1391,16 +1404,6 @@ fn collect_api(state: &AppState) -> (u16, &'static str, String) {
 fn named_get(state: &AppState, folder: &str, id: &str) -> (u16, &'static str, String) {
     match state.store.get_named(folder, id) {
         Ok(v) => json_ok(v),
-        Err(err) => json_err(err.code, &err.message),
-    }
-}
-
-fn standard_get(state: &AppState, id: &str) -> (u16, &'static str, String) {
-    match state.store.get_named("standards", id) {
-        Ok(doc) => match verify_standard_document(&state.store, &doc) {
-            Ok(v) => json_ok(v),
-            Err(err) => json_err(err.code(), &err.message()),
-        },
         Err(err) => json_err(err.code, &err.message),
     }
 }

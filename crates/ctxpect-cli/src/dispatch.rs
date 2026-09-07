@@ -6,7 +6,6 @@ use crate::inspect::{inspect, InspectFailure};
 use crate::jsonutil::{obj, s};
 use crate::redact::{redact_json_envelope, RedactRoots};
 use ctxpect_advisor::suggest;
-use ctxpect_collect::scan;
 use ctxpect_diff::{diff, EquivalenceProfile};
 use ctxpect_doctor::diagnose;
 use ctxpect_effect::{decide, run_local_instructions_probe, ExperimentContract};
@@ -979,6 +978,43 @@ fn new_adoption(id: &str, state: &str, source_digest: &str, pinned: Option<&str>
     ])
 }
 
+/// One standard's verified state and this project's adoption of it.
+///
+/// Shared by the CLI and the API so `standard status` and
+/// `GET /api/v1/standards/:id` cannot answer the same question differently
+/// (R04). They did: the API returned the stored document without the
+/// adoption, so the same query gave two answers.
+pub(crate) fn standard_status(store: &Store, id: &str) -> Result<Value, InspectFailure> {
+    let adoption = store.get_named("adoptions", id).ok();
+    match store.get_named("standards", id) {
+        Ok(doc) => {
+            let verified = verify_standard_document(store, &doc)?;
+            Ok(merge(
+                verified,
+                [("adoption", adoption.unwrap_or(Value::Null))],
+            ))
+        }
+        // Absence is reported as absence, not as an error.
+        Err(_) => Ok(object([
+            ("standard_id", string(id)),
+            ("status", string("absent")),
+            ("signed", Value::Bool(false)),
+            ("adoption", adoption.unwrap_or(Value::Null)),
+        ])),
+    }
+}
+
+/// One exception's lifecycle state, including whether it currently grants.
+///
+/// Shared for the same reason: the API had no per-exception endpoint at all,
+/// so a caller could list exceptions but not ask whether one of them grants.
+pub(crate) fn exception_state(store: &Store, id: &str) -> Result<Value, InspectFailure> {
+    let record = store
+        .get_named("exceptions", id)
+        .map_err(|err| fail(err.code, err.message))?;
+    exception_status(&record, now_unix(), true).map_err(|err| fail(err.code, err.message))
+}
+
 fn standard_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
     let store = open_store(args)?;
     let sub = args.subcommand.as_deref().unwrap_or("status");
@@ -1030,32 +1066,8 @@ fn standard_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
             ok(&format!("standard {sub}"), 0, verified)
         }
         "status" => {
-            // Read-only. Reports the standard and this project's adoption of
-            // it, and reports absence as absence.
-            let adoption = store.get_named("adoptions", &id).ok();
-            match store.get_named("standards", &id) {
-                Ok(doc) => {
-                    let verified = verify_standard_document(&store, &doc)?;
-                    ok(
-                        "standard status",
-                        0,
-                        merge(
-                            verified,
-                            [("adoption", adoption.unwrap_or(Value::Null))],
-                        ),
-                    )
-                }
-                Err(_) => ok(
-                    "standard status",
-                    0,
-                    object([
-                        ("standard_id", string(&id)),
-                        ("status", string("absent")),
-                        ("signed", Value::Bool(false)),
-                        ("adoption", adoption.unwrap_or(Value::Null)),
-                    ]),
-                ),
-            }
+            let status = standard_status(&store, &id)?;
+            ok("standard status", 0, status)
         }
         "preview" => {
             // Read-only by contract: it states what `adopt` would write and
@@ -1249,7 +1261,8 @@ fn exception_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
             let rec = store
                 .get_named("exceptions", &id)
                 .map_err(|err| fail(err.code, err.message))?;
-            let status = exception_status(&rec, 1, true).map_err(|err| fail(err.code, err.message))?;
+            let _ = rec;
+            let status = exception_state(&store, &id)?;
             ok("exception status", 0, status)
         }
         other => Err(fail("usage.invalid", format!("unknown exception subcommand `{other}`"))),

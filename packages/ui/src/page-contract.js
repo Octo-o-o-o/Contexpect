@@ -325,6 +325,7 @@ export const PAGE_CONTRACTS = [
     selection: "无可选项：本页列出该 store 内的全部例外",
     query: [
       { method: "GET", path: "/api/v1/exceptions", purpose: "例外列表" },
+      { method: "GET", path: "/api/v1/exceptions/:id", purpose: "单条例外的生命周期状态与是否放行" },
     ],
     actions: [],
     persistence: "例外记录在 store；申请与批准需要已登记 principal 的密钥，只能走 CLI",

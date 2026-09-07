@@ -1265,6 +1265,96 @@ fn settings_are_validated_whole_and_invariants_are_not_editable() {
     assert!(raw.contains("settings.field_missing"), "{raw}");
 }
 
+/// R04: the same question gets the same answer from the CLI and the API.
+///
+/// It did not. `GET /api/v1/standards/:id` returned the stored document
+/// while `standard status` returned the verified standard plus this
+/// project's adoption, and there was no per-exception endpoint at all. Both
+/// now call the same function, which is the only way this stays true.
+#[test]
+fn the_cli_and_the_api_answer_the_same_question_identically() {
+    let scratch = Scratch::new("r04");
+    scratch.write("AGENTS.md", "hello\n");
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    let project_s = scratch.path.to_str().unwrap();
+    fs::create_dir_all(&store).unwrap();
+    plant_pass_policy_and_live_exception(&store);
+
+    let (code, _, out) = run(&[
+        "standard", "publish", "--json", "--store", store_s, "--project", project_s, "--id",
+        "std-a", "--text", "rules",
+    ]);
+    assert_eq!(code, 0, "{out}");
+
+    let (_child, listen) = start_daemon(&scratch, &store);
+
+    // Fields that legitimately differ between invocations.
+    let strip = |value: &Value| -> Value {
+        fn walk(value: &Value) -> Value {
+            match value {
+                Value::Object(map) => Value::Object(
+                    map.iter()
+                        .filter(|(key, _)| {
+                            !matches!(
+                                key.as_str(),
+                                "created_at"
+                                    | "at"
+                                    | "snapshot_digest"
+                                    | "command"
+                                    | "exit_code"
+                                    | "schema_version"
+                            )
+                        })
+                        .map(|(key, item)| (key.clone(), walk(item)))
+                        .collect(),
+                ),
+                Value::Array(items) => Value::Array(items.iter().map(walk).collect()),
+                other => other.clone(),
+            }
+        }
+        walk(value)
+    };
+
+    for (label, cli_args, api_path) in [
+        (
+            "standard status",
+            vec![
+                "standard", "status", "--json", "--store", store_s, "--project", project_s, "--id",
+                "std-a",
+            ],
+            "/api/v1/standards/std-a",
+        ),
+        (
+            // Absence must be reported the same way too; the API used to
+            // turn it into an error.
+            "standard status (absent)",
+            vec![
+                "standard", "status", "--json", "--store", store_s, "--project", project_s, "--id",
+                "ghost",
+            ],
+            "/api/v1/standards/ghost",
+        ),
+        (
+            "exception status",
+            vec![
+                "exception", "status", "--json", "--store", store_s, "--project", project_s,
+                "--id", "ex-planted",
+            ],
+            "/api/v1/exceptions/ex-planted",
+        ),
+    ] {
+        let (_, cli_json, cli_out) = run(&cli_args);
+        let (status, api_json) = get_json(&listen, api_path);
+        assert_eq!(status, 200, "{label}: {api_json:?}");
+        assert_eq!(
+            strip(&cli_json),
+            strip(&api_json),
+            "{label}: CLI and API disagree\nCLI: {cli_out}"
+        );
+    }
+}
+
 /// Security headers are present, and no cross-origin grant is advertised.
 #[test]
 fn responses_carry_security_headers_and_no_cors_grant() {
