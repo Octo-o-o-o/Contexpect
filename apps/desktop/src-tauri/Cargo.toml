@@ -1,0 +1,24 @@
+# Deliberately its own workspace.
+#
+# The Rust workspace at the repository root is third-party-free, and the
+# thirteen required gates run offline against it. A desktop shell needs Tauri
+# and its dependency tree; keeping it out of `members` means `cargo build
+# --workspace` at the root never sees it, so that property is preserved.
+[workspace]
+
+[package]
+name = "contexpect-desktop"
+description = "Tauri shell that hosts the Contexpect UI served by a local daemon."
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+license = "Apache-2.0"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[features]
+default = []

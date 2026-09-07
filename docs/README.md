@@ -62,6 +62,10 @@
 - [adr/0004-adapter-isolation.md](adr/0004-adapter-isolation.md)
 - [adr/0005-exception-identity-and-mutation-boundary.md](adr/0005-exception-identity-and-mutation-boundary.md) — 例外授权的身份源（仓内已登记 principals）与 mutation 门禁边界
 
+## 应用
+
+- [apps/desktop/README.md](../apps/desktop/README.md) — Tauri 2 桌面壳：独立 workspace，不注册 Tauri command，只加载回环 daemon
+
 ## PRD §17.0 验收工件
 
 | 工件 | 路径 |

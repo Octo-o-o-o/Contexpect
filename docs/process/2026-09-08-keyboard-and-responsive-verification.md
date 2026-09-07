@@ -154,8 +154,8 @@ Settings 的校验错误原本只渲染成页面底部的一个列表，字段�
 | --- | --- |
 | screen reader 实操（VoiceOver / NVDA / Orca） | 需要真实辅助技术；可访问性树读取**不能**替代（C06 明确要求实际 AT 操作）。本文的 R4 只证明名称存在，未证明读序与朗读体验 |
 | Enter / Space 的真实物理按键 | 取证工具注入的按键缺少 `key` 标识，见「取证强度说明」 |
-| Linux / Windows lane | 本机只有 macOS |
-| Tauri WebView | 桌面壳尚未创建；本次全部结果来自浏览器预览，按 C06 不能替代任何 OS lane |
+| Linux / Windows lane | 本机只有 macOS。壳的代码与 macOS lane 已验，其余两个 lane 未验 |
+| Tauri WebView 下的键盘与 a11y 取证 | 壳已建成并在 macOS 上实测运行（见 [apps/desktop/README.md](../../apps/desktop/README.md)），但本文的键盘与响应式结果全部来自浏览器预览，尚未在 WebView 内重做。按 C06，浏览器预览不能替代任何 OS lane |
 | 首个有意义结果 ≤2s | 该阈值针对 Tauri WebView 下的实际运行，浏览器预览的数字不构成对它的取证 |
 | C08 的逐页截图 | 未采集。本次优先做行为断言：按 C08，截图不能替代后端结果或完整 E2E |
 | 真实窗口拖动触发的断点切换 | 取证工具的视口模拟不派发 `resize` / `change` 事件，见 R7 |

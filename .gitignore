@@ -94,3 +94,6 @@ core.*
 /docs/plan/contexpect-docs-semantic-team-c2/policy.frozen.json
 /docs/plan/contexpect-docs-semantic-team-c2/acceptance.frozen.json
 /docs/plan/contexpect-docs-semantic-team-c2/coverage-matrix.json
+
+# Tauri shell build output (its own workspace)
+/apps/desktop/src-tauri/gen/
