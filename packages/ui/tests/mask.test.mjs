@@ -73,3 +73,19 @@ test("collapsed navigation keeps an accessible name", () => {
     "nav links need an explicit accessible name",
   );
 });
+
+test("long content scrolls inside its block instead of widening the page", () => {
+  // A longer translation once widened the whole layout: `white-space: pre`
+  // with visible overflow let one long JSON line push the page out, and the
+  // grid item grew to fit it so nothing ever scrolled.
+  const css = readFileSync(join(root, "../src/app.css"), "utf8");
+  const mono = css.slice(css.indexOf(".mono {"), css.indexOf(".mono {") + 200);
+  assert.match(mono, /overflow-x:\s*auto/, "long lines must scroll inside .mono");
+
+  // `min-width: 0` / `minmax(0, 1fr)` is what stops a grid item from growing
+  // to its content; without it the overflow rule above never takes effect.
+  const panel = css.slice(css.indexOf(".panel {"), css.indexOf(".panel {") + 260);
+  assert.match(panel, /min-width:\s*0/, "the panel must not grow to fit its content");
+  assert.match(css, /\.shell \{[^}]*minmax\(0, 1fr\)/, "shell column must be able to shrink");
+  assert.match(css, /\.workspace \{[^}]*minmax\(0, 1fr\)/, "workspace column must be able to shrink");
+});

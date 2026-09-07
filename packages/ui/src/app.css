@@ -11,7 +11,7 @@ body {
 }
 button, input, select, textarea { font: inherit; }
 a { color: inherit; text-decoration: none; }
-.shell { display: grid; grid-template-columns: var(--nav-width) 1fr; min-height: 100%; }
+.shell { display: grid; grid-template-columns: var(--nav-width) minmax(0, 1fr); min-height: 100%; }
 .nav {
   background: var(--bg-shell);
   color: var(--text-on-shell);
@@ -33,8 +33,12 @@ a { color: inherit; text-decoration: none; }
   padding: 0 24px;
   background: var(--bg-surface);
 }
-.workspace { padding: 24px; display: grid; grid-template-columns: 1fr var(--drawer-width); gap: 16px; }
-.panel { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.workspace { padding: 24px; display: grid; grid-template-columns: minmax(0, 1fr) var(--drawer-width); gap: 16px; min-width: 0; }
+/* `min-width: 0` because a grid item defaults to `min-width: auto`, which
+   makes it grow to fit its content. Without it the panel widens to the
+   longest line and `max-width: 100%` inside measures against that widened
+   panel, so nothing ever scrolls. */
+.panel { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; min-width: 0; }
 h1 { font-size: 28px; line-height: 36px; font-weight: 650; margin: 0 0 12px; }
 h2 { font-size: 16px; line-height: 24px; font-weight: 650; margin: 0 0 8px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -50,7 +54,10 @@ button.primary { background: #101722; color: #fff; border: 0; padding: 8px 14px;
 button.secondary { background: transparent; border: 1px solid var(--border); padding: 8px 14px; border-radius: 8px; min-height: 36px; }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 input, textarea { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; min-height: 36px; background: #fff; }
-.mono { font-family: var(--font-mono); font-size: 12px; }
+/* Long lines scroll inside the block. Without this, `white-space: pre` plus
+   visible overflow lets one long JSON line widen the whole page — which is
+   how a longer translation broke the layout rather than wrapping. */
+.mono { font-family: var(--font-mono); font-size: 12px; max-width: 100%; overflow-x: auto; }
 .facet-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .facet { border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
 .muted { color: var(--text-muted); }

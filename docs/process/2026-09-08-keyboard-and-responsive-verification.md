@@ -46,6 +46,8 @@
 | A1 | 状态不只靠颜色区分 | DOM 读取 | 通过：计数徽章带文字（"0 已确认"/"0 疑似"/"0 未知"），状态横幅带状态名与 reason code |
 | A2 | reduced motion 无需特殊处理 | 计算样式 | 通过：全页动画/过渡元素计数为 0，无可减的动效 |
 | P1 | 201 字符长路径不撑破布局 | DOM 读取 | 通过：页面与 topbar 均无横向溢出 |
+| I1 | en 模式下无中文残留 | DOM 读取 | 通过：16 个入口逐一切换后，唯一中文是语言选择器的「简体中文」（语言名应以该语言书写） |
+| I2 | 长译文不撑破布局 | DOM 读取 | **初次失败 → 已修**，见下节 |
 | P2 | 截图隐私下整份 DOM 无路径残留 | DOM 读取 | 通过：`outerHTML`、全部 `aria-label`、全部 `title` 中均无路径片段 |
 | P3 | 截图隐私下输入框只读 | DOM 读取 | 通过：`readOnly = true`，值为遮罩字符 |
 
@@ -64,6 +66,19 @@
 现已实现 `NarrowReadOnly`：<768 时不渲染完整 shell，改为提供 Receipt 列表与明细的只读查看。明细沿用默认遮罩（实测 `data-revealed="false"`，显示遮罩字符），tombstone 条目单独标注以免被读作仍然存在的 Receipt。
 
 **通知部分诚实声明未实现**：`notifications` 目录虽被 store 创建，但没有任何端点产生或读取它。界面因此显示 `notifications.unimplemented` 而不是「暂无通知」——后者与「功能不存在」是两个不同的断言。
+
+### I2 长译文撑破 /assets 的布局（已修）
+
+en 模式下 `/assets` 整页横向溢出 84px（`scrollWidth` 1524 vs 视口 1440），zh 模式下不溢出——英文文案更长，先暴露了这个问题。
+
+根因是两层，只修一层无效：
+
+1. `pre.mono` 是 `white-space: pre` 且 `overflow-x: visible`，一行长 JSON 不换行也不滚动，直接把父容器推宽。
+2. 加了 `overflow-x: auto` 后仍然溢出：`.panel` 是 grid item，默认 `min-width: auto` 使它增长到贴合内容，于是 `max-width: 100%` 量的是那个已经被撑宽的容器，滚动条永远不出现。
+
+修复同时给 `.mono` 加 `overflow-x: auto`，并让 `.panel` 取 `min-width: 0`、`.shell` 与 `.workspace` 的弹性列改为 `minmax(0, 1fr)`。修复后 `pre` 在自身内部滚动（`scrollWidth > clientWidth`），页面 `scrollWidth` 1425 < 1440。
+
+复测覆盖 16 个入口 × zh/en 两种 locale，均无横向溢出。
 
 ### R7 断点切换的取证受工具限制
 
