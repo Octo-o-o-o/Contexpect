@@ -6,6 +6,7 @@ import { asObj, postJson, requestJson, type Json } from "./api";
 import { projectFieldValue, projectVisible, revealed } from "./mask";
 import { classifyFailure, classifyPayload } from "./page-state";
 import { stateApplies } from "./page-contract";
+import { changedFields, projectToSchema, setPath, validateDraft } from "./settings-form";
 
 const FACETS = [
   "installed",
@@ -216,14 +217,14 @@ export function App() {
             <Route path="/compare" element={<ComparePage locale={locale} />} />
             <Route path="/receipts" element={<StateView path="/api/v1/receipts" route="/receipts" title={t(locale, "receipts")} locale={locale} />} />
             <Route path="/receipts/:id" element={<ReceiptDetail locale={locale} />} />
-            <Route path="/assets" element={<StateView path="/api/v1/assets" route="/assets" title={t(locale, "assets")} locale={locale} />} />
+            <Route path="/assets" element={<AssetsPage locale={locale} />} />
             <Route path="/assets/:id" element={<EntityPage folder="assets" locale={locale} />} />
             <Route path="/sessions" element={<StateView path="/api/v1/sessions" route="/sessions" title={t(locale, "sessions")} locale={locale} />} />
             <Route path="/sessions/:id" element={<EntityPage folder="sessions" locale={locale} />} />
             <Route path="/monitor" element={<StateView path="/api/v1/monitor" route="/monitor" title={t(locale, "monitor")} locale={locale} />} />
             <Route path="/lab" element={<StateView path="/api/v1/lab" route="/lab" title={t(locale, "lab")} locale={locale} />} />
             <Route path="/lab/:id" element={<EntityPage folder="lab" locale={locale} />} />
-            <Route path="/sync" element={<StateView path="/api/v1/sync" route="/sync" title={t(locale, "sync")} locale={locale} />} />
+            <Route path="/sync" element={<SyncPage locale={locale} />} />
             <Route path="/policy" element={<StateView path="/api/v1/policy" route="/policy" title={t(locale, "policy")} locale={locale} />} />
             <Route path="/standards" element={<StateView path="/api/v1/standards" route="/standards" title={t(locale, "standards")} locale={locale} />} />
             <Route path="/standards/:id" element={<EntityPage folder="standards" locale={locale} />} />
@@ -929,15 +930,199 @@ function StateView({
   );
 }
 
+/**
+ * A modal confirmation for a destructive action.
+ *
+ * Uses the native `<dialog>` so focus moves in, is trapped, and returns to
+ * the opener on close, and Esc works — all without reimplementing it. Esc is
+ * blocked only while the action is in flight, because dismissing then would
+ * leave the user unsure whether it ran.
+ */
+function ConfirmDialog({
+  open,
+  busy,
+  title,
+  consequences,
+  confirmLabel,
+  locale,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  busy: boolean;
+  title: string;
+  consequences: string[];
+  confirmLabel: string;
+  locale: Locale;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement | null>(null);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    if (open && !node.open) node.showModal();
+    if (!open && node.open) node.close();
+  }, [open]);
+
+  return (
+    <dialog
+      ref={ref}
+      aria-busy={busy}
+      onCancel={(event) => {
+        // Esc during execution would hide an action that is still running.
+        if (busy) event.preventDefault();
+        else onCancel();
+      }}
+    >
+      <h2>{title}</h2>
+      <ul>
+        {consequences.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+      <div className="row">
+        <button type="button" className="primary" disabled={busy} onClick={onConfirm}>
+          {busy ? t(locale, "loading") : confirmLabel}
+        </button>
+        <button type="button" disabled={busy} onClick={onCancel}>
+          {t(locale, "cancel")}
+        </button>
+      </div>
+    </dialog>
+  );
+}
+
+/**
+ * V04 Receipt detail with its two actions.
+ *
+ * Verify re-derives the MAC from the stored record. Delete is destructive and
+ * therefore states its consequences before it runs: the Receipt becomes a
+ * tombstone, derived analyses stop resolving, and copies already exported
+ * cannot be recalled.
+ */
 function ReceiptDetail({ locale }: { locale: Locale }) {
   const { id } = useParams();
+  const path = `/api/v1/receipts/${id ?? ""}`;
+  const res = useResource(path);
+  const [verify, setVerify] = useState<Json | null>(null);
+  const [verifyProblem, setVerifyProblem] = useState<{ code: string; message: string } | null>(
+    null,
+  );
+  const [busy, setBusy] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [deleted, setDeleted] = useState<Json | null>(null);
+  const [actionProblem, setActionProblem] = useState<{ code: string; message: string } | null>(
+    null,
+  );
+
+  async function runVerify() {
+    if (busy) return;
+    setBusy("verify");
+    setVerify(null);
+    setVerifyProblem(null);
+    const result = await requestJson(`${path}/verify`, { method: "POST", body: "{}" });
+    if (result.ok) setVerify(asObj(result.data));
+    else setVerifyProblem({ code: result.code, message: result.message });
+    setBusy("");
+  }
+
+  async function runDelete() {
+    if (busy) return;
+    setBusy("delete");
+    setActionProblem(null);
+    const result = await requestJson(`${path}/delete`, { method: "POST", body: "{}" });
+    if (result.ok) {
+      setDeleted(asObj(result.data));
+      setConfirming(false);
+    } else {
+      setActionProblem({ code: result.code, message: result.message });
+      setConfirming(false);
+    }
+    setBusy("");
+  }
+
   return (
-    <StateView
-      path={`/api/v1/receipts/${id ?? ""}`}
-      route="/receipts"
-      title={`${t(locale, "receipts")} ${id}`}
-      locale={locale}
-    />
+    <section className="panel">
+      <h1>
+        {t(locale, "receipts")} {id}
+      </h1>
+      {res.status === "loading" ? (
+        <p role="status">
+          {t(locale, "loading")}{" "}
+          <button type="button" onClick={res.cancel}>
+            {t(locale, "cancel")}
+          </button>
+        </p>
+      ) : null}
+      <StateBanner
+        route="/receipts"
+        status={res.status}
+        reasonCode={res.reasonCode}
+        retryable={res.retryable}
+        locale={locale}
+        onRetry={res.retry}
+      />
+
+      <div className="row">
+        <button type="button" disabled={busy !== "" || deleted !== null} onClick={() => void runVerify()}>
+          {busy === "verify" ? t(locale, "loading") : t(locale, "receiptVerify")}
+        </button>
+        <button
+          type="button"
+          disabled={busy !== "" || deleted !== null}
+          onClick={() => setConfirming(true)}
+        >
+          {t(locale, "receiptDelete")}
+        </button>
+      </div>
+
+      {verify ? (
+        <p role="status" data-testid="verify-result">
+          {t(locale, "receiptVerified")} ·{" "}
+          {/* A local MAC is not an organization signature, and says so. */}
+          org_identity: {String(verify.org_identity)}
+        </p>
+      ) : null}
+      {verifyProblem ? (
+        <p role="alert" data-testid="verify-error">
+          {t(locale, "reasonCodeLabel")}: <code>{verifyProblem.code}</code>
+          {verifyProblem.message ? ` — ${verifyProblem.message}` : null}
+        </p>
+      ) : null}
+      {actionProblem ? (
+        <p role="alert" data-testid="delete-error">
+          {t(locale, "reasonCodeLabel")}: <code>{actionProblem.code}</code>
+          {actionProblem.message ? ` — ${actionProblem.message}` : null}
+        </p>
+      ) : null}
+      {deleted ? (
+        <div role="status" data-testid="delete-result">
+          <p>{t(locale, "receiptDeleted")}</p>
+          <pre className="mono">{JSON.stringify(deleted, null, 2)}</pre>
+        </div>
+      ) : null}
+
+      <ConfirmDialog
+        open={confirming}
+        busy={busy === "delete"}
+        title={t(locale, "receiptDeleteTitle")}
+        consequences={[
+          t(locale, "receiptDeleteTombstone"),
+          t(locale, "receiptDeleteDerived"),
+          t(locale, "receiptDeleteExternal"),
+        ]}
+        confirmLabel={t(locale, "receiptDelete")}
+        locale={locale}
+        onConfirm={() => void runDelete()}
+        onCancel={() => setConfirming(false)}
+      />
+
+      {res.data != null && deleted === null ? (
+        <pre className="mono">{JSON.stringify(res.data, null, 2)}</pre>
+      ) : null}
+    </section>
   );
 }
 
@@ -961,17 +1146,412 @@ function EntityPage({ folder, locale }: { folder: string; locale: Locale }) {
   );
 }
 
-function SettingsPage({ locale }: { locale: Locale }) {
+/** One editor control, rendered from the field's published spec. */
+function SettingsField({
+  path,
+  spec,
+  value,
+  locale,
+  disabled,
+  onChange,
+}: {
+  path: string;
+  spec: Json;
+  value: unknown;
+  locale: Locale;
+  disabled: boolean;
+  onChange: (path: string, value: unknown) => void;
+}) {
+  const kind = String(spec.kind ?? "");
+  if (kind === "object") {
+    const fields = asObj(spec.fields);
+    const nested = asObj(value);
+    return (
+      <fieldset>
+        <legend>{path}</legend>
+        {Object.entries(fields).map(([name, childSpec]) => (
+          <SettingsField
+            key={`${path}.${name}`}
+            path={`${path}.${name}`}
+            spec={asObj(childSpec)}
+            value={nested[name]}
+            locale={locale}
+            disabled={disabled}
+            onChange={onChange}
+          />
+        ))}
+      </fieldset>
+    );
+  }
+  if (kind === "const_bool") {
+    // An invariant, not a preference: shown so it is visible, and not
+    // editable because the store refuses to change it.
+    return (
+      <label className="row">
+        <span>{path}</span>
+        <input type="checkbox" checked={value === true} disabled readOnly />
+        <span className="muted">{t(locale, "settingsInvariant")}</span>
+      </label>
+    );
+  }
+  if (kind === "bool") {
+    return (
+      <label className="row">
+        <span>{path}</span>
+        <input
+          type="checkbox"
+          checked={value === true}
+          disabled={disabled}
+          onChange={(e) => onChange(path, e.target.checked)}
+        />
+      </label>
+    );
+  }
+  if (kind === "enum") {
+    const values = Array.isArray(spec.values) ? (spec.values as unknown[]) : [];
+    return (
+      <label className="row">
+        <span>{path}</span>
+        <select
+          value={String(value ?? "")}
+          disabled={disabled}
+          onChange={(e) => onChange(path, e.target.value)}
+        >
+          {values.map((item) => (
+            <option key={String(item)} value={String(item)}>
+              {String(item)}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+  if (kind === "int") {
+    return (
+      <label className="row">
+        <span>
+          {path} <span className="muted">[{String(spec.min)}, {String(spec.max)}]</span>
+        </span>
+        <input
+          type="number"
+          value={typeof value === "number" ? value : ""}
+          min={typeof spec.min === "number" ? spec.min : undefined}
+          max={typeof spec.max === "number" ? spec.max : undefined}
+          disabled={disabled}
+          onChange={(e) => {
+            const raw = e.target.value;
+            // Keep an empty box distinguishable from 0 so the draft does not
+            // silently become a valid-looking value while being edited.
+            onChange(path, raw === "" ? raw : Number(raw));
+          }}
+        />
+      </label>
+    );
+  }
   return (
-    <>
-      <p className="panel">{t(locale, "vaultDefault")}</p>
-      <StateView
-        path="/api/v1/settings"
-        route="/settings"
-        title={t(locale, "settings")}
+    <p role="alert">
+      {path}: {t(locale, "settingsSpecUnknown")}
+    </p>
+  );
+}
+
+/**
+ * V12 Settings: edit, validate, save, revert.
+ *
+ * The editor is generated from `/api/v1/settings/schema`, so it cannot offer
+ * a field or a value the store does not accept. Client-side validation is a
+ * convenience; the save still goes through the store's own validation, and a
+ * refusal is shown with the store's reason code.
+ */
+/**
+ * V05 Assets.
+ *
+ * The install/update path needs a copy executor, and this slice has none —
+ * the API reports `assets.copy_unimplemented`. The page therefore states
+ * that plainly instead of offering a button that would do nothing or, worse,
+ * appear to succeed.
+ */
+function AssetsPage({ locale }: { locale: Locale }) {
+  const res = useResource("/api/v1/assets");
+  const data = asObj(res.data);
+  const executor = String(data.copy_executor ?? "");
+  return (
+    <section className="panel">
+      <h1>{t(locale, "assets")}</h1>
+      <StateBanner
+        route="/assets"
+        status={res.status}
+        reasonCode={res.reasonCode}
+        retryable={res.retryable}
         locale={locale}
+        onRetry={res.retry}
       />
-    </>
+      {executor === "unimplemented" ? (
+        <p role="status" data-testid="assets-executor">
+          {t(locale, "assetsNoExecutor")} · {t(locale, "reasonCodeLabel")}:{" "}
+          <code>{String(data.reason_code ?? "assets.copy_unimplemented")}</code>
+        </p>
+      ) : null}
+      <p className="muted">{t(locale, "assetsApmAuthority")}</p>
+      {res.data != null ? (
+        <pre className="mono">{JSON.stringify(res.data, null, 2)}</pre>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * V08 Sync: preview, then apply, with transport and semantic kept apart.
+ *
+ * Apply is only offered after a clean preview, so the destructive step always
+ * follows a stated outcome. Transport success is displayed next to — never
+ * merged into — the semantic result, because moving bytes is not verifying
+ * meaning.
+ */
+function SyncPage({ locale }: { locale: Locale }) {
+  const status = useResource("/api/v1/sync");
+  const [bundleId, setBundleId] = useState("bundle-local");
+  const [preview, setPreview] = useState<Json | null>(null);
+  const [applied, setApplied] = useState<Json | null>(null);
+  const [busy, setBusy] = useState("");
+  const [problem, setProblem] = useState<{ code: string; message: string } | null>(null);
+
+  async function call(action: "preview" | "apply") {
+    if (busy) return;
+    setBusy(action);
+    setProblem(null);
+    const result = await requestJson(`/api/v1/sync/${action}`, {
+      method: "POST",
+      body: JSON.stringify({ bundle_id: bundleId }),
+    });
+    if (result.ok) {
+      const value = asObj(result.data);
+      if (action === "preview") {
+        setPreview(value);
+        setApplied(null);
+      } else {
+        setApplied(value);
+      }
+    } else {
+      setProblem({ code: result.code, message: result.message });
+      if (action === "preview") setPreview(null);
+    }
+    setBusy("");
+  }
+
+  const conflict = preview?.conflict === true;
+  const outcome = applied ?? preview;
+
+  return (
+    <section className="panel">
+      <h1>{t(locale, "sync")}</h1>
+      <StateBanner
+        route="/sync"
+        status={status.status}
+        reasonCode={status.reasonCode}
+        retryable={status.retryable}
+        locale={locale}
+        onRetry={status.retry}
+      />
+      <p className="muted">{t(locale, "syncDestFixed")}</p>
+
+      <div className="row">
+        <label>
+          bundle_id
+          <input
+            value={bundleId}
+            disabled={busy !== ""}
+            onChange={(e) => setBundleId(e.target.value)}
+          />
+        </label>
+        <button type="button" disabled={busy !== ""} onClick={() => void call("preview")}>
+          {busy === "preview" ? t(locale, "loading") : t(locale, "syncPreview")}
+        </button>
+        <button
+          type="button"
+          className="primary"
+          // Apply follows a clean preview: never a blind write, and never
+          // over a conflict.
+          disabled={busy !== "" || preview === null || conflict || applied !== null}
+          onClick={() => void call("apply")}
+          title={preview === null ? t(locale, "syncPreviewFirst") : undefined}
+        >
+          {busy === "apply" ? t(locale, "loading") : t(locale, "syncApply")}
+        </button>
+      </div>
+
+      {preview === null && !problem ? <p className="muted">{t(locale, "syncPreviewFirst")}</p> : null}
+      {conflict ? (
+        <p role="alert" data-testid="sync-conflict">
+          {t(locale, "syncConflict")} · {t(locale, "reasonCodeLabel")}:{" "}
+          <code>{String(preview?.reason_code ?? "sync.conflict")}</code>
+        </p>
+      ) : null}
+      {problem ? (
+        <p role="alert" data-testid="sync-error">
+          {t(locale, "reasonCodeLabel")}: <code>{problem.code}</code>
+          {problem.message ? ` — ${problem.message}` : null}
+        </p>
+      ) : null}
+
+      {outcome ? (
+        <dl data-testid="sync-outcome">
+          <dt>{t(locale, "syncTransport")}</dt>
+          <dd>
+            {String(outcome.transport ?? "-")}
+            {/* Stated on the same row it could be mistaken for. */}
+            <span className="muted"> · {t(locale, "syncTransportNotVerified")}</span>
+          </dd>
+          <dt>{t(locale, "syncSemantic")}</dt>
+          <dd>{String(outcome.semantic ?? "-")}</dd>
+          {outcome.reconciliation ? (
+            <>
+              <dt>{t(locale, "syncReconciliation")}</dt>
+              <dd>{String(outcome.reconciliation)}</dd>
+            </>
+          ) : null}
+        </dl>
+      ) : null}
+
+      {status.data != null ? (
+        <pre className="mono">{JSON.stringify(status.data, null, 2)}</pre>
+      ) : null}
+    </section>
+  );
+}
+
+function SettingsPage({ locale }: { locale: Locale }) {
+  const [schema, setSchema] = useState<Json>({});
+  const [saved, setSaved] = useState<Json>({});
+  const [draft, setDraft] = useState<Json>({});
+  const [load, setLoad] = useState<StateVerdict | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveProblem, setSaveProblem] = useState<{ code: string; message: string } | null>(null);
+  const [savedAt, setSavedAt] = useState("");
+
+  async function reload() {
+    setLoad(null);
+    const [schemaResult, valueResult] = await Promise.all([
+      requestJson("/api/v1/settings/schema"),
+      requestJson("/api/v1/settings"),
+    ]);
+    if (!schemaResult.ok) {
+      setLoad(classifyFailure(schemaResult.kind, schemaResult.code));
+      return;
+    }
+    if (!valueResult.ok) {
+      setLoad(classifyFailure(valueResult.kind, valueResult.code));
+      return;
+    }
+    const fields = asObj(asObj(schemaResult.data).fields);
+    // Project onto the schema: the response envelope carries keys that are
+    // not settings, and sending them back would be refused.
+    const stored = projectToSchema(fields, valueResult.data) as Json;
+    setSchema(fields);
+    setSaved(stored);
+    setDraft(stored);
+    setLoad(classifyPayload(valueResult.data));
+  }
+
+  useEffect(() => {
+    void reload();
+  }, []);
+
+  const problems = useMemo(() => validateDraft(schema, draft), [schema, draft]);
+  const dirty = useMemo(() => changedFields(saved, draft), [saved, draft]);
+
+  async function save() {
+    if (saving || problems.length > 0 || dirty.length === 0) return;
+    setSaving(true);
+    setSaveProblem(null);
+    const result = await requestJson("/api/v1/settings", {
+      method: "POST",
+      body: JSON.stringify(draft),
+    });
+    if (result.ok) {
+      const stored = projectToSchema(schema, result.data) as Json;
+      setSaved(stored);
+      setDraft(stored);
+      setSavedAt(new Date().toISOString());
+    } else {
+      // The store is the authority; show exactly what it refused.
+      setSaveProblem({ code: result.code, message: result.message });
+    }
+    setSaving(false);
+  }
+
+  return (
+    <section className="panel">
+      <h1>{t(locale, "settings")}</h1>
+      <p>{t(locale, "vaultDefault")}</p>
+      <SharedStateBanner
+        route="/settings"
+        verdict={load}
+        locale={locale}
+        onRetry={() => void reload()}
+      />
+      {Object.keys(schema).length === 0 ? null : (
+        <>
+          <div className="settings-form">
+            {Object.entries(schema).map(([name, spec]) => (
+              <SettingsField
+                key={name}
+                path={name}
+                spec={asObj(spec)}
+                value={draft[name]}
+                locale={locale}
+                disabled={saving}
+                onChange={(path, value) => setDraft((current) => setPath(current, path, value))}
+              />
+            ))}
+          </div>
+
+          {problems.length > 0 ? (
+            <ul role="alert" data-testid="settings-problems">
+              {problems.map((problem) => (
+                <li key={problem.path}>
+                  <code>{problem.path}</code> · <code>{problem.code}</code> — {problem.message}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {saveProblem ? (
+            <p role="alert" data-testid="settings-save-error">
+              {t(locale, "reasonCodeLabel")}: <code>{saveProblem.code}</code>
+              {saveProblem.message ? ` — ${saveProblem.message}` : null}
+            </p>
+          ) : null}
+
+          <p aria-live="polite">
+            {dirty.length > 0
+              ? `${t(locale, "settingsUnsaved")}: ${dirty.join(", ")}`
+              : savedAt
+                ? t(locale, "settingsSaved")
+                : t(locale, "settingsNoChanges")}
+          </p>
+
+          <div className="row">
+            <button
+              type="button"
+              className="primary"
+              // Disabled while saving so a second click cannot submit twice.
+              disabled={saving || dirty.length === 0 || problems.length > 0}
+              onClick={() => void save()}
+            >
+              {saving ? t(locale, "loading") : t(locale, "settingsSave")}
+            </button>
+            <button
+              type="button"
+              disabled={saving || dirty.length === 0}
+              onClick={() => setDraft(saved)}
+            >
+              {t(locale, "settingsRevert")}
+            </button>
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 

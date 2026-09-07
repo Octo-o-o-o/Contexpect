@@ -104,7 +104,7 @@ Drawer：Esc 关闭、焦点返回、未保存编辑确认、执行中关闭不�
 - Host/Origin 校验；POST 需 `X-Ctxpect-Client: desktop`
 - UI 不计算 Claim
 
-主要路径：`/api/v1/health`、`/inspect`、`/receipts`、`/doctor`、`/diff`、`/integrations`、`/settings`、`/sessions`、`/monitor`、`/policy`、`/exceptions`、`/standards`、`/sync`、`/advisor`、`/lab`、`/team/compliance`、`/care-plan/:id`、`/apply`、`/rollback`。
+主要路径：`/api/v1/health`、`/inspect`、`/receipts`、`/receipts/:id/verify`、`/receipts/:id/delete`、`/doctor`、`/diff`、`/integrations`、`/settings`、`/settings/schema`、`/sessions`、`/monitor`、`/policy`、`/exceptions`、`/standards`、`/sync`、`/sync/preview`、`/sync/apply`、`/advisor`、`/lab`、`/team/compliance`、`/care-plan/:id`、`/apply`、`/rollback`。
 
 ### 四个只读端点报告什么
 
@@ -157,6 +157,19 @@ C04 明确要求「对不适用状态给理由，不能机械制造伪状态」�
 经分类器判定。Doctor 里的适配器覆盖行在失败时显示 reason code，而不是渲染成空行——
 空行与「没有 family」是两个不同的断言。
 
+### 动作面（V04 / V05 / V08 / V12）
+
+| 页面 | 动作 | 成功落点 | 边界 |
+| --- | --- | --- | --- |
+| V04 Receipts | 验签、删除 | 验签显示 `org_identity: false`（本地 MAC 不是组织签名）；删除后显示 tombstone 并禁用两个动作 | 删除前用原生 `<dialog>` 模态确认，逐条说明：只保留 tombstone 且同 id 不可重建、派生分析失效、**已导出的外部副本无法召回** |
+| V05 Assets | 无 | — | 本切片没有复制 executor（`assets.copy_unimplemented`），因此**不提供安装/更新按钮**。没有可执行路径时放一个按钮比不放更糟 |
+| V08 Sync | 预览、应用 | 预览给出 transport/semantic；应用后显示 `transport: success` 与 `semantic: structural-only`、`reconciliation: indeterminate` | 应用只在**干净预览之后**可用，冲突时禁用；transport 与 semantic 分列显示，且传输结果旁始终标注「传输成功不等于语义已验证」 |
+| V12 Settings | 编辑、保存、撤销 | 保存成功后刷新已保存值并提示；失败保留用户编辑并显示 store 的 reason code | 编辑器由 `/api/v1/settings/schema` 生成，不硬编码字段；保存中禁用按钮防重复提交 |
+
+**Settings 的验证在 store，不在 UI**。`put_settings` 校验整份文档：枚举取值、整数区间、未知字段、缺失字段，以及 `unmask_does_not_grant_egress` 这类**产品不变量**——它被记为 `const_bool`，设置不能把它改成 `false`。UI 侧的即时校验只是便利，发出相同的 reason code，最终判定仍以 store 为准（R04）。`analysis_adapter` 目前只接受 `none`：本切片没有已实现的 LLM adapter，允许填别的值会让 advisor 声称一条不存在的分析路径。
+
+**Sync API 的目标是固定的**：`POST /api/v1/sync/preview|apply` 只对 `<store>/sync/folder` 操作。从请求体接受目的地路径等于让页面内容驱动任意文件写入，因此跨设备传输仍只走 CLI 的显式 `--dest`。`bundle_id` 会被写入 append-only 日志，故校验字符集并拒绝 `..`。
+
 ### Drawer 契约
 
 Doctor 的证据抽屉是**常驻区域**而非模态，因此没有打开/关闭、焦点返回与 Esc 可言；
@@ -170,7 +183,7 @@ Doctor 的证据抽屉是**常驻区域**而非模态，因此没有打开/关�
 
 ## 本切片明确未做 / 未覆盖
 
-- **C04 的动作面部分**：状态、取消/重试与 drawer 契约已实现（见下节），但 C04 同时要求逐页定义**入口与返回路径、URL/选择状态、DTO 与查询、主要动作、成功落点、持久化边界、敏感数据边界**，这些尚未逐页定义；除 Doctor 外，页面正文仍是 API JSON 转储，没有按页设计的呈现与动作闭环。
+- **其余页面的呈现与动作**：V04/V05/V08/V09/V12 已有动作面（见下节）。其余入口的正文仍是 API JSON 转储，C04 要求的逐页「入口与返回路径、URL/选择状态、DTO 与查询」也尚未逐页定义。
 - **团队汇总**：`/team/compliance` 统计本地 store。没有团队传输，因此它不是跨成员的合规汇总，界面也不得这样呈现。
 - **应用截图、Tauri 桌面壳、OS WebView / a11y / 屏幕阅读器 / ≤2s 性能证据**：未采集，不得当作已覆盖。
 - **例外批准身份源**：UI/API 不能用调用方自报角色完成 approve。身份来自仓内已登记 principals + 调用方持有的登记密钥，而密钥只经环境变量传入 CLI，HTTP 请求无法安全携带。因此 `POST /api/v1/exceptions` 明确返回 `api.identity_required`，例外生命周期只经 CLI。

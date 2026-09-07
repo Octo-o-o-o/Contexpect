@@ -6,6 +6,10 @@
 //! gates remain offline. The engine choice is a recorded deviation; the
 //! Receipt/Claim contracts are not.
 
+pub mod settings;
+
+pub use settings::{default_settings, settings_schema, validate_settings, SETTINGS_SCHEMA};
+
 use ctxpect_fs::Root;
 use ctxpect_receipt::{tombstone, ContinuityKey};
 use ctxpect_schema::{
@@ -137,11 +141,15 @@ impl Store {
         read_json(&self.root.join("settings.json"))
     }
 
+    /// Replace settings, whole and validated.
+    ///
+    /// Validation lives here rather than in a caller so the CLI, the API and
+    /// any future client cannot disagree about what the store accepts.
     pub fn put_settings(&self, value: Value) -> Result<(), StoreError> {
-        atomic_write(
-            &self.root.join("settings.json"),
-            &canonical_json(&value),
-        )
+        validate_settings(&value)?;
+        atomic_write(&self.root.join("settings.json"), &canonical_json(&value))?;
+        self.audit("settings.put", "settings", None)?;
+        Ok(())
     }
 
     pub fn put_snapshot(&self, id: &str, snapshot: &Value) -> Result<(), StoreError> {
@@ -433,24 +441,6 @@ impl Store {
         }
         Ok(out)
     }
-}
-
-fn default_settings() -> Value {
-    object([
-        ("privacy_mode", string("default")),
-        ("screenshot_privacy", Value::Bool(false)),
-        ("unmask_does_not_grant_egress", Value::Bool(true)),
-        ("copy_confirm", Value::Bool(true)),
-        ("locale", string("zh-CN")),
-        ("retention_days", Value::Int(30)),
-        ("vault", string("metadata-only")),
-        ("notifications", Value::Bool(true)),
-        ("resource_limits", object([
-            ("daemon_rss_mb", Value::Int(512)),
-            ("scan_files", Value::Int(100_000)),
-        ])),
-        ("analysis_adapter", string("none")),
-    ])
 }
 
 fn validate_id(id: &str) -> Result<(), StoreError> {

@@ -48,9 +48,17 @@ export const PAGE_CONTRACTS = [
   },
   {
     id: "V04",
+    // Verify is read-only, but delete is a store mutation and can be refused.
     route: "/receipts",
-    applicable: [...ALWAYS, "partial", "stale", "unsupported-version", "connector-missing"],
-    notApplicable: { "permission-denied": R.readOnlyGet },
+    applicable: [
+      ...ALWAYS,
+      "partial",
+      "stale",
+      "permission-denied",
+      "unsupported-version",
+      "connector-missing",
+    ],
+    notApplicable: {},
   },
   {
     id: "V05",
@@ -96,10 +104,10 @@ export const PAGE_CONTRACTS = [
   },
   {
     id: "V08",
+    // Apply writes a bundle into the store, so a refusal reaches this page.
     route: "/sync",
-    applicable: [...ALWAYS],
+    applicable: [...ALWAYS, "permission-denied"],
     notApplicable: {
-      "permission-denied": R.readOnlyGet,
       stale: R.noReceipt,
       partial: R.noUnknownCells,
       "unsupported-version": R.noHarness,

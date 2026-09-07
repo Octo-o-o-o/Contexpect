@@ -70,3 +70,10 @@ input, textarea { border: 1px solid var(--border); border-radius: 8px; padding: 
 [data-privacy="screenshot"] [data-mask] { filter: blur(10px); }
 [data-revealed="false"] { user-select: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+dialog { border: 1px solid var(--line, #d8dee3); border-radius: 8px; padding: 20px; max-width: 480px; }
+dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+dialog ul { margin: 12px 0; padding-left: 20px; }
+.settings-form { display: grid; gap: 8px; margin: 12px 0; }
+.settings-form label.row { justify-content: space-between; gap: 12px; }
+.settings-form fieldset { border: 1px solid var(--line, #d8dee3); border-radius: 6px; padding: 8px 12px; }

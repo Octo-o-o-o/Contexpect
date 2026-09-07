@@ -19,6 +19,7 @@ use ctxpect_policy::exception_status;
 use ctxpect_projection::{apply as proj_apply, preview as proj_preview, rollback as proj_rollback, Intent};
 use ctxpect_schema::{array, canonical_json, object, parse, string, Value};
 use ctxpect_store::Store;
+use ctxpect_sync::{apply_folder, bundle, preview_apply};
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -248,6 +249,9 @@ fn api(method: &str, path: &str, full: &str, body: &str, state: &AppState) -> (u
             ("copy_executor", string("unimplemented")),
             ("reason_code", string("assets.copy_unimplemented")),
         ])),
+        // Published so the UI renders its editor from the definition the
+        // store enforces, instead of a hardcoded copy that can drift.
+        ("GET", "/api/v1/settings/schema") => json_ok(ctxpect_store::settings_schema()),
         ("GET", "/api/v1/settings") => match state.store.settings() {
             Ok(v) => json_ok(v),
             Err(err) => json_err(err.code, &err.message),
@@ -323,6 +327,8 @@ fn api(method: &str, path: &str, full: &str, body: &str, state: &AppState) -> (u
             Err(err) => json_err(err.code, &err.message),
         },
         ("GET", "/api/v1/sync") => json_ok(sync_status(state)),
+        ("POST", "/api/v1/sync/preview") => sync_api(body, state, false),
+        ("POST", "/api/v1/sync/apply") => sync_api(body, state, true),
         ("POST", "/api/v1/advisor") => advisor_api(body),
         ("GET", p) if p.starts_with("/api/v1/lab/") => match strip_id(p, "/api/v1/lab/") {
             Some(id) => named_get(state, "experiments", id),
@@ -576,6 +582,109 @@ fn lab_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
         }
         Err(err) => json_err(err.code, &err.message),
     }
+}
+
+/// The sync target this API operates on.
+///
+/// Fixed to a directory inside the store. A destination taken from the
+/// request body would be an arbitrary filesystem write driven by page
+/// content; cross-device transport therefore stays on the CLI, where the
+/// user names the destination explicitly.
+fn api_sync_dest(state: &AppState) -> PathBuf {
+    state.store.root().join("sync/folder")
+}
+
+/// A bundle id is echoed into an append-only log, so it must not be able to
+/// forge a line there or travel anywhere as a path.
+fn valid_bundle_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 80
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+        && !id.contains("..")
+}
+
+/// Preview or apply a folder-transport sync bundle.
+///
+/// Preview is read-only. Apply is a store mutation and goes through the one
+/// authority. Neither reports transport success as semantic verification.
+fn sync_api(body: &str, state: &AppState, apply: bool) -> (u16, &'static str, String) {
+    let parsed = parse(body).unwrap_or_else(|_| object::<String>([]));
+    let bundle_id = parsed
+        .get("bundle_id")
+        .and_then(Value::as_str)
+        .unwrap_or("bundle-local");
+    if !valid_bundle_id(bundle_id) {
+        return json_err("sync.bundle_id_invalid", "bundle_id must be a short id");
+    }
+    if apply && let Err(denied) = require_mutation(state) {
+        return denied;
+    }
+
+    let settings = state.store.settings().unwrap_or(Value::Null);
+    let vault_required = settings.get("vault").and_then(Value::as_str) == Some("required");
+
+    // Only an explicitly named Receipt travels; the bundle never sweeps the
+    // ledger on its own.
+    let receipts = match parsed.get("receipt_id").and_then(Value::as_str) {
+        Some(id) => match state.store.get_receipt(id) {
+            Ok(receipt) => vec![receipt],
+            Err(err) => return json_err(err.code, &err.message),
+        },
+        None => Vec::new(),
+    };
+
+    let packed = match bundle(
+        bundle_id,
+        object([("desired", string("metadata-only"))]),
+        &["env:CTXPECT_TOKEN"],
+        receipts,
+        vault_required,
+    ) {
+        Ok(value) => value,
+        Err(err) => return json_err(err.code, &err.message),
+    };
+
+    let dest = api_sync_dest(state);
+    let outcome = if apply {
+        apply_folder(&dest, &packed)
+    } else {
+        preview_apply(&dest, &packed)
+    };
+    match outcome {
+        Ok(value) => json_ok(merge_fields(
+            value,
+            [
+                ("bundle", packed),
+                ("dest", string("<store>/sync/folder")),
+                (
+                    "dest_is_fixed",
+                    Value::Bool(true),
+                ),
+                (
+                    "cross_device_transport",
+                    string("cli-only"),
+                ),
+            ],
+        )),
+        Err(err) => json_err(err.code, &err.message),
+    }
+}
+
+fn merge_fields<'a>(base: Value, extra: impl IntoIterator<Item = (&'a str, Value)>) -> Value {
+    let mut map = match base {
+        Value::Object(map) => map,
+        other => {
+            let mut map = BTreeMap::new();
+            map.insert("result".to_string(), other);
+            map
+        }
+    };
+    for (key, value) in extra {
+        map.insert(key.to_string(), value);
+    }
+    Value::Object(map)
 }
 
 /// Sync state read from this store.

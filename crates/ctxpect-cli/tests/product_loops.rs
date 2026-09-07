@@ -1112,6 +1112,163 @@ fn read_only_endpoints_report_computed_state_not_constants() {
     );
 }
 
+/// Settings are validated by the store, so every client gets the same answer.
+#[test]
+fn settings_are_validated_whole_and_invariants_are_not_editable() {
+    let scratch = Scratch::new("settings");
+    scratch.write("AGENTS.md", "hello\n");
+    let store = scratch.path.join("store");
+    fs::create_dir_all(&store).unwrap();
+    plant_pass_policy_and_live_exception(&store);
+    let (_child, listen) = start_daemon(&scratch, &store);
+
+    let (status, schema) = get_json(&listen, "/api/v1/settings/schema");
+    assert_eq!(status, 200);
+    let fields = schema.get("fields").expect("fields");
+    assert!(fields.get("privacy_mode").is_some(), "{schema:?}");
+    assert_eq!(
+        fields
+            .pointer(&["unmask_does_not_grant_egress", "kind"])
+            .and_then(Value::as_str),
+        Some("const_bool"),
+        "the egress invariant must be published as fixed, not as a preference"
+    );
+
+    let base = r#""privacy_mode":"default","screenshot_privacy":false,"copy_confirm":true,"locale":"zh-CN","retention_days":30,"vault":"metadata-only","notifications":true,"resource_limits":{"daemon_rss_mb":512,"scan_files":100000},"analysis_adapter":"none""#;
+    let before = fs::read_to_string(store.join("settings.json")).unwrap();
+
+    // R07: revealing masked text never grants egress, and settings cannot
+    // assert otherwise.
+    let (code, raw) = http_call(
+        &listen,
+        "POST",
+        "/api/v1/settings",
+        &format!(r#"{{{base},"unmask_does_not_grant_egress":false}}"#),
+    );
+    assert_eq!(code, 400, "{raw}");
+    assert!(raw.contains("settings.invariant_not_editable"), "{raw}");
+
+    // A value outside the declared set is refused.
+    let (code, raw) = http_call(
+        &listen,
+        "POST",
+        "/api/v1/settings",
+        r#"{"privacy_mode":"pwned","screenshot_privacy":false,"copy_confirm":true,"locale":"zh-CN","retention_days":30,"vault":"metadata-only","notifications":true,"resource_limits":{"daemon_rss_mb":512,"scan_files":100000},"analysis_adapter":"none","unmask_does_not_grant_egress":true}"#,
+    );
+    assert_eq!(code, 400, "{raw}");
+    assert!(raw.contains("settings.value_not_allowed"), "{raw}");
+
+    // Naming an adapter this slice does not implement is refused too.
+    let (code, raw) = http_call(
+        &listen,
+        "POST",
+        "/api/v1/settings",
+        r#"{"privacy_mode":"default","screenshot_privacy":false,"copy_confirm":true,"locale":"zh-CN","retention_days":30,"vault":"metadata-only","notifications":true,"resource_limits":{"daemon_rss_mb":512,"scan_files":100000},"analysis_adapter":"gpt-5","unmask_does_not_grant_egress":true}"#,
+    );
+    assert_eq!(code, 400, "{raw}");
+    assert!(raw.contains("settings.value_not_allowed"), "{raw}");
+
+    // Nothing above was stored.
+    assert_eq!(
+        fs::read_to_string(store.join("settings.json")).unwrap(),
+        before,
+        "a refused settings write must not land"
+    );
+
+    // A complete, valid document is accepted.
+    let (code, raw) = http_call(
+        &listen,
+        "POST",
+        "/api/v1/settings",
+        &format!(r#"{{{base},"unmask_does_not_grant_egress":true}}"#),
+    );
+    assert_eq!(code, 200, "{raw}");
+
+    // Fields are not merged: a missing one is an error, not a default.
+    let (code, raw) = http_call(
+        &listen,
+        "POST",
+        "/api/v1/settings",
+        r#"{"privacy_mode":"screenshot"}"#,
+    );
+    assert_eq!(code, 400, "{raw}");
+    assert!(raw.contains("settings.field_missing"), "{raw}");
+}
+
+/// Sync over the API: preview is read-only, apply is a mutation, and the
+/// destination is never taken from the request.
+#[test]
+fn sync_api_previews_before_applying_and_fixes_its_destination() {
+    let scratch = Scratch::new("syncapi");
+    scratch.write("AGENTS.md", "hello\n");
+    let store = scratch.path.join("store");
+    let (_child, listen) = start_daemon(&scratch, &store);
+
+    // A destination cannot be smuggled in through the bundle id.
+    let (code, raw) = http_call(
+        &listen,
+        "POST",
+        "/api/v1/sync/preview",
+        r#"{"bundle_id":"../../etc/passwd"}"#,
+    );
+    assert_eq!(code, 400, "{raw}");
+    assert!(raw.contains("sync.bundle_id_invalid"), "{raw}");
+
+    // Preview is read-only and works without an approved exception.
+    let (code, raw) = http_call(&listen, "POST", "/api/v1/sync/preview", r#"{"bundle_id":"b1"}"#);
+    assert_eq!(code, 200, "{raw}");
+    let preview = http_json(&raw);
+    assert_eq!(preview.get("transport").and_then(Value::as_str), Some("ready"));
+    assert_eq!(
+        preview.get("semantic").and_then(Value::as_str),
+        Some("not-verified")
+    );
+    assert!(!store.join("sync/folder/current.json").exists(), "preview must not write");
+
+    // Apply is a mutation and is fail-closed without authority.
+    let (code, raw) = http_call(&listen, "POST", "/api/v1/sync/apply", r#"{"bundle_id":"b1"}"#);
+    assert_eq!(code, 400, "{raw}");
+    assert!(raw.contains("policy."), "{raw}");
+    assert!(!store.join("sync/folder/current.json").exists(), "refused apply must not write");
+
+    fs::create_dir_all(&store).unwrap();
+    plant_pass_policy_and_live_exception(&store);
+
+    let (code, raw) = http_call(&listen, "POST", "/api/v1/sync/apply", r#"{"bundle_id":"b1"}"#);
+    assert_eq!(code, 200, "{raw}");
+    let applied = http_json(&raw);
+    assert_eq!(applied.get("transport").and_then(Value::as_str), Some("success"));
+    // R06: moving bytes is not verifying meaning.
+    assert_eq!(
+        applied
+            .get("transport_success_is_verified")
+            .and_then(Value::as_bool),
+        Some(false)
+    );
+    assert_eq!(
+        applied.get("semantic").and_then(Value::as_str),
+        Some("structural-only")
+    );
+    assert_eq!(applied.get("dest_is_fixed").and_then(Value::as_bool), Some(true));
+    assert!(store.join("sync/folder/current.json").exists());
+
+    // Replay of the same bundle is refused.
+    let (code, raw) = http_call(&listen, "POST", "/api/v1/sync/apply", r#"{"bundle_id":"b1"}"#);
+    assert_eq!(code, 400, "{raw}");
+    assert!(raw.contains("sync.replay"), "{raw}");
+
+    // A different bundle over an occupied destination is a conflict, and
+    // last-write-wins is refused.
+    let (code, raw) = http_call(&listen, "POST", "/api/v1/sync/apply", r#"{"bundle_id":"b2"}"#);
+    assert_eq!(code, 200, "{raw}");
+    let conflict = http_json(&raw);
+    assert_eq!(conflict.get("conflict").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        conflict.get("last_write_wins").and_then(Value::as_bool),
+        Some(false)
+    );
+}
+
 /// Team compliance counts what the store actually holds.
 #[test]
 fn team_compliance_counts_real_standards_and_exceptions() {
