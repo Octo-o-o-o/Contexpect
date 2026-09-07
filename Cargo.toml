@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/ctxpect-advisor",
+    "crates/ctxpect-assets",
     "crates/ctxpect-cli",
     "crates/ctxpect-collect",
     "crates/ctxpect-core",

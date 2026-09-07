@@ -1,0 +1,15 @@
+[package]
+name = "ctxpect-assets"
+description = "Asset supply-chain vetting, the unique copy executor, lock and SBOM."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ctxpect-fs = { path = "../ctxpect-fs" }
+ctxpect-schema = { path = "../ctxpect-schema" }
+
+[lints]
+workspace = true

@@ -10,10 +10,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctxpect-assets"
+version = "0.1.0"
+dependencies = [
+ "ctxpect-fs",
+ "ctxpect-schema",
+]
+
+[[package]]
 name = "ctxpect-cli"
 version = "0.1.0"
 dependencies = [
  "ctxpect-advisor",
+ "ctxpect-assets",
  "ctxpect-collect",
  "ctxpect-core",
  "ctxpect-diff",

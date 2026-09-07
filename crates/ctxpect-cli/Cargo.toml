@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 ctxpect-advisor = { path = "../ctxpect-advisor" }
+ctxpect-assets = { path = "../ctxpect-assets" }
 ctxpect-collect = { path = "../ctxpect-collect" }
 ctxpect-core = { path = "../ctxpect-core" }
 ctxpect-diff = { path = "../ctxpect-diff" }

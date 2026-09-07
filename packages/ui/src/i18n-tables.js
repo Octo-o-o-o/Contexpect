@@ -137,6 +137,17 @@ export const zh = {
   syncDestFixed: "本页只对 store 内的固定目标操作；跨设备传输请用 CLI 显式指定目的地。",
   assetsNoExecutor: "本切片没有资产复制 executor，因此不提供安装或更新动作；没有可执行路径时不放一个看似能用的按钮",
   assetsApmAuthority: "包与 SBOM 的唯一权威是 APM，本页不重新判定。",
+  assetsPreview: "核验并预览",
+  assetsCopy: "复制到项目",
+  assetsRollback: "回滚这次复制",
+  assetsPreviewFirst: "先核验再复制；未经核验不写入。",
+  assetsIdPlaceholder: "仓内 .ctxpect/assets.json 里登记的 asset_id",
+  assetsLicense: "许可证",
+  assetsOrigin: "来源",
+  assetsTarget: "落点",
+  assetsLoss: "损失",
+  assetsCopied: "已复制，可回滚",
+  assetsUnlicensed: "锁文件中存在没有许可证的组件",
 };
 
 export const en = {
@@ -278,4 +289,15 @@ export const en = {
   syncDestFixed: "This page writes only to a fixed target inside the store; cross-device transport uses the CLI with an explicit destination.",
   assetsNoExecutor: "This slice has no asset copy executor, so no install or update action is offered; a button with no executable path behind it would be worse than none",
   assetsApmAuthority: "APM is the unique authority for packages and SBOM; this page does not re-decide it.",
+  assetsPreview: "Vet and preview",
+  assetsCopy: "Copy into project",
+  assetsRollback: "Roll back this copy",
+  assetsPreviewFirst: "Vet before copying; nothing is written unvetted.",
+  assetsIdPlaceholder: "an asset_id registered in .ctxpect/assets.json",
+  assetsLicense: "License",
+  assetsOrigin: "Origin",
+  assetsTarget: "Lands at",
+  assetsLoss: "Loss",
+  assetsCopied: "Copied; can be rolled back",
+  assetsUnlicensed: "Components in the lock without a license",
 };

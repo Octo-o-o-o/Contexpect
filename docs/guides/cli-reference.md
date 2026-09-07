@@ -35,7 +35,7 @@ ctxpect [--json] [--offline] [--config <path>] [--project <dir>] [--cwd <dir>]
 | `ctxpect apply` / `ctxpect rollback` | WP-06 | 唯一 authority；无合格 executor 则只导出 plan |
 | `ctxpect standard validate\|publish\|preview\|adopt\|pin\|update\|status\|leave\|rollback\|revoke` | WP-07 | TeamContextStandard；git/file local-first |
 | `ctxpect exception request\|approve\|reject\|revoke\|status` | WP-11 | 受控例外；过期 fail-closed。`--role`/`--actor` 仍是调用方自报、不构成授权；身份来自仓内已登记 principals（见「例外批准的身份源」） |
-| `ctxpect assets` | WP-08 | catalog / validate / 展示 APM lock |
+| `ctxpect assets [status\|list\|preview\|copy\|rollback\|sbom]` | WP-08 | catalog、资产复制 executor、lock 与 SBOM；无子命令时为概览。复制前先核验登记、许可证与内容摘要 |
 | `ctxpect advisor` | WP-09 | 显式同意、payload preview |
 | `ctxpect experiment` | WP-10 | Effect Lab |
 | `ctxpect policy eval\|show` | WP-11 | 分层 context policy；detect-only 诚实性 |
@@ -115,6 +115,56 @@ CTXPECT_PRINCIPAL_SECRET=<secret> ctxpect exception request \
 ### daemon API 不提供此通道
 
 `POST /api/v1/exceptions` 返回 `api.identity_required`。HTTP 请求不能安全携带登记密钥，因此 daemon 无法建立所需身份；它明确失败，而不是造一条 requester 为字面量 `user` 的例外。
+
+## 资产复制 executor
+
+`ctxpect assets preview|copy|rollback` 是资产的唯一复制 executor。它**不是包管理器**：不解析依赖、不下载、不理解版本区间。它只做一件事——把一份**仓内登记已声明**的文件复制到项目内声明的落点，作为可回滚的事务，并记录落地了什么。
+
+### 资产登记
+
+`<project>/.ctxpect/assets.json`（`schema: ctxpect-assets-v1`），随项目进版本控制：
+
+```json
+{
+  "schema": "ctxpect-assets-v1",
+  "assets": [
+    {
+      "asset_id": "skill-a",
+      "origin": "project:vendor/skill-a.md",
+      "license": "MIT",
+      "digest": "<sha256 of the source bytes>",
+      "target_rel": ".ctxpect/skills/skill-a.md"
+    }
+  ]
+}
+```
+
+### 供应链门禁
+
+复制前必须通过全部核验，任何一条不过都在 `preview` 阶段拒绝，因此**不会留下半个文件**：
+
+| 情况 | reason code |
+| --- | --- |
+| asset_id 不在登记里 | `assets.not_registered` |
+| 没有声明许可证 | `assets.license_unknown` |
+| 没有声明来源 | `assets.origin_unknown` |
+| 来源不是 `project:<rel>` | `assets.origin_unsupported` |
+| 来源或落点含 `..` / 绝对路径 | `assets.path_escapes` |
+| 源文件实际内容与登记摘要不符 | `assets.digest_mismatch` |
+
+最后一条是冒名的防线：名字与许可证都对得上，但字节不是登记的那份，就不是那个资产。
+
+### 事务与并发
+
+`copy` 经唯一 authority `authorize_store_apply`，并在写入前重新核对两件事：源字节仍与核验时一致（否则 `assets.source_changed`），落点自 preview 以来未被他人改动（否则 `assets.concurrent_hash`，并发编辑得以保留）。复制成功后写入 `store` 的 lock 条目、审计记录，以及一份 **post-Receipt**——复制改变了项目，之后的状态要被观测而不是假定。
+
+`rollback` 恢复先前字节；若这次复制是新建文件，则删除它。
+
+### lock 与 SBOM
+
+`ctxpect assets sbom` 从 lock 生成物料清单，含每个组件的来源、许可证与 sha256，并统计**没有许可证的组件数**而不是把它们从列表里略去。
+
+该文档显式声明 `spdx_or_cyclonedx: "not-emitted"`：输出 SPDX 或 CycloneDX 意味着遵循其规范，一份仅仅顶着那个名字的近似文档会误导对合规性的判断。`scope` 同样写明它只覆盖本 executor 复制的资产，**不是** Cargo 或 npm 的依赖图。
 
 ## `standard` 各子命令的实际语义
 

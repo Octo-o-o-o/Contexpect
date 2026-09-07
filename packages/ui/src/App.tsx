@@ -1264,17 +1264,69 @@ function SettingsField({
  * refusal is shown with the store's reason code.
  */
 /**
- * V05 Assets.
+ * V05 Assets: vet, preview, copy, roll back.
  *
- * The install/update path needs a copy executor, and this slice has none —
- * the API reports `assets.copy_unimplemented`. The page therefore states
- * that plainly instead of offering a button that would do nothing or, worse,
- * appear to succeed.
+ * An asset id names a registry entry. The registry — version-controlled in
+ * the project — decides where bytes come from and where they land, so this
+ * page never chooses a filesystem path. Copy is offered only after a preview
+ * has vetted the bytes, and the preview is where an unlicensed, unregistered
+ * or tampered asset is refused.
  */
 function AssetsPage({ locale }: { locale: Locale }) {
   const res = useResource("/api/v1/assets");
   const data = asObj(res.data);
-  const executor = String(data.copy_executor ?? "");
+  const [assetId, setAssetId] = useState("");
+  const [plan, setPlan] = useState<Json | null>(null);
+  const [copied, setCopied] = useState<Json | null>(null);
+  const [busy, setBusy] = useState("");
+  const [problem, setProblem] = useState<{ code: string; message: string } | null>(null);
+
+  async function call(action: "preview" | "copy") {
+    if (busy || !assetId) return;
+    setBusy(action);
+    setProblem(null);
+    const result = await requestJson(`/api/v1/assets/${encodeURIComponent(assetId)}/${action}`, {
+      method: "POST",
+      body: "{}",
+    });
+    if (result.ok) {
+      const value = asObj(result.data);
+      if (action === "preview") {
+        setPlan(value);
+        setCopied(null);
+      } else {
+        setCopied(value);
+        res.retry();
+      }
+    } else {
+      setProblem({ code: result.code, message: result.message });
+      if (action === "preview") setPlan(null);
+    }
+    setBusy("");
+  }
+
+  async function rollback() {
+    const tx = String(asObj(copied).tx_id ?? "");
+    if (busy || !tx) return;
+    setBusy("rollback");
+    setProblem(null);
+    const result = await requestJson(`/api/v1/assets/${encodeURIComponent(tx)}/rollback`, {
+      method: "POST",
+      body: "{}",
+    });
+    if (result.ok) {
+      setCopied(null);
+      setPlan(null);
+      res.retry();
+    } else {
+      setProblem({ code: result.code, message: result.message });
+    }
+    setBusy("");
+  }
+
+  const sbom = asObj(data.sbom);
+  const unlicensed = typeof sbom.unlicensed_components === "number" ? sbom.unlicensed_components : 0;
+
   return (
     <section className="panel">
       <h1>{t(locale, "assets")}</h1>
@@ -1286,13 +1338,71 @@ function AssetsPage({ locale }: { locale: Locale }) {
         locale={locale}
         onRetry={res.retry}
       />
-      {executor === "unimplemented" ? (
-        <p role="status" data-testid="assets-executor">
-          {t(locale, "assetsNoExecutor")} · {t(locale, "reasonCodeLabel")}:{" "}
-          <code>{String(data.reason_code ?? "assets.copy_unimplemented")}</code>
+      <p className="muted">{t(locale, "assetsApmAuthority")}</p>
+      <p className="muted">{String(data.copy_executor_scope ?? "")}</p>
+
+      <div className="row">
+        <label>
+          asset_id
+          <input
+            value={assetId}
+            disabled={busy !== ""}
+            onChange={(e) => setAssetId(e.target.value)}
+            placeholder={t(locale, "assetsIdPlaceholder")}
+          />
+        </label>
+        <button type="button" disabled={busy !== "" || !assetId} onClick={() => void call("preview")}>
+          {busy === "preview" ? t(locale, "loading") : t(locale, "assetsPreview")}
+        </button>
+        <button
+          type="button"
+          className="primary"
+          // Copy follows a vetted preview; there is no blind install.
+          disabled={busy !== "" || plan === null || copied !== null}
+          onClick={() => void call("copy")}
+          title={plan === null ? t(locale, "assetsPreviewFirst") : undefined}
+        >
+          {busy === "copy" ? t(locale, "loading") : t(locale, "assetsCopy")}
+        </button>
+        {copied ? (
+          <button type="button" disabled={busy !== ""} onClick={() => void rollback()}>
+            {busy === "rollback" ? t(locale, "loading") : t(locale, "assetsRollback")}
+          </button>
+        ) : null}
+      </div>
+
+      {plan === null && !problem ? <p className="muted">{t(locale, "assetsPreviewFirst")}</p> : null}
+      {problem ? (
+        <p role="alert" data-testid="assets-error">
+          {t(locale, "reasonCodeLabel")}: <code>{problem.code}</code>
+          {problem.message ? ` — ${problem.message}` : null}
         </p>
       ) : null}
-      <p className="muted">{t(locale, "assetsApmAuthority")}</p>
+
+      {plan ? (
+        <dl data-testid="assets-plan">
+          <dt>{t(locale, "assetsLicense")}</dt>
+          <dd>{String(plan.license ?? "-")}</dd>
+          <dt>{t(locale, "assetsOrigin")}</dt>
+          <dd>{String(plan.origin ?? "-")}</dd>
+          <dt>{t(locale, "assetsTarget")}</dt>
+          <dd>{String(plan.target_rel ?? "-")}</dd>
+          <dt>{t(locale, "assetsLoss")}</dt>
+          <dd>{String(plan.loss ?? "-")}</dd>
+        </dl>
+      ) : null}
+      {copied ? (
+        <p role="status" data-testid="assets-copied">
+          {t(locale, "assetsCopied")} · tx <code>{String(copied.tx_id ?? "")}</code>
+        </p>
+      ) : null}
+
+      {unlicensed > 0 ? (
+        <p role="alert" data-testid="assets-unlicensed">
+          {t(locale, "assetsUnlicensed")}: {unlicensed}
+        </p>
+      ) : null}
+
       {res.data != null ? (
         <pre className="mono">{JSON.stringify(res.data, null, 2)}</pre>
       ) : null}

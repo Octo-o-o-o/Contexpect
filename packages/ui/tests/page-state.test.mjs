@@ -229,7 +229,14 @@ test("a page that writes can be refused, and one that cannot write says so", () 
 test("declared actions correspond to controls that exist in the UI", () => {
   // Guards against a contract promising an action the page never renders.
   const withActions = PAGE_CONTRACTS.filter((c) => c.actions.length > 0).map((c) => c.route);
-  assert.deepEqual(withActions.sort(), ["/compare", "/doctor", "/receipts", "/settings", "/sync"]);
+  assert.deepEqual(withActions.sort(), [
+    "/assets",
+    "/compare",
+    "/doctor",
+    "/receipts",
+    "/settings",
+    "/sync",
+  ]);
   for (const marker of [
     "receiptVerify",
     "receiptDelete",
@@ -237,6 +244,9 @@ test("declared actions correspond to controls that exist in the UI", () => {
     "syncApply",
     "settingsSave",
     "settingsRevert",
+    "assetsPreview",
+    "assetsCopy",
+    "assetsRollback",
   ]) {
     assert.ok(uiSource.includes(marker), `${marker} is declared but not rendered`);
   }

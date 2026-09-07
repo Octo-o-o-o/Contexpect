@@ -104,7 +104,7 @@ Drawer：Esc 关闭、焦点返回、未保存编辑确认、执行中关闭不�
 - Host/Origin 校验；POST 需 `X-Ctxpect-Client: desktop`
 - UI 不计算 Claim
 
-主要路径：`/api/v1/health`、`/inspect`、`/receipts`、`/receipts/:id/verify`、`/receipts/:id/delete`、`/doctor`、`/diff`、`/integrations`、`/settings`、`/settings/schema`、`/sessions`、`/monitor`、`/policy`、`/exceptions`、`/standards`、`/sync`、`/sync/preview`、`/sync/apply`、`/advisor`、`/lab`、`/team/compliance`、`/care-plan/:id`、`/apply`、`/rollback`。
+主要路径：`/api/v1/health`、`/inspect`、`/receipts`、`/receipts/:id/verify`、`/receipts/:id/delete`、`/doctor`、`/diff`、`/integrations`、`/settings`、`/settings/schema`、`/sessions`、`/monitor`、`/policy`、`/exceptions`、`/standards`、`/assets`、`/assets/:id/preview`、`/assets/:id/copy`、`/assets/:tx/rollback`、`/sync`、`/sync/preview`、`/sync/apply`、`/advisor`、`/lab`、`/team/compliance`、`/care-plan/:id`、`/apply`、`/rollback`。
 
 ### 四个只读端点报告什么
 
@@ -179,11 +179,13 @@ C04 明确要求「对不适用状态给理由，不能机械制造伪状态」�
 | 页面 | 动作 | 成功落点 | 边界 |
 | --- | --- | --- | --- |
 | V04 Receipts | 验签、删除 | 验签显示 `org_identity: false`（本地 MAC 不是组织签名）；删除后显示 tombstone 并禁用两个动作 | 删除前用原生 `<dialog>` 模态确认，逐条说明：只保留 tombstone 且同 id 不可重建、派生分析失效、**已导出的外部副本无法召回** |
-| V05 Assets | 无 | — | 本切片没有复制 executor（`assets.copy_unimplemented`），因此**不提供安装/更新按钮**。没有可执行路径时放一个按钮比不放更糟 |
+| V05 Assets | 核验并预览、复制到项目、回滚 | 预览显示许可证/来源/落点/损失；复制后显示事务 id 并刷新 lock 与 SBOM | 复制只在**核验通过的预览之后**可用；asset id 指向仓内登记，**来源与落点都不可由界面指定**，请求体里的路径被忽略 |
 | V08 Sync | 预览、应用 | 预览给出 transport/semantic；应用后显示 `transport: success` 与 `semantic: structural-only`、`reconciliation: indeterminate` | 应用只在**干净预览之后**可用，冲突时禁用；transport 与 semantic 分列显示，且传输结果旁始终标注「传输成功不等于语义已验证」 |
 | V12 Settings | 编辑、保存、撤销 | 保存成功后刷新已保存值并提示；失败保留用户编辑并显示 store 的 reason code | 编辑器由 `/api/v1/settings/schema` 生成，不硬编码字段；保存中禁用按钮防重复提交 |
 
 **Settings 的验证在 store，不在 UI**。`put_settings` 校验整份文档：枚举取值、整数区间、未知字段、缺失字段，以及 `unmask_does_not_grant_egress` 这类**产品不变量**——它被记为 `const_bool`，设置不能把它改成 `false`。UI 侧的即时校验只是便利，发出相同的 reason code，最终判定仍以 store 为准（R04）。`analysis_adapter` 目前只接受 `none`：本切片没有已实现的 LLM adapter，允许填别的值会让 advisor 声称一条不存在的分析路径。
+
+**资产的来源与落点由仓内登记决定**，不由界面或请求体决定。未登记、无许可证、或字节与登记摘要不符的资产在预览阶段就被拒绝，因此不会留下半个文件。详见 [cli-reference 的资产复制 executor](cli-reference.md#资产复制-executor)。
 
 **Sync API 的目标是固定的**：`POST /api/v1/sync/preview|apply` 只对 `<store>/sync/folder` 操作。从请求体接受目的地路径等于让页面内容驱动任意文件写入，因此跨设备传输仍只走 CLI 的显式 `--dest`。`bundle_id` 会被写入 append-only 日志，故校验字符集并拒绝 `..`。
 

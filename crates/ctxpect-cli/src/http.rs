@@ -3,8 +3,8 @@
 use crate::args::{InspectArgs, ProductArgs};
 use crate::catalog::{family_entry, integrations_json};
 use crate::dispatch::{
-    authorize_store_apply, effective_store_policy, listen_addr, now_unix, persist_inspect,
-    verify_standard_document, ProductReport,
+    asset_lock, assets_status, authorize_store_apply, effective_store_policy, listen_addr,
+    load_asset_registry, now_unix, persist_inspect, verify_standard_document, ProductReport,
 };
 use crate::inspect::inspect;
 use crate::jsonutil::with_snapshot_digest;
@@ -243,12 +243,10 @@ fn api(method: &str, path: &str, full: &str, body: &str, state: &AppState) -> (u
             Some(v) => json_ok(v),
             None => json_err("catalog.unknown", p),
         },
-        ("GET", "/api/v1/assets") => json_ok(object([
-            ("catalog", integrations_json("codex", true)),
-            ("apm_authority", string("apm-unique-not-re-evaluated")),
-            ("copy_executor", string("unimplemented")),
-            ("reason_code", string("assets.copy_unimplemented")),
-        ])),
+        ("GET", "/api/v1/assets") => {
+            json_ok(assets_status("codex", Some(&asset_lock(&state.store))))
+        }
+        ("POST", p) if p.starts_with("/api/v1/assets/") => assets_api(p, state),
         // Published so the UI renders its editor from the definition the
         // store enforces, instead of a hardcoded copy that can drift.
         ("GET", "/api/v1/settings/schema") => json_ok(ctxpect_store::settings_schema()),
@@ -581,6 +579,83 @@ fn lab_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
             json_ok(v)
         }
         Err(err) => json_err(err.code, &err.message),
+    }
+}
+
+/// Asset preview, copy and rollback over the API.
+///
+/// The asset id names a registry entry, never a path: the registry decides
+/// both where bytes come from and where they land, so nothing here lets a
+/// request choose a filesystem location.
+// The body is unused: the asset id in the path names a registry entry, and
+// the registry — not the request — decides source and destination.
+fn assets_api(path: &str, state: &AppState) -> (u16, &'static str, String) {
+    let rest = path.trim_start_matches("/api/v1/assets/");
+    let mut segs = rest.split('/');
+    let id = segs.next().unwrap_or("");
+    let action = segs.next().unwrap_or("");
+    let Some(project) = state.project.clone() else {
+        return json_err(
+            "api.project_required",
+            "asset operations need a declared project root",
+        );
+    };
+    let Ok(root) = Root::new(&project) else {
+        return json_err("io.missing", "project root is unreadable");
+    };
+
+    if action == "rollback" {
+        if let Err(denied) = require_mutation(state) {
+            return denied;
+        }
+        let backup = ctxpect_assets::backup_dir(state.store.root(), id);
+        return match ctxpect_assets::rollback(&root, &backup) {
+            Ok(value) => {
+                let _ = state.store.audit("assets.rollback", "asset", Some(id));
+                json_ok(value)
+            }
+            Err(err) => json_err(err.code, &err.message),
+        };
+    }
+
+    let registry = load_asset_registry(Some(project.as_path()));
+    let asset = match ctxpect_assets::registered(registry.as_ref(), id) {
+        Ok(asset) => asset,
+        Err(err) => return json_err(err.code, &err.message),
+    };
+    // Vetting happens before any write, so a refusal leaves nothing behind.
+    let plan = match ctxpect_assets::preview(&root, &asset) {
+        Ok(plan) => plan,
+        Err(err) => return json_err(err.code, &err.message),
+    };
+    match action {
+        "preview" => json_ok(plan.to_value()),
+        "copy" => {
+            if let Err(denied) = require_mutation(state) {
+                return denied;
+            }
+            let backup = ctxpect_assets::backup_dir(state.store.root(), &plan.tx_id);
+            let meta = match ctxpect_assets::apply(&root, &plan, &backup, true) {
+                Ok(meta) => meta,
+                Err(err) => return json_err(err.code, &err.message),
+            };
+            if let Err(err) =
+                state
+                    .store
+                    .put_named("assetlock", id, &ctxpect_assets::lock_entry(&plan))
+            {
+                return json_err(err.code, &err.message);
+            }
+            let _ = state.store.audit("assets.copy", "asset", Some(id));
+            json_ok(merge_fields(
+                meta,
+                [
+                    ("plan", plan.to_value()),
+                    ("lock", asset_lock(&state.store)),
+                ],
+            ))
+        }
+        other => json_err("api.not_found", &format!("unknown asset action `{other}`")),
     }
 }
 

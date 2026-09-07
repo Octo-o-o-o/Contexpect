@@ -1195,6 +1195,177 @@ fn settings_are_validated_whole_and_invariants_are_not_editable() {
     assert!(raw.contains("settings.field_missing"), "{raw}");
 }
 
+/// The asset copy executor vets before it writes, and every refusal happens
+/// in preview so nothing is left behind.
+#[test]
+fn asset_copy_is_vetted_authorized_and_reversible() {
+    let scratch = Scratch::new("assets");
+    scratch.write("AGENTS.md", "hello\n");
+    scratch.write("vendor/skill-a.md", "skill body\n");
+    scratch.write("vendor/other.md", "different bytes\n");
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    let project_s = scratch.path.to_str().unwrap();
+
+    // The digest is computed by the product's own hash, so the fixture cannot
+    // drift from what the executor checks.
+    let digest = ctxpect_schema::sha256_hex(b"skill body\n");
+    scratch.write(
+        ".ctxpect/assets.json",
+        format!(
+            r#"{{"schema":"ctxpect-assets-v1","assets":[
+                {{"asset_id":"skill-a","origin":"project:vendor/skill-a.md","license":"MIT","digest":"{digest}","target_rel":".ctxpect/skills/skill-a.md"}},
+                {{"asset_id":"no-license","origin":"project:vendor/other.md","digest":"{digest}","target_rel":".ctxpect/skills/x.md"}},
+                {{"asset_id":"look-alike","origin":"project:vendor/other.md","license":"MIT","digest":"{digest}","target_rel":".ctxpect/skills/y.md"}}
+            ]}}"#
+        ),
+    );
+
+    let preview = |id: &str| {
+        run(&[
+            "assets", "preview", "--json", "--project", project_s, "--id", id,
+        ])
+    };
+
+    // Unregistered, unlicensed, and right-name-wrong-bytes are three distinct
+    // refusals, and none of them writes anything.
+    let (code, json, out) = preview("ghost");
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("assets.not_registered"));
+
+    let (code, json, out) = preview("no-license");
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("assets.license_unknown"));
+
+    let (code, json, out) = preview("look-alike");
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("assets.digest_mismatch"));
+
+    let (code, json, out) = preview("skill-a");
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("license").and_then(Value::as_str), Some("MIT"));
+    assert!(
+        !scratch.path.join(".ctxpect/skills/skill-a.md").exists(),
+        "preview must not write"
+    );
+
+    // Copying is a mutation and is fail-closed without authority.
+    let copy = || {
+        run(&[
+            "assets", "copy", "--json", "--project", project_s, "--store", store_s, "--id",
+            "skill-a",
+        ])
+    };
+    let (code, json, out) = copy();
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("policy.unknown"));
+    assert!(!scratch.path.join(".ctxpect/skills/skill-a.md").exists());
+
+    fs::create_dir_all(&store).unwrap();
+    plant_pass_policy_and_live_exception(&store);
+
+    let (code, json, out) = copy();
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(
+        fs::read_to_string(scratch.path.join(".ctxpect/skills/skill-a.md")).unwrap(),
+        "skill body\n"
+    );
+    // A copy changes the project, so it is followed by an observation.
+    assert!(
+        !json
+            .get("post_receipt_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .is_empty(),
+        "{json:?}"
+    );
+    let tx = json
+        .pointer(&["transaction", "tx_id"])
+        .and_then(Value::as_str)
+        .expect("tx_id")
+        .to_string();
+
+    // The lock records provenance, and the SBOM does not claim a conformance
+    // it does not have.
+    let (code, sbom, out) = run(&["assets", "sbom", "--json", "--store", store_s]);
+    assert_eq!(code, 0, "{out} {sbom:?}");
+    assert_eq!(sbom.get("component_count").and_then(Value::as_i64), Some(1));
+    assert_eq!(
+        sbom.get("unlicensed_components").and_then(Value::as_i64),
+        Some(0)
+    );
+    assert_eq!(
+        sbom.get("spdx_or_cyclonedx").and_then(Value::as_str),
+        Some("not-emitted")
+    );
+
+    // Rollback removes the file the copy created.
+    let (code, json, out) = run(&[
+        "assets", "rollback", "--json", "--project", project_s, "--store", store_s, "--id", &tx,
+    ]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert!(!scratch.path.join(".ctxpect/skills/skill-a.md").exists());
+}
+
+/// The same executor over the API, including that no path comes from the
+/// request.
+#[test]
+fn asset_api_takes_no_path_from_the_request() {
+    let scratch = Scratch::new("assetsapi");
+    scratch.write("AGENTS.md", "hello\n");
+    scratch.write("vendor/skill-a.md", "skill body\n");
+    let digest = ctxpect_schema::sha256_hex(b"skill body\n");
+    scratch.write(
+        ".ctxpect/assets.json",
+        format!(
+            r#"{{"schema":"ctxpect-assets-v1","assets":[{{"asset_id":"skill-a","origin":"project:vendor/skill-a.md","license":"MIT","digest":"{digest}","target_rel":".ctxpect/skills/skill-a.md"}}]}}"#
+        ),
+    );
+    let store = scratch.path.join("store");
+    let (_child, listen) = start_daemon(&scratch, &store);
+
+    // The body is ignored: an asset id names a registry entry, and the
+    // registry decides both source and destination.
+    let (status, raw) = http_call(
+        &listen,
+        "POST",
+        "/api/v1/assets/skill-a/preview",
+        r#"{"target_rel":"/etc/passwd","origin":"project:../../etc/passwd"}"#,
+    );
+    assert_eq!(status, 200, "{raw}");
+    let plan = http_json(&raw);
+    assert_eq!(
+        plan.get("target_rel").and_then(Value::as_str),
+        Some(".ctxpect/skills/skill-a.md"),
+        "the request must not be able to choose a destination: {raw}"
+    );
+
+    // Copy is fail-closed without authority.
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/assets/skill-a/copy", "{}");
+    assert_eq!(status, 400, "{raw}");
+    assert!(raw.contains("policy."), "{raw}");
+    assert!(!scratch.path.join(".ctxpect/skills/skill-a.md").exists());
+
+    fs::create_dir_all(&store).unwrap();
+    plant_pass_policy_and_live_exception(&store);
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/assets/skill-a/copy", "{}");
+    assert_eq!(status, 200, "{raw}");
+    assert!(scratch.path.join(".ctxpect/skills/skill-a.md").exists());
+
+    // The overview now reports the executor and the lock rather than a
+    // hardcoded "unimplemented".
+    let (_, overview) = get_json(&listen, "/api/v1/assets");
+    assert_eq!(
+        overview.get("copy_executor").and_then(Value::as_str),
+        Some("project-scoped")
+    );
+    assert_eq!(
+        overview.pointer(&["sbom", "component_count"]).and_then(Value::as_i64),
+        Some(1),
+        "{overview:?}"
+    );
+}
+
 /// Sync over the API: preview is read-only, apply is a mutation, and the
 /// destination is never taken from the request.
 #[test]

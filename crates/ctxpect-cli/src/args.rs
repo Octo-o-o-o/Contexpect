@@ -481,7 +481,10 @@ where
                 Some(command),
             ));
         }
-        if !listed_subcommands(&command).is_empty() && subcommand.is_none() {
+        if !listed_subcommands(&command).is_empty()
+            && subcommand.is_none()
+            && !subcommand_optional(&command)
+        {
             return Err(invalid(
                 format!(
                     "`{command}` requires a subcommand ({})",
@@ -571,6 +574,14 @@ where
     }
 }
 
+/// Commands whose bare form is meaningful, so a subcommand is optional.
+///
+/// `ctxpect assets` on its own is the catalog overview and was valid before
+/// the copy executor existed; adding subcommands must not retire it.
+fn subcommand_optional(command: &str) -> bool {
+    command == "assets"
+}
+
 fn listed_subcommands(command: &str) -> &'static [&'static str] {
     match command {
         "receipt" => &["show", "verify", "export", "redact"],
@@ -585,6 +596,7 @@ fn listed_subcommands(command: &str) -> &'static [&'static str] {
         "policy" => &["eval", "show"],
         "align" => &["status", "diff"],
         "adapter" => &["test", "list"],
+        "assets" => &["status", "list", "preview", "copy", "rollback", "sbom"],
         _ => &[],
     }
 }

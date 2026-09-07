@@ -1222,30 +1222,131 @@ fn exception_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
     }
 }
 
+/// Path of the version-controlled asset registry inside a project.
+pub(crate) const ASSET_REGISTRY_REL: &str = ".ctxpect/assets.json";
+
+pub(crate) fn load_asset_registry(project: Option<&Path>) -> Option<Value> {
+    let text = fs::read_to_string(project?.join(ASSET_REGISTRY_REL)).ok()?;
+    parse(&text).ok()
+}
+
+pub(crate) fn asset_lock(store: &Store) -> Value {
+    let entries = store
+        .list_named("assetlock")
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|id| store.get_named("assetlock", id).ok())
+        .collect::<Vec<_>>();
+    ctxpect_assets::lock_document(entries)
+}
+
+/// The assets overview, shared by the CLI and the API so both describe the
+/// executor the same way.
+pub(crate) fn assets_status(harness: &str, lock: Option<&Value>) -> Value {
+    object([
+        ("catalog", integrations_json(harness, true)),
+        ("apm_authority", string("apm-unique-not-re-evaluated")),
+        // The executor exists now; its limits are stated rather than implied.
+        ("copy_executor", string("project-scoped")),
+        (
+            "copy_executor_scope",
+            string(
+                "copies registry-declared files into the project; fetches nothing and resolves no versions",
+            ),
+        ),
+        ("pin_status", string("evidence-backed-unavailable")),
+        ("lock", lock.cloned().unwrap_or(Value::Null)),
+        ("sbom", lock.map_or(Value::Null, ctxpect_assets::sbom)),
+    ])
+}
+
 fn assets_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
-    ok(
-        "assets",
-        0,
-        object([
-            ("catalog", integrations_json(&args.harness, true)),
-            (
-                "apm_authority",
-                string("apm-unique-not-re-evaluated"),
-            ),
-            (
-                "copy_executor",
-                string("unimplemented"),
-            ),
-            (
-                "reason_code",
-                string("assets.copy_unimplemented"),
-            ),
-            (
-                "pin_status",
-                string("evidence-backed-unavailable"),
-            ),
-        ]),
-    )
+    let sub = args.subcommand.as_deref().unwrap_or("status");
+    match sub {
+        "status" | "list" => {
+            let lock = args
+                .store
+                .as_ref()
+                .and_then(|path| Store::open(path).ok())
+                .map(|store| asset_lock(&store));
+            ok("assets", 0, assets_status(&args.harness, lock.as_ref()))
+        }
+        "preview" | "copy" => {
+            let project = args
+                .project
+                .as_ref()
+                .ok_or_else(|| fail("usage.invalid", "`--project` is required".into()))?;
+            let asset_id = args
+                .id
+                .as_deref()
+                .ok_or_else(|| fail("usage.invalid", "`--id <asset>` is required".into()))?;
+            let root = Root::new(project).map_err(|err| fail("io.missing", err.to_string()))?;
+            let registry = load_asset_registry(Some(project.as_path()));
+            let asset = ctxpect_assets::registered(registry.as_ref(), asset_id)
+                .map_err(|err| fail(err.code, err.message))?;
+            // Vetting happens in preview, so a refusal costs nothing.
+            let plan = ctxpect_assets::preview(&root, &asset)
+                .map_err(|err| fail(err.code, err.message))?;
+            if sub == "preview" {
+                return ok("assets preview", 0, plan.to_value());
+            }
+
+            let store = open_store(args)?;
+            let _auth = authorize_store_apply(&store, Some(project.as_path()))?;
+            let backup = ctxpect_assets::backup_dir(store.root(), &plan.tx_id);
+            let meta = ctxpect_assets::apply(&root, &plan, &backup, true)
+                .map_err(|err| fail(err.code, err.message))?;
+            store
+                .put_named("assetlock", asset_id, &ctxpect_assets::lock_entry(&plan))
+                .map_err(|err| fail(err.code, err.message))?;
+            let _ = store.audit("assets.copy", "asset", Some(asset_id));
+
+            // Post-Receipt: the copy changed the project, so the state after it
+            // is observed rather than assumed.
+            let inspect_args = inspect_args(args)?;
+            let report = inspect(inspect_args)?;
+            let receipt = persist_inspect(&store, &report.envelope, "one-shot")?;
+            ok(
+                "assets copy",
+                0,
+                object([
+                    ("transaction", meta),
+                    ("plan", plan.to_value()),
+                    (
+                        "post_receipt_id",
+                        string(receipt.get("receipt_id").and_then(Value::as_str).unwrap_or("")),
+                    ),
+                    ("lock", asset_lock(&store)),
+                ]),
+            )
+        }
+        "rollback" => {
+            let project = args
+                .project
+                .as_ref()
+                .ok_or_else(|| fail("usage.invalid", "`--project` is required".into()))?;
+            let tx = args
+                .id
+                .as_deref()
+                .ok_or_else(|| fail("usage.invalid", "`--id <tx>` is required".into()))?;
+            let root = Root::new(project).map_err(|err| fail("io.missing", err.to_string()))?;
+            let store = open_store(args)?;
+            let _auth = authorize_store_apply(&store, Some(project.as_path()))?;
+            let backup = ctxpect_assets::backup_dir(store.root(), tx);
+            let result = ctxpect_assets::rollback(&root, &backup)
+                .map_err(|err| fail(err.code, err.message))?;
+            let _ = store.audit("assets.rollback", "asset", Some(tx));
+            ok("assets rollback", 0, result)
+        }
+        "sbom" => {
+            let store = open_store(args)?;
+            ok("assets sbom", 0, ctxpect_assets::sbom(&asset_lock(&store)))
+        }
+        other => Err(fail(
+            "usage.invalid",
+            format!("unknown assets subcommand `{other}`"),
+        )),
+    }
 }
 
 fn advisor_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
