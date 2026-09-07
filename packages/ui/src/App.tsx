@@ -6,7 +6,13 @@ import { asObj, postJson, requestJson, type Json } from "./api";
 import { projectFieldValue, projectVisible, revealed } from "./mask";
 import { classifyFailure, classifyPayload } from "./page-state";
 import { stateApplies } from "./page-contract";
-import { changedFields, projectToSchema, setPath, validateDraft } from "./settings-form";
+import {
+  changedFields,
+  projectToSchema,
+  setPath,
+  validateDraft,
+  type SettingsProblem,
+} from "./settings-form";
 
 const FACETS = [
   "installed",
@@ -1285,12 +1291,18 @@ function EntityPage({ folder, locale }: { folder: string; locale: Locale }) {
 }
 
 /** One editor control, rendered from the field's published spec. */
+/** A stable id for a field's error message, usable in `aria-describedby`. */
+function problemId(path: string): string {
+  return `settings-error-${path.replace(/\./g, "-")}`;
+}
+
 function SettingsField({
   path,
   spec,
   value,
   locale,
   disabled,
+  problems,
   onChange,
 }: {
   path: string;
@@ -1298,6 +1310,7 @@ function SettingsField({
   value: unknown;
   locale: Locale;
   disabled: boolean;
+  problems: SettingsProblem[];
   onChange: (path: string, value: unknown) => void;
 }) {
   const kind = String(spec.kind ?? "");
@@ -1315,12 +1328,25 @@ function SettingsField({
             value={nested[name]}
             locale={locale}
             disabled={disabled}
+            problems={problems}
             onChange={onChange}
           />
         ))}
       </fieldset>
     );
   }
+
+  // The field's own problem, if any. Announcing it on the control itself is
+  // what lets someone who tabs onto the field know it is wrong — a summary
+  // list elsewhere on the page does not do that (WCAG 2.2 SC 3.3.1, 4.1.2).
+  const problem = problems.find((item) => item.path === path);
+  const invalid = problem !== undefined;
+  const describedBy = invalid ? problemId(path) : undefined;
+  const errorNote = problem ? (
+    <span id={problemId(path)} className="field-error">
+      <code>{problem.code}</code> — {problem.message}
+    </span>
+  ) : null;
   if (kind === "const_bool") {
     // An invariant, not a preference: shown so it is visible, and not
     // editable because the store refuses to change it.
@@ -1340,8 +1366,11 @@ function SettingsField({
           type="checkbox"
           checked={value === true}
           disabled={disabled}
+          aria-invalid={invalid || undefined}
+          aria-describedby={describedBy}
           onChange={(e) => onChange(path, e.target.checked)}
         />
+        {errorNote}
       </label>
     );
   }
@@ -1353,6 +1382,8 @@ function SettingsField({
         <select
           value={String(value ?? "")}
           disabled={disabled}
+          aria-invalid={invalid || undefined}
+          aria-describedby={describedBy}
           onChange={(e) => onChange(path, e.target.value)}
         >
           {values.map((item) => (
@@ -1361,6 +1392,7 @@ function SettingsField({
             </option>
           ))}
         </select>
+        {errorNote}
       </label>
     );
   }
@@ -1376,6 +1408,8 @@ function SettingsField({
           min={typeof spec.min === "number" ? spec.min : undefined}
           max={typeof spec.max === "number" ? spec.max : undefined}
           disabled={disabled}
+          aria-invalid={invalid || undefined}
+          aria-describedby={describedBy}
           onChange={(e) => {
             const raw = e.target.value;
             // Keep an empty box distinguishable from 0 so the draft does not
@@ -1383,6 +1417,7 @@ function SettingsField({
             onChange(path, raw === "" ? raw : Number(raw));
           }}
         />
+        {errorNote}
       </label>
     );
   }
@@ -1393,14 +1428,6 @@ function SettingsField({
   );
 }
 
-/**
- * V12 Settings: edit, validate, save, revert.
- *
- * The editor is generated from `/api/v1/settings/schema`, so it cannot offer
- * a field or a value the store does not accept. Client-side validation is a
- * convenience; the save still goes through the store's own validation, and a
- * refusal is shown with the store's reason code.
- */
 /**
  * V05 Assets: vet, preview, copy, roll back.
  *
@@ -1668,6 +1695,14 @@ function SyncPage({ locale }: { locale: Locale }) {
   );
 }
 
+/**
+ * V12 Settings: edit, validate, save, revert.
+ *
+ * The editor is generated from `/api/v1/settings/schema`, so it cannot offer
+ * a field or a value the store does not accept. Client-side validation is a
+ * convenience; the save still goes through the store's own validation, and a
+ * refusal is shown with the store's reason code.
+ */
 function SettingsPage({ locale }: { locale: Locale }) {
   const [schema, setSchema] = useState<Json>({});
   const [saved, setSaved] = useState<Json>({});
@@ -1749,19 +1784,18 @@ function SettingsPage({ locale }: { locale: Locale }) {
                 value={draft[name]}
                 locale={locale}
                 disabled={saving}
+                problems={problems}
                 onChange={(path, value) => setDraft((current) => setPath(current, path, value))}
               />
             ))}
           </div>
 
           {problems.length > 0 ? (
-            <ul role="alert" data-testid="settings-problems">
-              {problems.map((problem) => (
-                <li key={problem.path}>
-                  <code>{problem.path}</code> · <code>{problem.code}</code> — {problem.message}
-                </li>
-              ))}
-            </ul>
+            // A count, not a repeat of each message: the messages already sit
+            // on their fields, and announcing them twice is noise.
+            <p role="alert" data-testid="settings-problems">
+              {t(locale, "settingsProblemCount")}: {problems.length}
+            </p>
           ) : null}
 
           {saveProblem ? (

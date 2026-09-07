@@ -146,3 +146,35 @@ test("projectToSchema keeps a genuinely missing field missing", () => {
   assert.ok(!Object.prototype.hasOwnProperty.call(projected, "vault"));
   assert.equal(validateDraft(schemaFields(), projected)[0].code, "settings.field_missing");
 });
+
+test("a field's error is announced on the field, not only in a summary", () => {
+  // Someone who tabs onto a bad field must learn it is bad. A list elsewhere
+  // on the page does not do that (WCAG 2.2 SC 3.3.1 and 4.1.2).
+  const app = execFileSync("cat", [join(repo, "packages/ui/src/App.tsx")], { encoding: "utf8" });
+  // SettingsField only — other pages have their own inputs, and including
+  // them would make this assertion about the wrong controls.
+  const start = app.indexOf("function SettingsField(");
+  const field = app.slice(start, app.indexOf("\n/**", start));
+  assert.ok(field.length > 0);
+
+  // Every editable control carries both attributes.
+  const controls = [...field.matchAll(/<(input|select)\b[\s\S]*?\/?>/g)].map((m) => m[0]);
+  const editable = controls.filter((c) => !c.includes("readOnly"));
+  assert.ok(editable.length >= 3, `expected the bool/enum/int controls, got ${editable.length}`);
+  for (const control of editable) {
+    assert.match(control, /aria-invalid=/, `control without aria-invalid: ${control.slice(0, 60)}`);
+    assert.match(
+      control,
+      /aria-describedby=/,
+      `control without aria-describedby: ${control.slice(0, 60)}`,
+    );
+  }
+
+  // The described-by target is rendered with a matching id.
+  assert.match(field, /id=\{problemId\(path\)\}/);
+  assert.match(app, /function problemId\(path: string\)/);
+
+  // The summary reports a count rather than repeating each message, which
+  // would be announced twice.
+  assert.match(app, /settingsProblemCount/);
+});

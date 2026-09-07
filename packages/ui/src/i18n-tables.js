@@ -153,6 +153,7 @@ export const zh = {
   notifications: "通知",
   narrowNotificationsUnimplemented: "本切片没有实现通知的产生与读取，因此这里不是「暂无通知」",
   receiptTombstoned: "已删除（仅存 tombstone）",
+  settingsProblemCount: "有字段未通过校验",
 };
 
 export const en = {
@@ -310,4 +311,5 @@ export const en = {
   notifications: "Notifications",
   narrowNotificationsUnimplemented: "This slice implements neither producing nor reading notifications, so this is not \"no notifications yet\"",
   receiptTombstoned: "deleted (tombstone only)",
+  settingsProblemCount: "Fields failing validation",
 };
