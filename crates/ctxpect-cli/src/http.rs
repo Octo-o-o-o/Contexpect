@@ -199,7 +199,25 @@ fn write_res(stream: &mut TcpStream, status: u16, ctype: &str, body: &str) -> Re
         _ => "Error",
     };
     let resp = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: http://127.0.0.1\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
+        // No `Access-Control-Allow-Origin`: nothing needs cross-origin access.
+        // The UI is served by this daemon, and the dev server proxies `/api`,
+        // so both are same-origin. The header used to be present but omitted
+        // the port, so it matched no real origin — a rule that looked like a
+        // policy while granting nothing, and that someone would eventually
+        // "fix" into a real grant.
+        //
+        // `frame-ancestors 'none'` keeps this API out of a frame on another
+        // page; `style-src` allows inline styles because React sets them
+        // through the `style` prop.
+        "HTTP/1.1 {status} {reason}\r\n\
+         Content-Type: {ctype}\r\n\
+         Content-Length: {}\r\n\
+         Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\n\
+         X-Content-Type-Options: nosniff\r\n\
+         X-Frame-Options: DENY\r\n\
+         Referrer-Policy: no-referrer\r\n\
+         Cache-Control: no-store\r\n\
+         Connection: close\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(resp.as_bytes()).map_err(|_| ())?;
@@ -1450,7 +1468,11 @@ fn static_file(path: &str, state: &AppState) -> (u16, &'static str, String) {
     let Ok(contained_root) = Root::new(root) else {
         return json_err("api.path", "ui root is unreadable");
     };
-    let file = match contained_root.contain(root.join(rel)) {
+    // Pass the relative part: `contain` joins a relative candidate onto the
+    // canonical root itself. Passing `root.join(rel)` double-joins when the
+    // configured root is relative — which is how `--ui-root packages/ui/dist`
+    // stopped resolving.
+    let file = match contained_root.contain(rel) {
         Ok(file) => Some(file),
         Err(Refusal::EscapesRoot { .. }) => {
             return json_err("api.path", "rejected");
@@ -1474,7 +1496,7 @@ fn static_file(path: &str, state: &AppState) -> (u16, &'static str, String) {
             // index.html is resolved through the same check, so a symlinked
             // index cannot smuggle content in either.
             match contained_root
-                .contain(root.join("index.html"))
+                .contain("index.html")
                 .ok()
                 .and_then(|index| fs::read_to_string(index).ok())
             {

@@ -104,6 +104,8 @@ Drawer：Esc 关闭、焦点返回、未保存编辑确认、执行中关闭不�
 - **Host/Origin 精确校验**：主机名必须恰为 `127.0.0.1` / `localhost` / `::1`，不是前缀匹配——前缀会放行 `127.0.0.1.evil.com` 这类 DNS rebinding 绕过。缺失 `Host` 一并拒绝。POST 另需 `X-Ctxpect-Client: desktop`
 - UI 不计算 Claim
 - **静态文件服务用与读取项目文件相同的包含性检查**：路径先 canonicalize 再验证是否仍在 UI root 内。仅做 `..` 字符串比对是不够的——UI root 内的一个符号链接指向外部，请求里根本不会出现 `..`。不存在的路径回退到 `index.html`（SPA 路由），逃逸出 root 的路径报 `api.path`。
+- **安全响应头**：`Content-Security-Policy`（`script-src 'self'`、`frame-ancestors 'none'`、`object-src 'none'`；`style-src` 允许 inline，因为 React 通过 `style` prop 设置样式）、`X-Frame-Options: DENY`、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`Cache-Control: no-store`。
+- **不发 `Access-Control-Allow-Origin`**：没有任何东西需要跨源访问——UI 由本 daemon 提供，开发时 vite 代理 `/api`，两种情况都是同源。该头此前存在但漏了端口，因而匹配不上任何真实 origin：一条什么也没授予、看起来却像策略的规则，迟早会被人「修」成真正的授权。
 - **请求体必须是 JSON 对象**。空体表示「无参数」，可以；数组或标量则报 `api.body_not_object`——它们不携带处理函数要读的任何字段，接受它们等于用静默的默认值执行请求，再把结果当成功回给调用方。
 
 主要路径：`/api/v1/health`、`/inspect`、`/receipts`、`/receipts/:id/verify`、`/receipts/:id/delete`、`/doctor`、`/diff`、`/integrations`、`/settings`、`/settings/schema`、`/sessions`、`/monitor`、`/policy`、`/exceptions`、`/standards`、`/assets`、`/assets/:id/preview`、`/assets/:id/copy`、`/assets/:tx/rollback`、`/sync`、`/sync/preview`、`/sync/apply`、`/advisor`、`/lab`、`/team/compliance`、`/care-plan/:id`、`/apply`、`/rollback`。

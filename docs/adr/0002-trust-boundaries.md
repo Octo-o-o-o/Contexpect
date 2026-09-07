@@ -33,6 +33,12 @@
 
 daemon 服务 UI 资源时，路径检查与读取项目文件用同一套机制：canonicalize 之后验证是否仍在声明的 root 内。**字符串层面的 `..` 检查不构成边界**——UI root 内的一个符号链接可以指向外部，而请求里根本不会出现 `..`。该问题在 2026-09-08 的一次实测中被确认可复现（root 内的符号链接把 root 外的文件读了出来），随后改为使用 `ctxpect-fs::Root::contain`。
 
+## 本地 API 的响应头
+
+CSP（`script-src 'self'`、`frame-ancestors 'none'`、`object-src 'none'`）、`X-Frame-Options: DENY`、`nosniff`、`no-referrer`、`no-store`。`style-src` 允许 inline，因为 React 通过 `style` prop 设置样式——已实测确认：inline **样式**生效而 inline **脚本**被拒。
+
+**不发 `Access-Control-Allow-Origin`**。没有跨源需求：UI 由该 daemon 提供，开发时 vite 代理 `/api`。此前发的值漏了端口，匹配不上任何真实 origin——一条什么都没授予、看起来却像策略的规则；它的风险不在当下，而在于后来者会把它「修好」。
+
 ## 后果
 
 Tauri command allowlist、CSP、路径重新解析、secret redaction-before-log 都是 WP-04/WP-11 的硬门禁。linter 是 defense-in-depth，不是 security boundary。

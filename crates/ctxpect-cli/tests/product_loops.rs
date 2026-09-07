@@ -1265,6 +1265,101 @@ fn settings_are_validated_whole_and_invariants_are_not_editable() {
     assert!(raw.contains("settings.field_missing"), "{raw}");
 }
 
+/// Security headers are present, and no cross-origin grant is advertised.
+#[test]
+fn responses_carry_security_headers_and_no_cors_grant() {
+    let scratch = Scratch::new("headers");
+    scratch.write("AGENTS.md", "hello\n");
+    let store = scratch.path.join("store");
+    let (_child, listen) = start_daemon(&scratch, &store);
+
+    let (status, raw) = http_call(&listen, "GET", "/api/v1/health", "");
+    assert_eq!(status, 200, "{raw}");
+    for header in [
+        "Content-Security-Policy:",
+        "frame-ancestors 'none'",
+        "X-Content-Type-Options: nosniff",
+        "X-Frame-Options: DENY",
+        "Referrer-Policy: no-referrer",
+        "Cache-Control: no-store",
+    ] {
+        assert!(raw.contains(header), "missing `{header}`: {raw}");
+    }
+    // Nothing needs cross-origin access: the UI is same-origin, and the dev
+    // server proxies `/api`. A header that grants nothing but looks like a
+    // policy is worse than none, because it invites being "fixed" later.
+    assert!(
+        !raw.contains("Access-Control-Allow-Origin"),
+        "no cross-origin grant should be advertised: {raw}"
+    );
+    // Inline styles must stay allowed: React sets them via the `style` prop.
+    assert!(raw.contains("style-src 'self' 'unsafe-inline'"), "{raw}");
+    // Inline scripts must not be.
+    assert!(raw.contains("script-src 'self';"), "{raw}");
+}
+
+/// A relative `--ui-root` resolves the same as an absolute one.
+#[test]
+fn a_relative_ui_root_still_serves_files() {
+    let scratch = Scratch::new("relroot");
+    scratch.write("AGENTS.md", "hello\n");
+    scratch.write("uiroot/index.html", "<!doctype html><title>ui</title>");
+    scratch.write("uiroot/assets/app.js", "export const x = 1;\n");
+    let store = scratch.path.join("store");
+
+    // Started from inside the scratch directory with a relative root, which
+    // is how `--ui-root packages/ui/dist` is normally passed.
+    let mut child = ChildGuard::new(
+        Command::new(bin())
+            .current_dir(&scratch.path)
+            .args([
+                "daemon",
+                "start",
+                "--project",
+                scratch.path.to_str().unwrap(),
+                "--store",
+                store.to_str().unwrap(),
+                "--ui-root",
+                "uiroot",
+                "--listen",
+                "127.0.0.1:0",
+            ])
+            .spawn()
+            .expect("daemon"),
+    );
+    let addr_file = store.join("daemon.addr");
+    let mut listen = String::new();
+    for _ in 0..80 {
+        if child.child().try_wait().expect("try_wait").is_some() {
+            panic!("daemon exited before bind");
+        }
+        if let Ok(text) = fs::read_to_string(&addr_file) {
+            let text = text.trim();
+            if !text.is_empty() {
+                listen = text.to_string();
+                break;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(!listen.is_empty(), "daemon did not write daemon.addr");
+
+    let (status, raw) = http_call(&listen, "GET", "/", "");
+    assert_eq!(status, 200, "index through a relative root: {raw}");
+    assert!(raw.contains("<title>ui</title>"), "{raw}");
+
+    let (status, raw) = http_call(&listen, "GET", "/assets/app.js", "");
+    assert_eq!(status, 200, "asset through a relative root: {raw}");
+    assert!(raw.contains("export const x"), "{raw}");
+
+    // The SPA fallback still applies, and traversal is still refused.
+    let (status, raw) = http_call(&listen, "GET", "/doctor", "");
+    assert_eq!(status, 200, "{raw}");
+    assert!(raw.contains("<title>ui</title>"), "{raw}");
+    let (status, raw) = http_call(&listen, "GET", "/../../etc/passwd", "");
+    assert_eq!(status, 400, "{raw}");
+}
+
 /// Host and Origin are matched exactly, not by prefix.
 ///
 /// A prefix test accepts `127.0.0.1.evil.com`, which is the standard
