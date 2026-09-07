@@ -89,3 +89,26 @@ test("long content scrolls inside its block instead of widening the page", () =>
   assert.match(css, /\.shell \{[^}]*minmax\(0, 1fr\)/, "shell column must be able to shrink");
   assert.match(css, /\.workspace \{[^}]*minmax\(0, 1fr\)/, "workspace column must be able to shrink");
 });
+
+test("landmarks and a bypass mechanism exist (WCAG 2.2 SC 2.4.1, 1.3.1)", () => {
+  // Sixteen nav links precede the content on every page. Without a skip
+  // link, reaching the content by keyboard means tabbing past all of them.
+  assert.match(app, /className="skip-link" href="#main-content"/);
+  assert.match(app, /<main className="main" id="main-content" tabIndex=\{-1\}>/);
+  // `tabIndex={-1}` is what lets the skip link move focus to the landmark
+  // without adding it to the tab order.
+  assert.match(app, /<main className="narrow" id="main-content"/, "the narrow view needs it too");
+  assert.match(app, /<nav className="nav" aria-label="primary">/);
+
+  const css = readFileSync(join(root, "../src/app.css"), "utf8");
+  const skip = css.slice(css.indexOf(".skip-link"), css.indexOf(".skip-link") + 400);
+  // Hiding it with `display: none` would remove it from the tab order and
+  // defeat the point.
+  assert.ok(!/\.skip-link \{[^}]*display:\s*none/.test(skip), "skip link must stay focusable");
+  assert.match(skip, /\.skip-link:focus/, "it must become visible when focused");
+});
+
+test("the findings table carries its own accessible name", () => {
+  // A nearby heading is not attached to the table.
+  assert.match(app, /<caption className="sr-only">\{t\(locale, "findingsTableCaption"\)\}<\/caption>/);
+});

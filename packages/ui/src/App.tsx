@@ -124,6 +124,12 @@ export function App() {
 
   return (
     <div className="shell" data-privacy={privacy} lang={locale}>
+      {/* SC 2.4.1: sixteen nav links precede the content on every page.
+          Without this, reaching the content by keyboard means tabbing past
+          all of them, every time. */}
+      <a className="skip-link" href="#main-content">
+        {t(locale, "skipToContent")}
+      </a>
       <nav className="nav" aria-label="primary">
         <div className="brand">Contexpect</div>
         {NAV.map((item) => (
@@ -140,7 +146,10 @@ export function App() {
           </NavLink>
         ))}
       </nav>
-      <div className="main">
+      {/* A real `main` landmark, so assistive tech can jump to the content
+          rather than only walking the document. `tabIndex={-1}` lets the skip
+          link move focus here without making it a tab stop. */}
+      <main className="main" id="main-content" tabIndex={-1}>
         <div className="topbar">
           <label>
             {t(locale, "project")}
@@ -265,7 +274,7 @@ export function App() {
             <Route path="*" element={<p>{t(locale, "notFound")}: {loc.pathname}</p>} />
           </Routes>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
@@ -415,6 +424,9 @@ function DoctorPage({
           <p>{t(locale, "emptyFindings")}</p>
         ) : (
           <table>
+            {/* The table needs a name of its own; the surrounding heading is
+                not attached to it. */}
+            <caption className="sr-only">{t(locale, "findingsTableCaption")}</caption>
             <thead>
               <tr>
                 <th>{t(locale, "finding")}</th>
@@ -808,7 +820,7 @@ function NarrowReadOnly({
   }, [list.data]);
 
   return (
-    <div className="narrow" data-privacy={privacy} lang={locale}>
+    <main className="narrow" id="main-content" data-privacy={privacy} lang={locale}>
       <header className="panel">
         <h1>{t(locale, "narrowTitle")}</h1>
         <p className="muted">{t(locale, "narrowReadOnly")}</p>
@@ -864,7 +876,7 @@ function NarrowReadOnly({
           <code>notifications.unimplemented</code>
         </p>
       </section>
-    </div>
+    </main>
   );
 }
 

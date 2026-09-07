@@ -48,6 +48,8 @@
 | A3 | 文本对比度 ≥ 4.5:1（SC 1.4.3） | 计算 | **初次 3 项失败 → 已修**，见下节 |
 | A4 | 控件边框与焦点环 ≥ 3:1（SC 1.4.11） | 计算 | **初次失败 → 已修**，见下节 |
 | A5 | 表单校验错误可在字段上感知（SC 3.3.1 / 4.1.2） | DOM 读取 | **初次失败 → 已修**，见下节 |
+| A6 | 存在跳过导航的机制（SC 2.4.1） | **真实按键** + 点击 | **初次缺失 → 已实现**，见下节 |
+| A7 | main / nav landmark 与表格名称（SC 1.3.1） | DOM 读取 | **初次缺失 → 已补**，见下节 |
 | P1 | 201 字符长路径不撑破布局 | DOM 读取 | 通过：页面与 topbar 均无横向溢出 |
 | I1 | en 模式下无中文残留 | DOM 读取 | 通过：16 个入口逐一切换后，唯一中文是语言选择器的「简体中文」（语言名应以该语言书写） |
 | I2 | 长译文不撑破布局 | DOM 读取 | **初次失败 → 已修**，见下节 |
@@ -109,6 +111,18 @@ Settings 的校验错误原本只渲染成页面底部的一个列表，字段�
 现在每个可编辑控件在自身出错时带 `aria-invalid="true"` 与指向就近错误文本的 `aria-describedby`；底部改为只报**数量**，不再重复每条消息——消息已经在字段上，重复朗读是噪音。
 
 实测：`retention_days` 填 9999 后该字段 `aria-invalid="true"`、`aria-describedby="settings-error-retention_days"` 且该 id 能解析到写着 `settings.out_of_range` 的元素，而其它字段的 `aria-invalid` 保持为空；嵌套字段 `resource_limits.daemon_rss_mb` 同样正确；把越界值改回合法后无效标记随之清除。
+
+### A6 / A7 缺少绕过机制与 landmark（已补）
+
+三处 Level A 缺失：
+
+- **没有 skip link**（SC 2.4.1 Bypass Blocks）。16 个导航链接排在每个页面内容之前，只用键盘的人每换一页都要 Tab 过全部 16 个才能碰到内容。
+- **没有 `main` landmark**（SC 1.3.1）。主区是 `<div className="main">`，辅助技术无法直接跳到内容，只能顺序走文档。
+- **发现表格没有自己的名称**（SC 1.3.1）。旁边的标题并不与表格关联。
+
+现在：`<a className="skip-link" href="#main-content">` 是页面的第一个 Tab 目标，平时移出屏幕、获得焦点时显示；主区改为 `<main id="main-content" tabIndex={-1}>`（`-1` 使其可作为焦点目标但不进 Tab 序列）；表格加 `<caption className="sr-only">`。窄视口的只读界面同样用 `<main>`。
+
+实测（Tab 是真实按键）：页面加载后第一次 Tab 即落在 skip link 上，其 `left` 由 -9999 变为 8 即可见；激活后 `location.hash` 变为 `#main-content` 且 `document.activeElement` 就是 `MAIN#main-content`。激活用的是点击而非 Enter——Enter 仍受前述按键 `key` 为空的工具限制。
 
 ### R7 断点切换的取证受工具限制
 

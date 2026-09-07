@@ -104,3 +104,17 @@ dialog ul { margin: 12px 0; padding-left: 20px; }
 .narrow ul { list-style: none; padding: 0; display: grid; gap: 6px; }
 .narrow li button { width: 100%; text-align: left; }
 .field-error { color: var(--confirmed); font-size: 12px; }
+
+/* Off-screen until focused, then visible where the eye expects it. Hiding it
+   with `display: none` would take it out of the tab order and defeat it. */
+.skip-link { position: absolute; left: -9999px; top: 0; z-index: 100; }
+.skip-link:focus {
+  left: 8px;
+  top: 8px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 8px 12px;
+  outline: 2px solid var(--info);
+}
