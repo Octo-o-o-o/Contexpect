@@ -118,7 +118,7 @@ Drawer：Esc 关闭、焦点返回、未保存编辑确认、执行中关闭不�
 | --- | --- | --- |
 | `/monitor` | 对当前 Receipt 声明的每条 evidence 重算 `whole_digest` 与记录值比对，得出 `staleness.status = current\|stale\|unknown`，并列出 `changed_evidence` / `unreadable_evidence` | 无当前 Receipt 或有 evidence 读不到 → `unknown`，附 `reason_code`；不报 `stale: false` |
 | `/sync` | 从 settings 读 `vault_required`，从 store 数本地 bundle 与可同步 Receipt | E2EE 未实现，如实报 `encryption: "unavailable"` + `sync.e2ee_unimplemented`；无远端传输报 `sync.no_remote_transport` |
-| `/team/compliance` | standards 逐条**重新验签**后计数，adoptions 给出真实采纳态与 pinned digest，exceptions 逐条过 `exception_status` 只计存活的；drift/unknown/freshness 取当前 Receipt 的诊断 | 无当前 Receipt → `drift`/`unknown` 为 `null`、`freshness.status = unknown`；不报 0 |
+| `/team/compliance` | standards 逐条**重新验签**后计数，adoptions 给出真实采纳态与 pinned digest，exceptions 逐条过 `exception_status` 只计存活的；drift/unknown/freshness 取当前 Receipt 的诊断；`audit` 报告审计链的验证结果 | 无当前 Receipt → `drift`/`unknown` 为 `null`、`freshness.status = unknown`；不报 0 |
 | `/care-plan/:id` | 在当前 Receipt 的诊断结果里定位该 finding，返回它自己的 `treatment` 与 `placement` | 无当前 Receipt → `api.no_current_receipt`；id 不在诊断里 → `api.not_found`；不为未知 id 回显一份通用计划 |
 
 `/monitor` 的 `mode: "oneshot"` 与 `daemon_required: false` 仍是常量，因为它们是架构事实：本产品按需观测，不常驻 watcher，CLI 不依赖 daemon。`/team/compliance` 的 `redacted` / `member_bodies_included` 同理，是隐私不变量。

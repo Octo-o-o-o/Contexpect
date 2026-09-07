@@ -33,6 +33,16 @@
 
 daemon 服务 UI 资源时，路径检查与读取项目文件用同一套机制：canonicalize 之后验证是否仍在声明的 root 内。**字符串层面的 `..` 检查不构成边界**——UI root 内的一个符号链接可以指向外部，而请求里根本不会出现 `..`。该问题在 2026-09-08 的一次实测中被确认可复现（root 内的符号链接把 root 外的文件读了出来），随后改为使用 `ctxpect-fs::Root::contain`。
 
+## 审计链
+
+审计日志是**链式**的：每条记录带序号、前一条的 MAC，以及对二者的 MAC（用 store 的 continuity key）。删除、修改或重排记录都会破坏链接并被 `audit_chain()` 检出，`/api/v1/team/compliance` 的 `audit` 字段报告该结果。
+
+保证的边界与 Receipt 签名一致：它能检出**并非来自本 store 密钥持有者**的篡改，不能防御拥有该 store 完整本地访问权的写者——密钥就在这个 store 里。因此结果始终带 `org_identity: false`，不得被读作组织级证明。
+
+链出现之前写入的记录没有 `mac`，报为 `unverifiable-legacy`：说它们有效或说它们被篡改都不成立。
+
+此前 `audit_chain()` 只是读取并解析 jsonl，**没有任何链式结构**，而这个名字让人以为它防篡改；该函数也没有任何调用点。2026-09-08 补齐实现并接入合规视图。
+
 ## 本地 API 的响应头
 
 CSP（`script-src 'self'`、`frame-ancestors 'none'`、`object-src 'none'`）、`X-Frame-Options: DENY`、`nosniff`、`no-referrer`、`no-store`。`style-src` 允许 inline，因为 React 通过 `style` prop 设置样式——已实测确认：inline **样式**生效而 inline **脚本**被拒。

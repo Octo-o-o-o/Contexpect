@@ -13,7 +13,8 @@ pub use settings::{default_settings, settings_schema, validate_settings, SETTING
 use ctxpect_fs::Root;
 use ctxpect_receipt::{tombstone, ContinuityKey};
 use ctxpect_schema::{
-    array, canonical_json, object, parse, sha256_hex, string, strip_time_fields, Value,
+    array, canonical_json, hmac_sha256_hex, object, parse, sha256_hex, string, strip_time_fields,
+    Value,
 };
 use std::fs;
 use std::io::{self, Write};
@@ -404,8 +405,23 @@ impl Store {
         )
     }
 
+    /// Append an audit entry, linked to the one before it.
+    ///
+    /// Each entry carries its sequence number, the previous entry's `mac`,
+    /// and its own `mac` over both. Deleting, editing or reordering entries
+    /// therefore breaks the chain and is detectable.
+    ///
+    /// The MAC uses the store's continuity key, so the chain cannot be
+    /// re-forged without it — but that key lives in this store, so a writer
+    /// with full local access could rewrite the whole chain. The guarantee is
+    /// the same one Receipt signatures make: it detects tampering that did
+    /// not come from a holder of this store's key, and it is never presented
+    /// as an organization-level attestation.
     pub fn audit(&self, action: &str, target: &str, detail: Option<&str>) -> Result<(), StoreError> {
-        let line = canonical_json(&object([
+        let previous = self.audit_tail()?;
+        let seq = previous.as_ref().map_or(0, |(seq, _)| seq + 1);
+        let prev_mac = previous.map_or_else(String::new, |(_, mac)| mac);
+        let body = object([
             ("at", string(now_rfc3339())),
             ("action", string(action)),
             ("target", string(target)),
@@ -416,30 +432,124 @@ impl Store {
                     None => Value::Null,
                 },
             ),
-        ]));
+            ("seq", Value::Int(seq)),
+            ("prev", string(&prev_mac)),
+        ]);
+        let key = self.continuity_key()?;
+        let mac = hmac_sha256_hex(&key.secret, canonical_json(&body).as_bytes());
+        let entry = match body {
+            Value::Object(mut map) => {
+                map.insert("mac".to_string(), string(&mac));
+                Value::Object(map)
+            }
+            other => other,
+        };
         let path = self.root.join("audit/events.jsonl");
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)?;
-        writeln!(file, "{line}")?;
+        let mut file = fs::OpenOptions::new().create(true).append(true).open(path)?;
+        writeln!(file, "{}", canonical_json(&entry))?;
         Ok(())
     }
 
-    pub fn audit_chain(&self) -> Result<Vec<Value>, StoreError> {
+    /// Sequence number and MAC of the last entry, if any.
+    fn audit_tail(&self) -> Result<Option<(i64, String)>, StoreError> {
         let path = self.root.join("audit/events.jsonl");
         if !path.exists() {
-            return Ok(Vec::new());
+            return Ok(None);
         }
         let text = fs::read_to_string(path)?;
-        let mut out = Vec::new();
-        for line in text.lines() {
-            if line.is_empty() {
-                continue;
-            }
-            out.push(parse(line).map_err(|err| StoreError::new("store.audit_parse", err.to_string()))?);
+        let Some(line) = text.lines().rfind(|line| !line.trim().is_empty()) else {
+            return Ok(None);
+        };
+        let entry =
+            parse(line).map_err(|err| StoreError::new("store.audit_parse", err.to_string()))?;
+        match (
+            entry.get("seq").and_then(Value::as_i64),
+            entry.get("mac").and_then(Value::as_str),
+        ) {
+            (Some(seq), Some(mac)) => Ok(Some((seq, mac.to_string()))),
+            // A tail written before the chain existed has no seq or mac. The
+            // new entry starts a fresh chain rather than silently claiming
+            // continuity over records it cannot verify.
+            _ => Ok(None),
         }
-        Ok(out)
+    }
+
+    /// Read the audit log and verify its linkage.
+    ///
+    /// Entries written before the chain existed carry no `mac`; they are
+    /// reported as `unverifiable-legacy` rather than as either valid or
+    /// tampered, because neither claim would be true.
+    pub fn audit_chain(&self) -> Result<Value, StoreError> {
+        let path = self.root.join("audit/events.jsonl");
+        if !path.exists() {
+            return Ok(object([
+                ("schema", string("ctxpect-audit-chain-v1")),
+                ("entries", array(Vec::new())),
+                ("count", Value::Int(0)),
+                ("verified", Value::Bool(true)),
+                ("legacy_entries", Value::Int(0)),
+                ("reason_code", string("audit.empty")),
+            ]));
+        }
+        let text = fs::read_to_string(path)?;
+        let key = self.continuity_key()?;
+        let mut entries = Vec::new();
+        let mut legacy = 0i64;
+        let mut expected_prev = String::new();
+        let mut expected_seq = 0i64;
+        let mut broken: Option<&'static str> = None;
+
+        for line in text.lines().filter(|line| !line.trim().is_empty()) {
+            let entry =
+                parse(line).map_err(|err| StoreError::new("store.audit_parse", err.to_string()))?;
+            let Some(mac) = entry.get("mac").and_then(Value::as_str) else {
+                legacy += 1;
+                entries.push(entry);
+                // A legacy run resets the expectation: the chain restarts at
+                // the first linked entry after it.
+                expected_prev = String::new();
+                expected_seq = 0;
+                continue;
+            };
+            let Value::Object(map) = &entry else {
+                broken.get_or_insert("audit.entry_malformed");
+                entries.push(entry);
+                continue;
+            };
+            let mut body = map.clone();
+            body.remove("mac");
+            let recomputed = hmac_sha256_hex(&key.secret, canonical_json(&Value::Object(body)).as_bytes());
+            if recomputed != mac {
+                broken.get_or_insert("audit.mac_mismatch");
+            } else if entry.get("prev").and_then(Value::as_str).unwrap_or("") != expected_prev {
+                broken.get_or_insert("audit.link_broken");
+            } else if entry.get("seq").and_then(Value::as_i64) != Some(expected_seq) {
+                broken.get_or_insert("audit.sequence_broken");
+            }
+            expected_prev = mac.to_string();
+            expected_seq += 1;
+            entries.push(entry);
+        }
+
+        let count = entries.len() as i64;
+        Ok(object([
+            ("schema", string("ctxpect-audit-chain-v1")),
+            ("count", Value::Int(count)),
+            ("verified", Value::Bool(broken.is_none())),
+            ("legacy_entries", Value::Int(legacy)),
+            (
+                "reason_code",
+                string(broken.unwrap_or(if legacy > 0 {
+                    "audit.unverifiable_legacy_present"
+                } else {
+                    "ok"
+                })),
+            ),
+            // A local MAC is not an organization attestation, and this
+            // document does not let itself be read as one.
+            ("org_identity", Value::Bool(false)),
+            ("entries", array(entries)),
+        ]))
     }
 }
 
@@ -509,6 +619,112 @@ pub fn now_rfc3339() -> String {
 #[must_use]
 pub fn stable_digest(value: &Value) -> String {
     ctxpect_schema::digest_value(&strip_time_fields(value))
+}
+
+#[cfg(test)]
+mod audit_chain_tests {
+    use super::*;
+
+    fn scratch(label: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "cx-audit-{label}-{}-{}",
+            std::process::id(),
+            nanos % 1_000_000
+        ));
+        fs::create_dir_all(&path).expect("mkdir");
+        fs::canonicalize(&path).expect("canon")
+    }
+
+    #[test]
+    fn the_chain_verifies_and_detects_every_kind_of_tampering() {
+        let root = scratch("chain");
+        let store = Store::open(&root).expect("open");
+        for n in 0..4 {
+            store.audit("test.action", &format!("target-{n}"), None).expect("audit");
+        }
+
+        let chain = store.audit_chain().expect("chain");
+        assert_eq!(chain.get("count").and_then(Value::as_i64), Some(4));
+        assert_eq!(chain.get("verified").and_then(Value::as_bool), Some(true));
+        assert_eq!(chain.get("reason_code").and_then(Value::as_str), Some("ok"));
+        // A local MAC is not an organization attestation.
+        assert_eq!(chain.get("org_identity").and_then(Value::as_bool), Some(false));
+
+        let path = root.join("audit/events.jsonl");
+        let original = fs::read_to_string(&path).expect("read");
+        let lines: Vec<&str> = original.lines().collect();
+
+        // Editing an entry breaks its MAC.
+        let edited = original.replace("target-1", "target-X");
+        fs::write(&path, &edited).expect("write");
+        let chain = store.audit_chain().expect("chain");
+        assert_eq!(chain.get("verified").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            chain.get("reason_code").and_then(Value::as_str),
+            Some("audit.mac_mismatch")
+        );
+
+        // Deleting an entry breaks the link.
+        let without_second = format!("{}\n{}\n{}\n", lines[0], lines[2], lines[3]);
+        fs::write(&path, &without_second).expect("write");
+        let chain = store.audit_chain().expect("chain");
+        assert_eq!(chain.get("verified").and_then(Value::as_bool), Some(false));
+
+        // Reordering breaks it too.
+        let reordered = format!("{}\n{}\n{}\n{}\n", lines[0], lines[2], lines[1], lines[3]);
+        fs::write(&path, &reordered).expect("write");
+        let chain = store.audit_chain().expect("chain");
+        assert_eq!(chain.get("verified").and_then(Value::as_bool), Some(false));
+
+        // Restoring the original restores the verdict.
+        fs::write(&path, &original).expect("write");
+        let chain = store.audit_chain().expect("chain");
+        assert_eq!(chain.get("verified").and_then(Value::as_bool), Some(true));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn entries_written_before_the_chain_are_reported_as_unverifiable() {
+        let root = scratch("legacy");
+        let store = Store::open(&root).expect("open");
+        // An entry in the old shape: no seq, no prev, no mac.
+        let path = root.join("audit/events.jsonl");
+        fs::create_dir_all(root.join("audit")).expect("mkdir");
+        fs::write(
+            &path,
+            "{\"action\":\"old.action\",\"at\":\"1\",\"detail\":null,\"target\":\"t\"}\n",
+        )
+        .expect("write");
+
+        store.audit("new.action", "t2", None).expect("audit");
+        let chain = store.audit_chain().expect("chain");
+        assert_eq!(chain.get("count").and_then(Value::as_i64), Some(2));
+        assert_eq!(chain.get("legacy_entries").and_then(Value::as_i64), Some(1));
+        // Neither "valid" nor "tampered" would be true of the legacy entry,
+        // so the chain says exactly that.
+        assert_eq!(chain.get("verified").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            chain.get("reason_code").and_then(Value::as_str),
+            Some("audit.unverifiable_legacy_present")
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_empty_log_is_a_verified_empty_chain() {
+        let root = scratch("empty");
+        let store = Store::open(&root).expect("open");
+        let chain = store.audit_chain().expect("chain");
+        assert_eq!(chain.get("count").and_then(Value::as_i64), Some(0));
+        assert_eq!(chain.get("verified").and_then(Value::as_bool), Some(true));
+        let _ = fs::remove_dir_all(&root);
+    }
 }
 
 #[cfg(test)]

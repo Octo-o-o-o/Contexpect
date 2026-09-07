@@ -1131,6 +1131,30 @@ fn team_compliance(state: &AppState) -> Value {
         ),
         ("unknown", unknown_cells),
         (
+            // Audit integrity belongs in a compliance view: a log that can be
+            // edited without trace is not evidence of anything.
+            "audit",
+            state.store.audit_chain().map_or_else(
+                |err| object([("verified", Value::Null), ("reason_code", string(err.code))]),
+                |chain| {
+                    object([
+                        ("verified", chain.get("verified").cloned().unwrap_or(Value::Null)),
+                        ("count", chain.get("count").cloned().unwrap_or(Value::Null)),
+                        (
+                            "legacy_entries",
+                            chain.get("legacy_entries").cloned().unwrap_or(Value::Null),
+                        ),
+                        (
+                            "reason_code",
+                            chain.get("reason_code").cloned().unwrap_or(Value::Null),
+                        ),
+                        // A local MAC is not an organization attestation.
+                        ("org_identity", Value::Bool(false)),
+                    ])
+                },
+            ),
+        ),
+        (
             "freshness",
             receipt.as_ref().map_or_else(
                 || {
