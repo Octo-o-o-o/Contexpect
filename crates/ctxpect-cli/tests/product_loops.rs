@@ -396,10 +396,48 @@ fn l06_personal_relax_and_detect_only() {
     assert_eq!(err_code(&json), Some("policy.personal_cannot_relax_required"));
 }
 
-// L07 uncovered: there is no asset copy executor, so the three named
-// counterexamples (rewrite APM evaluator, dual authority, missing-license
-// copy still executing) cannot be constructed as refusals. `assets --json`
-// reports `assets.copy_unimplemented` instead of a self-asserted block flag.
+/// L07, partly covered.
+///
+/// This note used to say the loop was entirely uncovered because no asset
+/// copy executor existed. One now does, which changes what can be built:
+///
+/// - **missing-license copy still executing** — now a real counterexample,
+///   asserted below and again in `asset_copy_is_vetted_authorized_and_reversible`.
+/// - **rewrite APM evaluator** — still not constructible. APM remains the
+///   unique authority and is not re-evaluated here, so there is no evaluator
+///   to rewrite; `apm_authority` stays a stated fact, not a checked one.
+/// - **dual authority** — still not constructible. There is exactly one copy
+///   executor, and a second would have to exist before its absence could be
+///   demonstrated.
+///
+/// The two remaining ones stay uncovered rather than being simulated.
+#[test]
+fn l07_an_unlicensed_asset_is_refused_before_anything_is_written() {
+    let scratch = Scratch::new("l07");
+    scratch.write("AGENTS.md", "hello\n");
+    scratch.write("vendor/thing.md", "body\n");
+    let digest = ctxpect_schema::sha256_hex(b"body\n");
+    // Registered, correctly digested, correctly targeted — and unlicensed.
+    scratch.write(
+        ".ctxpect/assets.json",
+        format!(
+            r#"{{"schema":"ctxpect-assets-v1","assets":[{{"asset_id":"unlicensed","origin":"project:vendor/thing.md","digest":"{digest}","target_rel":".ctxpect/skills/thing.md"}}]}}"#
+        ),
+    );
+    let project_s = scratch.path.to_str().unwrap();
+
+    let (code, json, out) = run(&[
+        "assets", "preview", "--json", "--project", project_s, "--id", "unlicensed",
+    ]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("assets.license_unknown"));
+    // Refused during vetting, so nothing was written on the way to failing.
+    assert!(
+        !scratch.path.join(".ctxpect/skills/thing.md").exists(),
+        "an unlicensed asset must not be partially copied"
+    );
+}
+
 
 #[test]
 fn l08_import_does_not_invent_and_delete_drops_insights() {

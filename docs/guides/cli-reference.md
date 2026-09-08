@@ -165,6 +165,8 @@ CTXPECT_PRINCIPAL_SECRET=<secret> ctxpect exception request \
 
 最后一条是冒名的防线：名字与许可证都对得上，但字节不是登记的那份，就不是那个资产。
 
+**L07 的覆盖状态**：executor 存在之后，「无许可证仍执行复制」成为可构造的真实反例，已有对应负例测试。另外两条仍不可构造，且不做模拟——「重写 APM evaluator」需要先有一个可被重写的评估器，而 APM 在此不被重新评估；「双重 authority」需要先存在第二个 copy executor。两者保持未覆盖。
+
 ### 事务与并发
 
 `copy` 经唯一 authority `authorize_store_apply`，并在写入前重新核对两件事：源字节仍与核验时一致（否则 `assets.source_changed`），落点自 preview 以来未被他人改动（否则 `assets.concurrent_hash`，并发编辑得以保留）。复制成功后写入 `store` 的 lock 条目、审计记录，以及一份 **post-Receipt**——复制改变了项目，之后的状态要被观测而不是假定。
