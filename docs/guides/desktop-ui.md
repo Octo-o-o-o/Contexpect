@@ -21,8 +21,8 @@ Doctor 是默认主入口（`/` → `/doctor`）。V01–V16 全部可达，可�
 | V03 | Compare | `/compare` | `GET /api/v1/diff?a=&b=` |
 | V04 | Receipts | `/receipts`, `/receipts/:id` | list/show/verify/export/delete |
 | V05 | Assets | `/assets`, `/assets/:id` | catalog; APM unique authority |
-| V06 | Sessions / Monitor | `/sessions`, `/sessions/:id`, `/monitor` | import/timeline/delete; Monitor ≠ session detail |
-| V07 | Effect Lab | `/lab`, `/lab/:id` | ExperimentContract + four decisions |
+| V06 | Sessions / Monitor | `/sessions`, `/sessions/:id`, `/monitor` | import/timeline/delete；`/sessions/:id` 是**请求证据页**（每次请求的 header digest、消息数、来源/替换区间、派发证据、限制说明）+ 两个只显示类型/seq/长度/digest 的视图；Monitor ≠ session detail |
+| V07 | Effect Lab | `/lab`, `/lab/:id` | ExperimentContract + four decisions；未执行的实验显示 `executed: false` 与原因，无判定 |
 | V08 | Sync | `/sync` | transport vs semantic split |
 | V09 | Doctor | `/doctor` | doctor findings; treatment lock |
 | V10 | Policy | `/policy` | store 有效 policy 与 mutation 判定（与 apply 同源；无 layers 为 unknown，不是 pass） |
@@ -37,7 +37,7 @@ Doctor 是默认主入口（`/` → `/doctor`）。V01–V16 全部可达，可�
 
 完整坐标：device、environment、account alias、organization、policy snapshot、harness、version、surface、project、cwd、task、snapshot。探测值、用户声明与 Unknown 分列。
 
-切换坐标递增 `generation`；旧响应标记 `stale=true` 且不得覆盖当前 Receipt。扫描取消/失败保留上一有效 snapshot 并标 stale。`dev-inspect-v0` 只有经过 `migrate_dev_inspect_v0` 才成为 `ctxpect-receipt-v1`。
+切换坐标递增 `generation`；旧响应标记 `stale=true` 且不得覆盖当前 Receipt。扫描取消/失败保留上一有效 snapshot 并标 stale。`dev-inspect-v0` 只有经过 `migrate_dev_inspect_v0` 才成为 `ctxpect-receipt-v1`。同一模式抽成 `src/generation.js`（`createGeneration().next()/isCurrent()`，单测 `generation.test.mjs`）：`/sessions/:id` 切换会话 id 时递增 generation，旧 id 的两个响应（记录、请求证据）晚到即被丢弃；Doctor 链的 `runInspect` 与通用的 `useResource` 也用同一个 helper（此前 `useResource` 只 abort 不判代，一个已离开 daemon 的旧响应仍能把新请求改成 cancelled）。浏览器级取证：`ui-e2e` 用 `page.route` 延迟 s-alpha 的请求证据 1.5 s，客户端跳到不存在的会话后 2.5 s 内错误横幅保留、表格不出现。
 
 ## C02 Inspector
 
@@ -63,9 +63,9 @@ Drawer：Esc 关闭、焦点返回、未保存编辑确认、执行中关闭不�
 | Compare | 少于两个 Receipt | skeleton | 不同域 | diff |
 | Receipts | 无 ledger | skeleton | tombstone | show/verify/export/redact |
 | Assets | 无 catalog | skeleton | pin unavailable | 只读展示；缺许可不复制 |
-| Sessions | 未导入 | skeleton | parse failed | import / delete |
+| Sessions | 未导入 | skeleton | parse failed / seq_discontinuity / provenance_incomplete（以 `unknown[]` 原因列出，页面标 partial） | import / delete（走 CLI/API）；明细页只读 |
 | Monitor | 无变更 | skeleton | daemon 缺失仍可 one-shot | 下钻 Receipt |
-| Lab | 无实验 | skeleton | n locked | run frozen contract |
+| Lab | 无实验 | skeleton | n locked | run frozen contract（需 runs 文档；无 runs 的实验显示未执行） |
 | Sync | 无 bundle | skeleton | encryption unavailable | preview；transport ≠ verified |
 | Doctor | `No current findings in observed coverage` | skeleton | adapter reason | Diagnose / Collect evidence |
 | Policy | 无规则 | skeleton | personal relax | eval |
@@ -112,7 +112,33 @@ Drawer：Esc 关闭、焦点返回、未保存编辑确认、执行中关闭不�
 
 **同一问题只有一个答案**（R04）。`GET /api/v1/standards/:id` 与 `ctxpect standard status`、`GET /api/v1/exceptions/:id` 与 `ctxpect exception status` 调用的是同一个函数，而不是各写一遍。此前 API 直接返回存储的标准文档，既不含本项目的采纳状态，也把「不存在」报成错误而非报成 `absent`——同一个查询给出两种答案。逐项对照已固化为测试，覆盖 standard（存在与不存在）、exception、policy、assets、receipt 明细与 doctor。`doctor` 的对照剔除 CLI 因额外执行 inspect 而携带的元信息，比较诊断本身。
 
-主要路径：`/api/v1/health`、`/inspect`、`/receipts`、`/receipts/:id/verify`、`/receipts/:id/delete`、`/doctor`、`/diff`、`/integrations`、`/settings`、`/settings/schema`、`/sessions`、`/monitor`、`/policy`、`/exceptions`、`/exceptions/:id`、`/standards`、`/standards/:id`、`/assets`、`/assets/:id/preview`、`/assets/:id/copy`、`/assets/:tx/rollback`、`/sync`、`/sync/preview`、`/sync/apply`、`/advisor`、`/lab`、`/team/compliance`、`/care-plan/:id`、`/apply`、`/rollback`。
+### 语义合同（A2）
+
+路由表是 `crates/ctxpect-cli/src/http.rs` 的 `ROUTE_TABLE`，按 **(method, path)** 精确匹配；页面契约测试从该表比对方法与路径，写不出幻觉端点。
+
+| 项 | 合同 |
+| --- | --- |
+| 路由 | 已知路径、未路由方法 → HTTP 405 + `error.code = api.method_not_allowed`（附 `allowed`）；未知路径 → 400 + `api.not_found`。字面段**排他**：一条字面模式命中该路径时 `:id` 模式对它一律不适用，因此 `POST /sessions/import` 不是名为 `import` 的会话，`GET /sessions/import` 是 405（`allowed: [POST]`）而不是查一个叫 `import` 的会话 |
+| 错误 envelope | 所有失败都是 `{"error": {"code", "message"}}`，HTTP 400（授权拒绝也是 400，`code` 以 `policy.` / `principal.` / `exception.` 开头）；成功体带 `snapshot_digest` |
+| 请求 framing | 请求头按 `\r\n\r\n` 收齐（上限 64 KiB → 431 `api.header_too_large`），请求体按 `Content-Length` **收满**再路由（上限 4 MiB → 413 `api.payload_too_large`；`Transfer-Encoding` → 501 `api.transfer_encoding_unsupported`）；单次 socket 读超过 5 s → 408 `api.timeout`，因此空闲连接不再能阻塞单线程 daemon。此前只做一次 `read()`，分段到达的请求体会被丢掉并按 `{}` 处理 |
+| 请求体 | 必须是 JSON 对象；空体 = 无参数；数组/标量 → `api.body_not_object`（`PUT/POST /settings` 同样经此校验；`GET /settings` 附带的 `snapshot_digest` 原样 PUT 回去会被剥离，不算未知字段） |
+| HEAD / OPTIONS | `HEAD` 按 GET 路由、同样的头与 `Content-Length`、不写体；`OPTIONS` 对已知路径回 204 无体，未知路径 400 `api.not_found`，且不经 CSRF 检查 |
+| generation / stale | `POST /inspect` 递增会话 `generation` 并移动会话坐标；晚到的响应带 `stale: true` 且不更新当前 Receipt；`GET /coordinate` 与 `GET /health` 回显当前 generation |
+| Receipt 绑定 | `GET /doctor?receipt_id=<id>` 诊断该 Receipt；不带参数时诊断会话当前 Receipt，响应始终带 `receipt_id`。项目扫描失败时**返回错误**（`io.*`），不退回一份缺了项目规则的诊断（与 CLI 同答）。UI 的 Doctor 链把 `POST /inspect` 返回的 `receipt_id` 传给 `GET /doctor`，用与 `generation.js` 相同的 `createGeneration()` 丢弃过期结果，并对上一轮的两个请求发 abort（C40） |
+| 会话坐标 | daemon 只有**一个**会话坐标与当前 Receipt，所有标签页/客户端共享：另一客户端的 `POST /inspect` 会移动本客户端看到的坐标；`/monitor`、`/care-plan/:id`、`/team/compliance` 依赖当前 Receipt，Doctor 链靠 `receipt_id` 绑定不受影响 |
+| 观测范围 | `POST /inspect` 从请求体取 `project` / `codex_home`：任何能到达 loopback 的本机进程或页面都能让 daemon 观测任意本机目录并把 Receipt 落进 store（响应只含摘要，不含正文）；这是同机信任边界内的已知面，见威胁模型 |
+| verify | `POST /receipts/:id/verify` 与 `ctxpect receipt verify` 调用同一函数：tombstone → 200 `{ok:false, reason_code: receipt.tombstoned}`，旧签名 → 200 `{ok:false, reason_code: receipt.signature_legacy}`，摘要/MAC 不符 → 400 错误信封 |
+| 坐标感知 | `GET /integrations`、`/integrations/:id`、`/assets`、`/assets/:id` 以**会话当前坐标**为 `active_coordinate`，随 `POST /inspect` 的 `harness/version/surface/os_lane` 变化（C9） |
+| 分页 | 无。列表端点返回全部 id；本切片没有游标合同 |
+| 取消 | 服务端无取消端点；客户端用 `AbortController` 中止，页面报 `api.cancelled` |
+| mutation | 每个写端点经 `authorize_store_apply(action, target)`：授权绑定 action（`apply`、`rollback`、`assets.copy`、`assets.rollback`、`sessions.import`、`settings.put`、`receipt.delete`、`experiment.persist`、`sync.apply`）、项目摘要与目标；例外不覆盖则 `policy.approval_required`（消息含 `exception.*_mismatch` 原因） |
+| apply | `POST /intent/preview` 要求 `target` 与 `desired`（缺失 → `usage.invalid`，不再用 `AGENTS.md` / `updated\n` 静默默认值算出一份预览并落盘），计算并**持久化**预览（`tx_id` 每次唯一、`current_digest`、`existed_before`）；`POST /apply` 只接受 `{"tx_id"}`，先取 store 锁再读预览状态，用持久化的 preimage 校验，目标已变 → `projection.concurrent_hash`；`POST /rollback` 与 `POST /assets/:tx/rollback` 的 `tx_id` 必须是 `tx_<16 hex>`（否则 `store.bad_id`，不拼路径），校验记录的 `project_digest` 与 `after_digest`，目标被改 → `projection.rollback_conflict`；控制路径与非常规文件的拒绝同 CLI（`projection.control_path` / `projection.not_a_file`） |
+| 导入 | `POST /sessions/import` 从体取 `session_id`（缺省为内容摘要）与 `mapping_id`（须为 `acceptance/field-to-claim/*.yaml` 之一，否则 `import.mapping_unknown`）；`mapping_id: deepseek-harness-cli` 时原生 JSONL 放在 `jsonl` 字符串字段（缺失 → `import_parse_failed`）；store 是 metadata-only，不存正文预览 |
+| 请求证据 | `GET /sessions/:id/requests` 返回该会话的 `requests[]`（每个 step 一条：seq = `step/start`、turn/step、header_seq、header_logged_in_step、reason、header_digest、message_count、message_digests、source_seq_ranges、replaced_ranges、dispatch_evidence；前缀无 header 的 step 以 `header_digest: null` 列出）、`tail`、`unknown[]`、`partial`、`bodies_stored: false`；会话删除后与 `GET /sessions/:id` 一样报 `store.missing` |
+| Effect Lab | `GET /lab` 列出每个实验的 `executed` / `decision` / `reason_code`；`POST /lab` 无 `runs` → 未执行结果（不写 store），有 `runs`（`ctxpect-effect-runs-v1`）→ 判定并在 `experiment.persist` 授权下写入 |
+| apply 绑定 | `POST /apply` 的 `tx_id` 必须是本项目的预览（否则 `projection.preview_scope`）且未被消费（否则 `projection.tx_consumed`）；每个写端点在授权时取同机 advisory lock，另一进程持锁 → `store.busy` |
+
+主要路径（全部 44 条见 `ROUTE_TABLE`）：`GET /api/v1/health`、`GET /coordinate`、`POST /inspect`、`GET /receipts`、`GET /receipts/:id`、`POST /receipts/:id/verify`、`POST /receipts/:id/delete`、`GET /doctor`、`GET /diff`、`GET /integrations`、`GET /integrations/:id`、`GET /assets`、`GET /assets/:id`、`POST /assets/:id/preview`、`POST /assets/:id/copy`、`POST /assets/:id/rollback`、`GET /settings/schema`、`GET /settings`、`PUT|POST /settings`、`GET /sessions`、`GET /sessions/:id`、`GET /sessions/:id/requests`、`POST /sessions/import`、`GET /monitor`、`GET /policy`、`GET /exceptions`、`GET /exceptions/:id`、`POST /exceptions`（恒 `api.identity_required`）、`GET /standards`、`GET /standards/:id`、`GET /sync`、`POST /sync/preview`、`POST /sync/apply`、`POST /advisor`、`GET /lab`、`GET /lab/:id`、`POST /lab`、`GET /team/compliance`、`GET /care-plan/:id`、`POST /collect`、`POST /intent/preview`、`POST /apply`、`POST /rollback`。
 
 ### 四个只读端点报告什么
 
@@ -180,7 +206,7 @@ C04 明确要求「对不适用状态给理由，不能机械制造伪状态」�
 | 持久化边界 | `persistence` | 写明什么落盘、什么随会话丢弃、什么不可撤销 |
 | 敏感数据边界 | `sensitive` | 写明本页展示什么、**不**展示什么 |
 
-两处声明之间也有交叉校验：**声明了写操作的页面，必须把 `permission-denied` 列为可达状态**。测试还断言只有 `/compare`、`/doctor`、`/receipts`、`/settings`、`/sync` 声明了动作，且它们的动作标签在 `App.tsx` 里确有对应控件——契约不能承诺一个页面并不渲染的动作。
+两处声明之间也有交叉校验：**声明了写操作的页面，必须把 `permission-denied` 列为可达状态**。测试还断言只有 `/assets`、`/compare`、`/doctor`、`/receipts`、`/settings`、`/sync` 六页声明了动作，且它们的动作标签在 `App.tsx` 里确有对应控件——契约不能承诺一个页面并不渲染的动作。契约的 `method + path` 与 `ROUTE_TABLE` 逐项按方法比对：声明 `DELETE /api/v1/receipts/:id/verify` 这类未路由方法会让测试失败。
 
 ### 动作面（V04 / V05 / V08 / V12）
 
@@ -191,7 +217,7 @@ C04 明确要求「对不适用状态给理由，不能机械制造伪状态」�
 | V08 Sync | 预览、应用 | 预览给出 transport/semantic；应用后显示 `transport: success` 与 `semantic: structural-only`、`reconciliation: indeterminate` | 应用只在**干净预览之后**可用，冲突时禁用；transport 与 semantic 分列显示，且传输结果旁始终标注「传输成功不等于语义已验证」 |
 | V12 Settings | 编辑、保存、撤销 | 保存成功后刷新已保存值并提示；失败保留用户编辑并显示 store 的 reason code | 编辑器由 `/api/v1/settings/schema` 生成，不硬编码字段；保存中禁用按钮防重复提交 |
 
-**不生效的设置会被标注出来**。`GET /api/v1/settings/schema` 的 `unenforced` 字段列出「存储并校验、但产品不据以行动」的字段及原因，编辑器在该字段旁显示它。当前只有 `resource_limits.daemon_rss_mb` 在列（进程无法可移植地限制自身常驻内存）；`scan_files` 已真正约束 `collect` 的遍历，因此不在列。
+**不生效的设置会被标注出来**。`GET /api/v1/settings/schema` 的 `unenforced` 字段列出「存储并校验、但产品不据以行动」的字段及原因，编辑器在该字段旁显示它。当前在列：`resource_limits.daemon_rss_mb`（进程无法可移植地限制自身常驻内存）、`retention_days`（无保留期清扫）、`copy_confirm`（UI 总是确认，不读该字段）、`privacy_mode` 与 `screenshot_privacy`（UI 的隐私模式是会话内开关，不从 settings 读取）。`scan_files` 已真正约束 `collect` 的遍历，因此不在列。
 
 **Settings 的验证在 store，不在 UI**。`put_settings` 校验整份文档：枚举取值、整数区间、未知字段、缺失字段，以及 `unmask_does_not_grant_egress` 这类**产品不变量**——它被记为 `const_bool`，设置不能把它改成 `false`。UI 侧的即时校验只是便利，发出相同的 reason code，最终判定仍以 store 为准（R04）。`analysis_adapter` 目前只接受 `none`：本切片没有已实现的 LLM adapter，允许填别的值会让 advisor 声称一条不存在的分析路径。
 
@@ -228,8 +254,9 @@ Doctor 的证据抽屉是**常驻区域**而非模态，因此没有打开/关�
 
 ## 本切片明确未做 / 未覆盖
 
-- **其余页面的呈现**：V04/V05/V08/V09/V12 已有动作面（见下节），其余入口的正文仍是 API JSON 转储，没有按页设计的呈现。C04 的逐页声明本身已补齐（见「页面契约覆盖 C04 的哪些项」），但声明中标为「本页当前只读」的动作（会话导入、实验发起、标准发布与采纳、例外申请与批准）仍只能走 CLI 或 API。
+- **其余页面的呈现**：V04/V05/V08/V09/V12 已有动作面（见下节），`/sessions/:id`（请求证据页，`SessionRequestsView`）与 `/lab`、`/lab/:id`（执行状态 / 判定摘要，`LabListView` / `LabResultView`）已有按页呈现，其余入口的正文仍是 API JSON 转储。C04 的逐页声明本身已补齐（见「页面契约覆盖 C04 的哪些项」），但声明中标为「本页只读」的动作（会话导入与删除、实验发起、标准发布与采纳、例外申请与批准）仍只能走 CLI 或 API。
 - **团队汇总**：`/team/compliance` 统计本地 store。没有团队传输，因此它不是跨成员的合规汇总，界面也不得这样呈现。
 - **应用截图、Tauri 桌面壳、OS WebView / a11y / 屏幕阅读器 / ≤2s 性能证据**：未采集，不得当作已覆盖。
 - **例外批准身份源**：UI/API 不能用调用方自报角色完成 approve。身份来自仓内已登记 principals + 调用方持有的登记密钥，而密钥只经环境变量传入 CLI，HTTP 请求无法安全携带。因此 `POST /api/v1/exceptions` 明确返回 `api.identity_required`，例外生命周期只经 CLI。
-- **i18n**：导航、Doctor、以及 Checkup / Inspector / Settings / Care Plan / Integrations 的页面正文已接进 zh/en 表。API JSON 转储字段名仍是英文协议键。`ui-unit` 只做字符串表 grep，不渲染组件。
+- **i18n**：导航、Doctor、以及 Checkup / Inspector / Settings / Care Plan / Integrations 的页面正文已接进 zh/en 表。API JSON 转储字段名仍是英文协议键。
+- **渲染测试的边界**：`ui-unit` 的 `render.test.mjs` 用 `vite build --ssr` + `react-dom/server` 渲染 23 条路由的首屏、各页契约声明适用的状态横幅（不适用状态被标为矛盾而非隐藏）、请求证据页（`renderSessionRequests`：header digest、计数、区间、派发证据、限制说明、两个 metadata-only 视图，且断言不含正文）与 Effect Lab 结果（`renderLabResult`：`executed: false` + 原因）。SSR 不执行取数 effect；取数、导航与交互由可选门禁 `ui-e2e`（`packages/ui/tests/e2e/pages.spec.ts`，Playwright 驱动真实 daemon）覆盖：`/sessions/:id` 三条请求与选择后的派生 surface 视图、切换会话后旧错误横幅不残留、`/lab` 与 `/lab/:id` 的执行状态与判定、`/checkup` 真实 inspect 往返并渲染 `policy_result`。取消（中止请求）仍无浏览器级用例。

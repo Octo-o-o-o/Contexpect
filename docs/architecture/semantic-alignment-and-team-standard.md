@@ -166,7 +166,7 @@ TeamContextStandard:
 
 验收：`acceptance/semantic-team-contract.yaml` + `acceptance/semantic-team/` + `scripts/check_semantic_team.py`。文档-only 声明不算对齐。
 
-本阶段 required gate（名称 + 命令；含前端四条，与原九条并列）：
+本阶段 required gate（名称 + 命令；含前端四条，与其余十二条并列，共 16 条）：
 
 | 名称 | 命令 |
 | --- | --- |
@@ -179,6 +179,9 @@ TeamContextStandard:
 | cargo-build | `cargo build --workspace` |
 | cargo-test | `cargo test --workspace` |
 | cargo-clippy | `cargo clippy --workspace --all-targets` |
+| corpus-conformance | `cargo test -p ctxpect-cli --test corpus_conformance` |
+| doctor-corpus | `cargo test -p ctxpect-cli --test doctor_corpus` |
+| native-conformance | `cargo test -p ctxpect-cli --test native_conformance` |
 | ui-routes | `python3 scripts/check_ui_routes.py` |
 | ui-unit | `pnpm test` |
 | ui-typecheck | `pnpm typecheck` |

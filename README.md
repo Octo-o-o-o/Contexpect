@@ -55,8 +55,11 @@ CORPUS=acceptance/corpus/development/static/inputs
 
 不能：执行任何 harness、hook、MCP 或 plugin；读取真实私人 home、session 或凭据正文；
 断言运行时事实。所有 model-visible / use-evidence / outcome-affecting 一律报
-`indeterminate`，并指明需要 native runtime snapshot 才能确定。其余 17 个 adapter family、
-其余 capability、Receipt 签名、diff/store/daemon/UI 都尚未实施。
+`indeterminate`，并指明需要 native runtime snapshot 才能确定。静态 resolver 现覆盖两个
+anchor 的 `instructions`（Codex 0.147.0、Claude Code 2.1.259）；其余 16 个 adapter family 与
+其余 capability 在 `corpus-conformance` 门禁里如实计为未实现。Receipt 本地连续性签名、diff、
+JSON store、daemon API 与 UI 已有阶段实现（见下表与[交付状态](docs/process/2026-09-08-delivery-status.md)）；
+组织级签名、SQLite/FTS5、E2EE 尚未实施。
 
 ## 当前实现状态
 
@@ -108,7 +111,7 @@ Contexpect 把这些来源对齐到同一套证据模型，而不是再做一份
 
 ## 本阶段门禁（离线）
 
-本阶段 13 条 required gate（名称 + 命令）必须一起跑：
+本阶段 16 条 required gate（名称 + 命令）必须一起跑：
 
 | 名称 | 命令 |
 | --- | --- |
@@ -121,6 +124,9 @@ Contexpect 把这些来源对齐到同一套证据模型，而不是再做一份
 | cargo-build | `cargo build --workspace` |
 | cargo-test | `cargo test --workspace` |
 | cargo-clippy | `cargo clippy --workspace --all-targets` |
+| corpus-conformance | `cargo test -p ctxpect-cli --test corpus_conformance` |
+| doctor-corpus | `cargo test -p ctxpect-cli --test doctor_corpus` |
+| native-conformance | `cargo test -p ctxpect-cli --test native_conformance` |
 
 ```bash
 python3 scripts/check_docs.py
@@ -132,11 +138,14 @@ TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'
 cargo build --workspace
 cargo test --workspace
 cargo clippy --workspace --all-targets
+cargo test -p ctxpect-cli --test corpus_conformance
+cargo test -p ctxpect-cli --test doctor_corpus
+cargo test -p ctxpect-cli --test native_conformance
 ```
 
-这些命令不访问网络、不安装依赖、不启动 harness。它们验证文档完整性、八份 §17.0 验收件、语义对齐/Team Context Standard 合同、规范性语句追踪和语料数量/分类。它们**不是**产品运行时测试。
+这些命令不访问网络、不安装依赖、不启动 harness。Python 六条验证文档完整性、八份 §17.0 验收件、语义对齐/Team Context Standard 合同、规范性语句追踪和语料数量/分类，**不是**产品运行时测试；cargo 六条（构建、单测/集成测试、clippy、三条语料 conformance）是产品 crate 的真实测试，但通过它们不等于该项已完整验收。
 
-前端/UI 四条是本阶段新增的 required gate（需要 Node；与上述原九条并列，共 13 条）：ui-routes、ui-unit、ui-typecheck、ui-build。`ui-routes` cwd 为仓库根，其余 cwd 为 `packages/ui`。失败判据：缺路由、C03 token 漂移、typecheck/build 失败。
+前端/UI 四条是本阶段新增的 required gate（需要 Node；与上述原十二条并列，共 16 条）：ui-routes、ui-unit、ui-typecheck、ui-build。`ui-routes` cwd 为仓库根，其余 cwd 为 `packages/ui`。失败判据：缺路由、C03 token 漂移、typecheck/build 失败。可选门禁 `ui-e2e`（`packages/ui` 下 `pnpm test:e2e`，Playwright + 真实 daemon）不进 required 表，见 `docs/adr/0006`。
 
 ```bash
 python3 scripts/check_ui_routes.py

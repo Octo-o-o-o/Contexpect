@@ -1,17 +1,12 @@
 //! Build `ctxpect-schema::Value` trees without a third-party JSON crate.
 
 use ctxpect_schema::{Value, digest_value};
-use std::collections::BTreeMap;
 
-const TIME_KEYS: &[&str] = &[
-    "generated_at",
-    "timestamp",
-    "inspected_at",
-    "created_at",
-    "emitted_at",
-    "now",
-    "time",
-];
+/// The one time-key stripper: `ctxpect_schema::strip_time_fields`. A second
+/// list here once drifted from it (seven keys against ten), so the Receipt
+/// fallback digest and the CLI's snapshot digest disagreed on documents
+/// carrying `deleted_at` / `applied_at` / `imported_at`.
+pub use ctxpect_schema::strip_time_fields;
 
 #[must_use]
 pub fn obj(pairs: impl IntoIterator<Item = (impl Into<String>, Value)>) -> Value {
@@ -33,24 +28,6 @@ pub fn opt_s(text: Option<&str>) -> Value {
     match text {
         Some(text) => s(text),
         None => Value::Null,
-    }
-}
-
-#[must_use]
-pub fn strip_time_fields(value: &Value) -> Value {
-    match value {
-        Value::Object(map) => {
-            let mut out = BTreeMap::new();
-            for (key, child) in map {
-                if TIME_KEYS.contains(&key.as_str()) {
-                    continue;
-                }
-                out.insert(key.clone(), strip_time_fields(child));
-            }
-            Value::Object(out)
-        }
-        Value::Array(items) => Value::Array(items.iter().map(strip_time_fields).collect()),
-        other => other.clone(),
     }
 }
 

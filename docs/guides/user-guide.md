@@ -80,7 +80,7 @@ Indeterminate 时 Treatment 锁定。不要在模型可见性未知时直接改�
 
 ## 团队标准
 
-负责人 `ctxpect standard publish` 一份签名的 Team Context Standard。成员先 preview/disclosure，再 adopt/pin。对齐看的是 CanonicalIntent 的 native projection，不是把同一份 MD 拷到每个工具。Care Plan 仍负责 preview/apply/rollback。本阶段这些命令尚未实现。
+负责人 `ctxpect standard publish` 一份签名的 Team Context Standard。成员先 preview/disclosure，再 adopt/pin。对齐看的是 CanonicalIntent 的 native projection，不是把同一份 MD 拷到每个工具。Care Plan 仍负责 preview/apply/rollback。本阶段这些命令已有阶段实现（签名/验签、采纳状态、持久化预览与事务化 apply/rollback，见 [cli-reference](cli-reference.md)）；revision 历史、Git provider 与可到达 `verified` 的语义对账尚未实施（见 [交付状态](../process/2026-09-08-delivery-status.md)）。
 
 ## 效果评估
 

@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ctxpect-receipt-v1.schema.json",
+  "title": "ctxpect-receipt-v1",
+  "description": "Frozen shape of a formal Context Receipt as produced by ctxpect_receipt::migrate_dev_inspect_v0 and stored by ctxpect-store. A tombstone (see $defs/tombstoned) is the same schema with evidence bodies purged; it keeps created_at and coordinate so the store index can be rebuilt from it. The fields listed in x-display-only are display-only: excluded from manifest.digest (by path, never by key name) but covered by the local-continuity MAC together with the digest, so they cannot be edited after signing. They are local clock readings, not trusted timestamps. signature.value is a store-local HMAC and never an organizational identity.",
+  "x-display-only": ["created_at", "signature/signed_at"],
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "receipt_kind",
+    "receipt_id",
+    "claims",
+    "evidence",
+    "findings",
+    "unknown",
+    "explanation",
+    "facets",
+    "manifest",
+    "signature"
+  ],
+  "properties": {
+    "schema": { "const": "ctxpect-receipt-v1" },
+    "schema_version": { "const": 1 },
+    "receipt_kind": {
+      "type": "string",
+      "enum": ["one-shot", "preflight", "runtime", "post-session", "device-baseline", "ci"]
+    },
+    "receipt_id": { "type": "string" },
+    "created_at": { "type": "string", "description": "display-only: stripped from manifest.digest; covered by the local-continuity MAC together with signature/signed_at (a tombstone copies the original signature and is never verifiable as a signed Receipt, so tombstone/deleted_at is neither digested nor MACed)" },
+    "coordinate": { "$ref": "#/$defs/coordinate" },
+    "source_snapshot": { "$ref": "#/$defs/source_snapshot" },
+    "claims": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+    "facets": { "type": "object" },
+    "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+    "edges": { "type": "array", "items": { "type": "object" } },
+    "layers": { "type": "array", "items": { "type": "object" } },
+    "unknown": { "type": "array", "items": { "type": "object" } },
+    "findings": { "type": "array", "items": { "type": "object" } },
+    "warnings": { "type": "array", "items": { "type": "object" } },
+    "assumptions": { "type": "array", "items": { "type": "object" } },
+    "explanation": { "type": "array", "items": { "type": "object" } },
+    "policy_result": { "type": "object", "required": ["verdict"], "properties": { "verdict": { "type": "string" } } },
+    "required": { "type": "array", "items": { "type": "string" } },
+    "budget": { "type": "object" },
+    "redaction": {
+      "type": "object",
+      "required": ["policy", "bodies_included"],
+      "properties": { "policy": { "type": "string" }, "bodies_included": { "type": "boolean" } }
+    },
+    "tombstone": { "type": ["null", "object"] },
+    "signature": { "$ref": "#/$defs/signature" },
+    "manifest": {
+      "type": "object",
+      "required": ["digest"],
+      "properties": { "digest": { "type": "string" } },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "coordinate": {
+      "type": "object",
+      "required": ["harness", "version", "version_provenance", "surface", "os_lane", "project", "cwd", "snapshot"],
+      "properties": {
+        "device": { "type": "string" },
+        "environment": { "type": "string" },
+        "account_alias": { "type": "string" },
+        "organization": { "type": "string" },
+        "policy_snapshot": { "type": "string" },
+        "harness": { "type": "string" },
+        "version": { "type": "string" },
+        "version_provenance": { "type": "string", "enum": ["official-spec", "user-attested"] },
+        "surface": { "type": "string" },
+        "os_lane": { "type": "string" },
+        "project": { "type": "string", "description": "always the placeholder <project>; never a host path" },
+        "cwd": { "type": "string" },
+        "task": { "type": ["string", "null"] },
+        "snapshot": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "source_snapshot": {
+      "type": "object",
+      "required": ["schema", "receipt_kind", "snapshot_digest", "migration", "migrated"],
+      "properties": {
+        "schema": { "const": "dev-inspect-v0" },
+        "receipt_kind": { "const": "development-snapshot" },
+        "snapshot_digest": { "type": "string" },
+        "migration": { "const": "dev-inspect-v0-to-ctxpect-receipt-v1" },
+        "migrated": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "claim": {
+      "type": "object",
+      "required": ["claim_kind", "coverage", "knowledge_status", "lifecycle_stage", "precision", "provenance", "truth_state"],
+      "properties": {
+        "claim_kind": { "type": "string" },
+        "coverage": { "type": "string", "enum": ["full-declared-surface", "partial-declared-surface", "unknown", "not-applicable"] },
+        "knowledge_status": { "type": "string" },
+        "lifecycle_stage": { "type": "string" },
+        "precision": { "type": "string" },
+        "provenance": { "type": "string", "enum": ["native-runtime", "native-log", "harness-source", "official-spec", "user-attested"] },
+        "truth_state": { "type": "string", "enum": ["present", "absent", "indeterminate", "not-applicable"] },
+        "unknown_reason_code": { "type": ["string", "null"] },
+        "facet": { "type": "string" },
+        "capability_id": { "type": "string" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["root", "path", "content_digest"],
+      "properties": {
+        "root": { "type": "string", "enum": ["project", "codex-home", "harness-home"] },
+        "path": { "type": "string" },
+        "content_digest": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "signature": {
+      "type": "object",
+      "required": ["kind", "org_identity", "value"],
+      "properties": {
+        "kind": { "const": "local-continuity" },
+        "algorithm": { "const": "hmac-sha256" },
+        "key_id": { "type": ["string", "null"] },
+        "org_identity": { "const": false },
+        "signed_at": { "type": "string", "description": "display-only local signing time; covered by the MAC, not by manifest.digest; absent on Receipts signed before this rule (verify answers receipt.signature_legacy)" },
+        "value": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "tombstoned": {
+      "description": "Shape of the `tombstone` object when a Receipt has been deleted; claims/evidence/findings/unknown/explanation are then empty arrays and facets an empty object.",
+      "type": "object",
+      "required": ["deleted_at", "reason", "original_digest", "evidence_bodies", "derived_invalidated", "external_copies"],
+      "properties": {
+        "deleted_at": { "type": "string" },
+        "reason": { "type": "string" },
+        "original_digest": { "type": "string" },
+        "evidence_bodies": { "const": "purged" },
+        "derived_invalidated": { "const": true },
+        "external_copies": { "const": "not-recallable" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

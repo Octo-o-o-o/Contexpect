@@ -1,7 +1,14 @@
-//! Static Codex instructions resolver for one frozen anchor.
+//! Static instructions resolvers for the frozen anchors.
 //!
-//! This crate turns a declared project root, a cwd inside it, an optional
-//! `--codex-home` root and a `.ctxpect-ignore` list into a structured
+//! The crate holds one grammar per anchor ([`ANCHORS`]): Codex CLI 0.147.0
+//! (`AGENTS.override.md` / `AGENTS.md`, G1–G5) and Claude Code CLI 2.1.259
+//! (`CLAUDE.md` / `.claude/CLAUDE.md` / `CLAUDE.local.md`, CL1–CL6, in
+//! [`claude_code`]). [`anchor_for`] dispatches a coordinate to its grammar;
+//! [`coordinate_unknown_reason`] says why a coordinate has none. The grammar
+//! documents live in `docs/adapters/grammar/`.
+//!
+//! The Codex grammar turns a declared project root, a cwd inside it, an
+//! optional `--codex-home` root and a `.ctxpect-ignore` list into a structured
 //! [`Resolution`]. It discovers `AGENTS.override.md` / `AGENTS.md` by
 //! classifying those named paths with [`ctxpect_fs::Root::classify`] and
 //! reads selected files with [`ctxpect_fs::read_contained`]. It does not
@@ -89,13 +96,85 @@ use std::path::Path;
 /// Official-spec default for Codex `project_doc_max_bytes` (32 KiB).
 pub const PROJECT_DOC_MAX_BYTES: u64 = 32768;
 
-/// Frozen inspect anchor. Version is a user-attested / official-spec
-/// coordinate, not native evidence that the binary is installed.
-pub const ANCHOR_HARNESS: &str = "codex";
-pub const ANCHOR_VERSION: &str = "0.147.0";
-pub const ANCHOR_SURFACE: &str = "cli";
-pub const ANCHOR_OS_LANE: &str = "macos-27-arm64";
+pub mod claude_code;
+
+/// Which grammar an anchor resolves with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Grammar {
+    /// `docs/adapters/grammar/codex-cli-0.147.0-instructions.md`
+    CodexInstructions,
+    /// `docs/adapters/grammar/claude-code-cli-2.1.259-instructions.md`
+    ClaudeCodeInstructions,
+}
+
+/// One frozen coordinate this crate resolves authoritatively. Version is a
+/// user-attested / official-spec coordinate, not native evidence that the
+/// binary is installed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Anchor {
+    pub harness: &'static str,
+    pub version: &'static str,
+    pub surface: &'static str,
+    pub os_lane: &'static str,
+    pub grammar: Grammar,
+    /// Capabilities the grammar resolves. Everything else is unimplemented.
+    pub capabilities: &'static [&'static str],
+    /// Human name used in explanations.
+    pub display: &'static str,
+}
+
+impl Anchor {
+    #[must_use]
+    pub fn coordinate_id(&self) -> String {
+        format!("{}/{}/{}/{}", self.harness, self.version, self.surface, self.os_lane)
+    }
+}
+
 pub const INSTRUCTIONS: &str = "instructions";
+
+/// This resolver crate's version, recorded by conformance reports so a
+/// result is bound to the implementation that produced it.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Every anchor, in dispatch order. The first is the CLI default.
+pub const ANCHORS: &[Anchor] = &[
+    Anchor {
+        harness: "codex",
+        version: "0.147.0",
+        surface: "cli",
+        os_lane: "macos-27-arm64",
+        grammar: Grammar::CodexInstructions,
+        capabilities: &[INSTRUCTIONS],
+        display: "Codex",
+    },
+    Anchor {
+        harness: "claude-code",
+        version: "2.1.259",
+        surface: "cli",
+        os_lane: "macos-27-arm64",
+        grammar: Grammar::ClaudeCodeInstructions,
+        capabilities: &[INSTRUCTIONS],
+        display: "Claude Code",
+    },
+];
+
+/// The anchor `inspect` uses when no coordinate flags are given.
+pub const DEFAULT_ANCHOR: &Anchor = &ANCHORS[0];
+
+/// The anchor that resolves this exact coordinate, if any.
+#[must_use]
+pub fn anchor_for(harness: &str, version: &str, surface: &str, os_lane: &str) -> Option<&'static Anchor> {
+    ANCHORS.iter().find(|anchor| {
+        anchor.harness == harness
+            && anchor.version == version
+            && anchor.surface == surface
+            && anchor.os_lane == os_lane
+    })
+}
+
+fn family_anchors(harness: &str) -> impl Iterator<Item = &'static Anchor> {
+    ANCHORS.iter().filter(move |anchor| anchor.harness == harness)
+}
 
 const OVERRIDE_NAME: &str = "AGENTS.override.md";
 const AGENTS_NAME: &str = "AGENTS.md";
@@ -108,8 +187,11 @@ pub struct ResolveRequest<'a> {
     /// Path of cwd relative to the project root, `/` separated. Empty means
     /// the project root itself.
     pub cwd_rel: &'a str,
+    /// Explicit Codex home root. Read only by the Codex grammar.
     pub codex_home: Option<&'a Root>,
     pub project_doc_max_bytes: u64,
+    /// The grammar of the anchor being resolved (see [`anchor_for`]).
+    pub grammar: Grammar,
 }
 
 /// One edge explaining why a file was adopted, skipped, cut, or unknown.
@@ -186,7 +268,11 @@ pub struct Evidence {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RootKind {
     Project,
+    /// The Codex home root (`--codex-home`).
     CodexHome,
+    /// A harness home root this slice does not read (Claude Code's
+    /// `~/.claude`); layers under it are always permission-not-granted.
+    HarnessHome,
 }
 
 impl RootKind {
@@ -195,6 +281,7 @@ impl RootKind {
         match self {
             RootKind::Project => "project",
             RootKind::CodexHome => "codex-home",
+            RootKind::HarnessHome => "harness-home",
         }
     }
 }
@@ -279,7 +366,9 @@ impl From<Refusal> for ResolveError {
 /// Why this coordinate cannot be resolved authoritatively, if it cannot.
 ///
 /// Order is load-bearing for unknown-honesty cells: OS lane first, then
-/// surface, then harness, then version.
+/// surface, then harness, then version. A family with no anchor at all is
+/// `official_distribution_not_captured`; a family with anchors is judged
+/// against the lanes, surfaces and versions those anchors declare.
 #[must_use]
 pub fn coordinate_unknown_reason(
     harness: &str,
@@ -287,19 +376,46 @@ pub fn coordinate_unknown_reason(
     surface: &str,
     os_lane: &str,
 ) -> Option<UnknownReason> {
-    if os_lane != ANCHOR_OS_LANE {
+    if !ANCHORS.iter().any(|anchor| anchor.os_lane == os_lane) {
         return Some(UnknownReason::OfficialDistributionNotCaptured);
     }
-    if surface != ANCHOR_SURFACE {
+    let mut anchors = family_anchors(harness).peekable();
+    if anchors.peek().is_none() {
+        // The lane is captured but the family is not.
+        if !ANCHORS.iter().any(|anchor| anchor.surface == surface) {
+            return Some(UnknownReason::SurfaceNotExposed);
+        }
+        return Some(UnknownReason::OfficialDistributionNotCaptured);
+    }
+    let anchors: Vec<&Anchor> = anchors.collect();
+    if !anchors.iter().any(|anchor| anchor.os_lane == os_lane) {
+        return Some(UnknownReason::OfficialDistributionNotCaptured);
+    }
+    if !anchors.iter().any(|anchor| anchor.surface == surface) {
         return Some(UnknownReason::SurfaceNotExposed);
     }
-    if harness != ANCHOR_HARNESS {
-        return Some(UnknownReason::OfficialDistributionNotCaptured);
-    }
-    if version != ANCHOR_VERSION {
+    if !anchors.iter().any(|anchor| anchor.version == version) {
         return Some(UnknownReason::UnsupportedHarnessVersion);
     }
     None
+}
+
+/// The capabilities this crate actually resolves for a family.
+///
+/// Anything not listed is **unimplemented**: the product answers Unknown for
+/// it, and a conformance runner counts that as unimplemented, never as a pass
+/// on the strength of the honesty branch.
+#[must_use]
+pub fn implemented_capabilities(harness: &str) -> &'static [&'static str] {
+    family_anchors(harness)
+        .next()
+        .map_or(&[], |anchor| anchor.capabilities)
+}
+
+/// Whether this exact coordinate is one the crate resolves authoritatively.
+#[must_use]
+pub fn is_supported_coordinate(harness: &str, version: &str, surface: &str, os_lane: &str) -> bool {
+    anchor_for(harness, version, surface, os_lane).is_some()
 }
 
 /// Why a capability other than `instructions` is not resolved here.
@@ -426,13 +542,21 @@ fn ignore_line_allowed(line: &str) -> bool {
     !normalized.split('/').any(|segment| segment == "..")
 }
 
+/// Resolve `instructions` for `request` with the anchor's grammar.
+pub fn resolve(request: &ResolveRequest<'_>) -> Result<Resolution, ResolveError> {
+    match request.grammar {
+        Grammar::CodexInstructions => resolve_codex(request),
+        Grammar::ClaudeCodeInstructions => claude_code::resolve_claude_code(request),
+    }
+}
+
 /// Resolve Codex `instructions` for `request`.
 ///
 /// Reads the project-root `.ctxpect-ignore` through containment first. Project
 /// layers and a granted codex-home are not walked: only `AGENTS.override.md` /
 /// `AGENTS.md` are classified and, when regular and not excluded, read through
 /// containment.
-pub fn resolve(request: &ResolveRequest<'_>) -> Result<Resolution, ResolveError> {
+fn resolve_codex(request: &ResolveRequest<'_>) -> Result<Resolution, ResolveError> {
     let loaded_ignore = load_ignore(request.project)?;
     let ignore = loaded_ignore.paths;
     let ignore_used = loaded_ignore.used;
@@ -579,10 +703,7 @@ pub fn resolve(request: &ResolveRequest<'_>) -> Result<Resolution, ResolveError>
         },
         Assumption {
             key: "anchor".to_string(),
-            value: format!(
-                "{}/{}/{}/{}",
-                ANCHOR_HARNESS, ANCHOR_VERSION, ANCHOR_SURFACE, ANCHOR_OS_LANE
-            ),
+            value: ANCHORS[0].coordinate_id(),
             provenance: "official-spec",
         },
     ];
@@ -605,10 +726,10 @@ pub fn resolve(request: &ResolveRequest<'_>) -> Result<Resolution, ResolveError>
     })
 }
 
-struct Adopted {
-    path: String,
-    len: u64,
-    root_kind: RootKind,
+pub(crate) struct Adopted {
+    pub(crate) path: String,
+    pub(crate) len: u64,
+    pub(crate) root_kind: RootKind,
 }
 
 /// Classify only the two instruction filenames under `root`. Does not list
@@ -619,7 +740,7 @@ fn named_agents_inventory(root: &Root) -> Result<Inventory, ResolveError> {
 
 /// Classify the given relative names. Does not list the directory or read
 /// file bytes.
-fn named_paths_inventory(
+pub(crate) fn named_paths_inventory(
     root: &Root,
     rels: impl IntoIterator<Item = String>,
 ) -> Result<Inventory, ResolveError> {
@@ -653,7 +774,7 @@ fn named_paths_inventory(
     })
 }
 
-fn candidate_kind(root: &Root, rel: &str) -> Result<Option<EntryKind>, ResolveError> {
+pub(crate) fn candidate_kind(root: &Root, rel: &str) -> Result<Option<EntryKind>, ResolveError> {
     match root.classify(Path::new(rel)) {
         Ok(kind) => Ok(Some(kind)),
         Err(Refusal::Unresolvable { .. }) => {
@@ -671,14 +792,14 @@ fn candidate_kind(root: &Root, rel: &str) -> Result<Option<EntryKind>, ResolveEr
     }
 }
 
-struct LoadedIgnore {
-    paths: Vec<String>,
-    used: bool,
-    digest: Option<String>,
-    warnings: Vec<IgnoreWarning>,
+pub(crate) struct LoadedIgnore {
+    pub(crate) paths: Vec<String>,
+    pub(crate) used: bool,
+    pub(crate) digest: Option<String>,
+    pub(crate) warnings: Vec<IgnoreWarning>,
 }
 
-fn load_ignore(project: &Root) -> Result<LoadedIgnore, ResolveError> {
+pub(crate) fn load_ignore(project: &Root) -> Result<LoadedIgnore, ResolveError> {
     match candidate_kind(project, IGNORE_NAME)? {
         None => Ok(LoadedIgnore {
             paths: Vec::new(),
@@ -702,19 +823,19 @@ fn load_ignore(project: &Root) -> Result<LoadedIgnore, ResolveError> {
     }
 }
 
-struct LayerWork<'a> {
-    root: &'a Root,
-    inventory: &'a Inventory,
-    root_kind: RootKind,
-    layer_id: &'a str,
-    layer_rel: &'a str,
-    ignore: &'a [String],
-    layers: &'a mut Vec<Layer>,
-    edges: &'a mut Vec<Edge>,
-    evidence: &'a mut Vec<Evidence>,
-    native_paths: &'a mut Vec<String>,
-    adopted_files: &'a mut Vec<Adopted>,
-    blocking_unknown: &'a mut Option<UnknownReason>,
+pub(crate) struct LayerWork<'a> {
+    pub(crate) root: &'a Root,
+    pub(crate) inventory: &'a Inventory,
+    pub(crate) root_kind: RootKind,
+    pub(crate) layer_id: &'a str,
+    pub(crate) layer_rel: &'a str,
+    pub(crate) ignore: &'a [String],
+    pub(crate) layers: &'a mut Vec<Layer>,
+    pub(crate) edges: &'a mut Vec<Edge>,
+    pub(crate) evidence: &'a mut Vec<Evidence>,
+    pub(crate) native_paths: &'a mut Vec<String>,
+    pub(crate) adopted_files: &'a mut Vec<Adopted>,
+    pub(crate) blocking_unknown: &'a mut Option<UnknownReason>,
 }
 
 fn consider_layer(work: &mut LayerWork<'_>) -> Result<(), ResolveError> {
@@ -812,7 +933,7 @@ fn consider_layer(work: &mut LayerWork<'_>) -> Result<(), ResolveError> {
             continue;
         }
 
-        match classify_candidate(work, &path, kind)? {
+        match classify_candidate(work.root, &path, kind)? {
             CandidateOutcome::Adopt { len, digest } => {
                 occupied = Some(path.clone());
                 adopted = Some(path.clone());
@@ -885,19 +1006,19 @@ fn consider_layer(work: &mut LayerWork<'_>) -> Result<(), ResolveError> {
     Ok(())
 }
 
-enum CandidateOutcome {
+pub(crate) enum CandidateOutcome {
     Adopt { len: u64, digest: Option<String> },
     Unknown { note: &'static str },
 }
 
-fn classify_candidate(
-    work: &LayerWork<'_>,
+pub(crate) fn classify_candidate(
+    root: &Root,
     path: &str,
     kind: EntryKind,
 ) -> Result<CandidateOutcome, ResolveError> {
     match kind {
         EntryKind::File => {
-            let content = read_contained(work.root, Path::new(path))?;
+            let content = read_contained(root, Path::new(path))?;
             if content.link_count > 1 {
                 return Ok(CandidateOutcome::Unknown {
                     note: "multiply-linked",
@@ -908,7 +1029,7 @@ fn classify_candidate(
                 digest: Some(content.whole_digest),
             })
         }
-        EntryKind::Symlink => match work.root.contain(path) {
+        EntryKind::Symlink => match root.contain(path) {
             Ok(_) => Ok(CandidateOutcome::Unknown {
                 note: "not-regular",
             }),
@@ -933,10 +1054,11 @@ fn classify_candidate(
     }
 }
 
-fn record_seen(work: &mut LayerWork<'_>, path: &str) {
+pub(crate) fn record_seen(work: &mut LayerWork<'_>, path: &str) {
     let native_name = match work.root_kind {
         RootKind::Project => path.to_string(),
         RootKind::CodexHome => format!("$CODEX_HOME/{path}"),
+        RootKind::HarnessHome => format!("$HARNESS_HOME/{path}"),
     };
     push_unique(work.native_paths, native_name);
     let digest = work
@@ -946,7 +1068,7 @@ fn record_seen(work: &mut LayerWork<'_>, path: &str) {
     set_evidence_digest(work, path, digest);
 }
 
-fn set_evidence_digest(work: &mut LayerWork<'_>, path: &str, digest: Option<String>) {
+pub(crate) fn set_evidence_digest(work: &mut LayerWork<'_>, path: &str, digest: Option<String>) {
     if let Some(existing) = work
         .evidence
         .iter_mut()
@@ -965,7 +1087,7 @@ fn set_evidence_digest(work: &mut LayerWork<'_>, path: &str, digest: Option<Stri
 }
 
 #[allow(clippy::too_many_arguments)]
-fn edge(
+pub(crate) fn edge(
     kind: EdgeKind,
     rule_id: &'static str,
     path: String,
@@ -1029,7 +1151,7 @@ fn apply_cap(max_bytes: u64, adopted: &[Adopted], edges: &mut Vec<Edge>) -> (u64
     (used, truncated)
 }
 
-fn instruction_claims(included: bool) -> FacetClaims {
+pub(crate) fn instruction_claims(included: bool) -> FacetClaims {
     let truth = if included {
         TruthState::Present
     } else {
@@ -1103,7 +1225,7 @@ fn resolved_claim(
     }
 }
 
-fn ensure_expressible(claims: &FacetClaims) -> Result<(), ResolveError> {
+pub(crate) fn ensure_expressible(claims: &FacetClaims) -> Result<(), ResolveError> {
     for claim in claims.all() {
         let violations = claim.violations();
         if !violations.is_empty() {
@@ -1120,7 +1242,7 @@ fn ensure_expressible(claims: &FacetClaims) -> Result<(), ResolveError> {
     Ok(())
 }
 
-fn push_unique(items: &mut Vec<String>, value: String) {
+pub(crate) fn push_unique(items: &mut Vec<String>, value: String) {
     if !items.iter().any(|item| item == &value) {
         items.push(value);
     }
@@ -1144,22 +1266,51 @@ mod tests {
             Some(UnknownReason::OfficialDistributionNotCaptured)
         );
         assert_eq!(
-            coordinate_unknown_reason("codex", "unknown-honesty", "desktop", ANCHOR_OS_LANE),
+            coordinate_unknown_reason("codex", "unknown-honesty", "desktop", "macos-27-arm64"),
             Some(UnknownReason::SurfaceNotExposed)
         );
         assert_eq!(
-            coordinate_unknown_reason("codex", "0.99.0", "cli", ANCHOR_OS_LANE),
+            coordinate_unknown_reason("codex", "0.99.0", "cli", "macos-27-arm64"),
             Some(UnknownReason::UnsupportedHarnessVersion)
         );
         assert_eq!(
-            coordinate_unknown_reason(
-                ANCHOR_HARNESS,
-                ANCHOR_VERSION,
-                ANCHOR_SURFACE,
-                ANCHOR_OS_LANE
-            ),
+            coordinate_unknown_reason("codex", "0.147.0", "cli", "macos-27-arm64"),
             None
         );
+        // The second anchor dispatches on its own coordinate; a family with
+        // no anchor at all is not captured.
+        assert_eq!(
+            coordinate_unknown_reason("claude-code", "2.1.259", "cli", "macos-27-arm64"),
+            None
+        );
+        assert_eq!(
+            coordinate_unknown_reason("claude-code", "unknown-honesty", "cloud", "macos-27-arm64"),
+            Some(UnknownReason::SurfaceNotExposed)
+        );
+        assert_eq!(
+            coordinate_unknown_reason("claude-code", "2.1.259", "cli", "ubuntu-24.04-x86_64"),
+            Some(UnknownReason::OfficialDistributionNotCaptured)
+        );
+        // A family with no anchor: a surface no anchor exposes is
+        // surface_not_exposed; a lane no anchor captured is not captured.
+        assert_eq!(
+            coordinate_unknown_reason("cursor", "3.19.7", "ide", "macos-27-arm64"),
+            Some(UnknownReason::SurfaceNotExposed)
+        );
+        assert_eq!(
+            coordinate_unknown_reason("aider", "0.86.2", "cli", "ubuntu-24.04-x86_64"),
+            Some(UnknownReason::OfficialDistributionNotCaptured)
+        );
+        assert_eq!(
+            coordinate_unknown_reason("aider", "0.86.2", "cli", "macos-27-arm64"),
+            Some(UnknownReason::OfficialDistributionNotCaptured)
+        );
+        assert_eq!(
+            anchor_for("claude-code", "2.1.259", "cli", "macos-27-arm64").map(|a| a.grammar),
+            Some(Grammar::ClaudeCodeInstructions)
+        );
+        assert_eq!(implemented_capabilities("claude-code"), &[INSTRUCTIONS]);
+        assert!(implemented_capabilities("cursor").is_empty());
     }
 
     #[test]

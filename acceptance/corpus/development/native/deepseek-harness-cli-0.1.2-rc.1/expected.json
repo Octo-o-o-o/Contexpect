@@ -1,0 +1,210 @@
+{
+  "schema": "ctxpect-dsh-fixture-expected-v1",
+  "session_id": "ctxpect-synthetic-0001",
+  "format_version": 0,
+  "event_count": 28,
+  "requests": [
+    {
+      "seq": 3,
+      "turn": 1,
+      "step": 1,
+      "header_seq": 5,
+      "header_logged_in_step": true,
+      "dispatch_seq": 6,
+      "reason": "initial",
+      "header_digest": "ba3fe5cbe1524e143b3be4c4bd1ded68425d691d90ece9a8491fd304916ba375",
+      "message_count": 2,
+      "messages": [
+        {
+          "index": 0,
+          "role": "user",
+          "digest": "ab3a620caaa66e4c17f692455dc4bb0d00c92f69989c8088889af10b8e5f3c8b"
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "digest": "8e6dc8b80f0ef6481ee91ee1c46f3be1ced03f3d08ccc9bc801f3ac6615a2eb9"
+        }
+      ],
+      "surface_nodes": [
+        1,
+        2
+      ],
+      "replacements": []
+    },
+    {
+      "seq": 13,
+      "turn": 1,
+      "step": 2,
+      "header_seq": 14,
+      "header_logged_in_step": true,
+      "dispatch_seq": 15,
+      "reason": "change",
+      "header_digest": "14593aa016fd325bdc823ad741a4832a8bfbdf24f4cdbb5897cf83e9e5802f34",
+      "message_count": 4,
+      "messages": [
+        {
+          "index": 0,
+          "role": "user",
+          "digest": "ab3a620caaa66e4c17f692455dc4bb0d00c92f69989c8088889af10b8e5f3c8b"
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "digest": "8e6dc8b80f0ef6481ee91ee1c46f3be1ced03f3d08ccc9bc801f3ac6615a2eb9"
+        },
+        {
+          "index": 2,
+          "role": "assistant",
+          "digest": "ad3e8d76aa03ebff30cf42ca4211601d317ed685050d16be074ee49266e15203"
+        },
+        {
+          "index": 3,
+          "role": "user",
+          "digest": "4713d3cbd02a3a49ede748ad40001971140aaa57a786c6222b2c7b0092f55a25"
+        }
+      ],
+      "surface_nodes": [
+        1,
+        2,
+        9,
+        11
+      ],
+      "replacements": []
+    },
+    {
+      "seq": 17,
+      "turn": 1,
+      "step": 3,
+      "header_seq": 14,
+      "header_logged_in_step": false,
+      "dispatch_seq": 18,
+      "reason": "change",
+      "header_digest": "14593aa016fd325bdc823ad741a4832a8bfbdf24f4cdbb5897cf83e9e5802f34",
+      "message_count": 5,
+      "messages": [
+        {
+          "index": 0,
+          "role": "user",
+          "digest": "ab3a620caaa66e4c17f692455dc4bb0d00c92f69989c8088889af10b8e5f3c8b"
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "digest": "8e6dc8b80f0ef6481ee91ee1c46f3be1ced03f3d08ccc9bc801f3ac6615a2eb9"
+        },
+        {
+          "index": 2,
+          "role": "assistant",
+          "digest": "ad3e8d76aa03ebff30cf42ca4211601d317ed685050d16be074ee49266e15203"
+        },
+        {
+          "index": 3,
+          "role": "user",
+          "digest": "4713d3cbd02a3a49ede748ad40001971140aaa57a786c6222b2c7b0092f55a25"
+        },
+        {
+          "index": 4,
+          "role": "assistant",
+          "digest": "660cc2302cb8000934dd261e89c1ee7fbc9956740214cf692f37793c9031fd20"
+        }
+      ],
+      "surface_nodes": [
+        1,
+        2,
+        9,
+        11,
+        15
+      ],
+      "replacements": []
+    },
+    {
+      "seq": 24,
+      "turn": 2,
+      "step": 1,
+      "header_seq": 25,
+      "header_logged_in_step": true,
+      "dispatch_seq": 26,
+      "reason": "series",
+      "header_digest": "14593aa016fd325bdc823ad741a4832a8bfbdf24f4cdbb5897cf83e9e5802f34",
+      "message_count": 4,
+      "messages": [
+        {
+          "index": 0,
+          "role": "user",
+          "digest": "a8082f6be5589c33dab5e91b2148862e2c7d608e43ee72285ca21cda07b194d6"
+        },
+        {
+          "index": 1,
+          "role": "assistant",
+          "digest": "660cc2302cb8000934dd261e89c1ee7fbc9956740214cf692f37793c9031fd20"
+        },
+        {
+          "index": 2,
+          "role": "assistant",
+          "digest": "148ba49cca574f6f2c29a67f761b03c471f5a10043a867f56c23dfb227358052"
+        },
+        {
+          "index": 3,
+          "role": "user",
+          "digest": "3c9f6bfa93ecbd79810e1bc1338561c5b206421d619c62ce4b3e073bf39b59e2"
+        }
+      ],
+      "surface_nodes": [
+        21,
+        15,
+        18,
+        23
+      ],
+      "replacements": [
+        {
+          "seq": 21,
+          "start": 1,
+          "end": 11,
+          "shadowed": [
+            1,
+            2,
+            9,
+            11
+          ]
+        }
+      ]
+    }
+  ],
+  "final_surface": [
+    21,
+    15,
+    18,
+    23,
+    26
+  ],
+  "tail": {
+    "interrupted": true,
+    "closers": [
+      {
+        "type": "tool/result",
+        "error_code": "TOOL_OUTCOME_UNKNOWN",
+        "call_id": "call-0002",
+        "reason": null
+      },
+      {
+        "type": "step/end",
+        "error_code": null,
+        "call_id": null,
+        "reason": null
+      },
+      {
+        "type": "turn/end",
+        "error_code": null,
+        "call_id": null,
+        "reason": "interrupted"
+      }
+    ],
+    "codes": {
+      "TOOL_OUTCOME_UNKNOWN": "TOOL_OUTCOME_UNKNOWN",
+      "TOOL_NOT_STARTED": "TOOL_NOT_STARTED"
+    }
+  },
+  "request_anchor_rule": "one request per step/start (request-reconstruction.spec.ts THEOREM): messages derive at the step/start boundary; the header is foldRequestHeader over the prefix up to the first provider output of that step, so a step whose header did not change (agent.ts:505-518 logs request/header only for initial/resume, a header change, or a series start) reuses the latest snapshot.",
+  "dispatch_evidence_rule": "agent-loop/src/agent.ts:364-368 — the loop opens the provider stream and appends assistant/chunk per streamed chunk (line 376 / 396: assistant/message assembles them); an assistant/chunk or assistant/message in the step is therefore evidence the request was dispatched. request/header alone (agent.ts:508-517) is appended before dispatch and proves only preparation."
+}

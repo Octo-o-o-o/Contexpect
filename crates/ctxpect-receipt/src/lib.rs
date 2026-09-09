@@ -6,9 +6,10 @@
 //! and migration identifier. Renaming fields is not a migration.
 
 use ctxpect_schema::{
-    array, canonical_json, digest_value, hmac_sha256_hex, object, opt_string, string,
+    array, canonical_json, digest_value, hmac_sha256_hex, object, opt_string, parse, string,
     strip_time_fields, Value,
 };
+use std::sync::OnceLock;
 
 /// Wire schema of the inspect development snapshot.
 pub const DEV_INSPECT_SCHEMA: &str = "dev-inspect-v0";
@@ -31,6 +32,33 @@ pub const RECEIPT_KINDS: &[&str] = &[
 
 /// Signature kinds this crate will emit. Organizational identity is not one of them.
 pub const LOCAL_CONTINUITY: &str = "local-continuity";
+
+/// The frozen Receipt schema text (`docs/schemas/ctxpect-receipt-v1.schema.json`),
+/// embedded so the digest rule below cannot drift from what the schema declares.
+pub const RECEIPT_SCHEMA_JSON: &str = include_str!("../../../docs/schemas/ctxpect-receipt-v1.schema.json");
+
+/// The fields the schema declares **display-only**: they are excluded from
+/// `manifest.digest` (so two Receipts over the same content at different
+/// clock readings share a digest) but are covered by the local-continuity MAC
+/// (so they cannot be edited after signing). Each entry is a `/`-separated
+/// path from the Receipt root, exactly as the schema's `x-display-only`
+/// array lists it. Nothing is stripped by key name: a business field that
+/// happens to be called `time` stays in the digest.
+#[must_use]
+pub fn display_only_paths() -> &'static [Vec<String>] {
+    static PATHS: OnceLock<Vec<Vec<String>>> = OnceLock::new();
+    PATHS.get_or_init(|| {
+        let schema = parse(RECEIPT_SCHEMA_JSON).expect("embedded receipt schema parses");
+        schema
+            .get("x-display-only")
+            .and_then(Value::as_array)
+            .expect("receipt schema declares x-display-only")
+            .iter()
+            .filter_map(Value::as_str)
+            .map(|path| path.split('/').map(str::to_string).collect())
+            .collect()
+    })
+}
 
 /// Why a snapshot cannot become a formal Receipt.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,11 +96,16 @@ impl ContinuityKey {
 ///
 /// The original snapshot is referenced, not rewritten in place. `schema` stays
 /// `ctxpect-receipt-v1`; the source snapshot keeps `dev-inspect-v0`.
+///
+/// `created_at` and `signed_at` are display-only fields: excluded from
+/// `manifest.digest`, covered by the MAC (see [`display_only_paths`]). Both
+/// are local clock readings and are not trusted timestamps.
 pub fn migrate_dev_inspect_v0(
     snapshot: &Value,
     receipt_kind: &str,
     continuity: Option<&ContinuityKey>,
     created_at: &str,
+    signed_at: &str,
     receipt_id: &str,
 ) -> Result<Value, ReceiptError> {
     if !RECEIPT_KINDS.contains(&receipt_kind) {
@@ -251,6 +284,7 @@ pub fn migrate_dev_inspect_v0(
                 ("algorithm", string("hmac-sha256")),
                 ("key_id", opt_string(continuity.map(|k| k.key_id.as_str()))),
                 ("org_identity", Value::Bool(false)),
+                ("signed_at", string(signed_at)),
                 ("value", Value::Null),
             ]),
         ),
@@ -264,7 +298,7 @@ pub fn migrate_dev_inspect_v0(
         );
     }
     if let Some(key) = continuity {
-        let mac = hmac_sha256_hex(&key.secret, manifest_digest.as_bytes());
+        let mac = hmac_sha256_hex(&key.secret, mac_input(&manifest_digest, created_at, signed_at).as_bytes());
         if let Some(Value::Object(sig)) = match &mut body {
             Value::Object(map) => map.get_mut("signature"),
             _ => None,
@@ -304,6 +338,28 @@ pub fn verify_local_continuity(receipt: &Value, key: &ContinuityKey) -> Result<(
             "local-continuity signatures must not claim organizational identity",
         ));
     }
+    // A Receipt signed before `signed_at` existed used a MAC over the digest
+    // alone, which left `created_at` editable. It is neither valid nor
+    // tampered under the current rule, so it gets its own answer instead of
+    // being waved through for compatibility.
+    let signed_at = match receipt.pointer(&["signature", "signed_at"]) {
+        None | Some(Value::Null) => {
+            return Err(ReceiptError::new(
+                "receipt.signature_legacy",
+                "this Receipt was signed without signed_at; its MAC does not cover created_at and it cannot be verified under the current rule",
+            ));
+        }
+        // Present but not a string: that is a damaged or edited envelope,
+        // not an old one.
+        Some(Value::Str(text)) => text.as_str(),
+        Some(_) => {
+            return Err(ReceiptError::new(
+                "receipt.signature_mismatch",
+                "signature.signed_at is not a string; the envelope was altered",
+            ));
+        }
+    };
+    let created_at = receipt.get("created_at").and_then(Value::as_str).unwrap_or("");
     let expected_digest = digest_body(receipt);
     let stored = receipt
         .pointer(&["manifest", "digest"])
@@ -315,7 +371,7 @@ pub fn verify_local_continuity(receipt: &Value, key: &ContinuityKey) -> Result<(
             "manifest.digest does not match the canonical body",
         ));
     }
-    let mac = hmac_sha256_hex(&key.secret, expected_digest.as_bytes());
+    let mac = hmac_sha256_hex(&key.secret, mac_input(expected_digest.as_str(), created_at, signed_at).as_bytes());
     let got = receipt
         .pointer(&["signature", "value"])
         .and_then(Value::as_str)
@@ -348,6 +404,16 @@ pub fn tombstone(receipt: &Value, deleted_at: &str, reason: &str) -> Result<Valu
         ("schema_version", Value::Int(1)),
         ("receipt_id", string(id)),
         ("receipt_kind", string(kind)),
+        // Metadata the index is rebuilt from (`ctxpect store repair`): the
+        // original creation time and coordinate carry no evidence bodies.
+        (
+            "created_at",
+            receipt.get("created_at").cloned().unwrap_or(Value::Null),
+        ),
+        (
+            "coordinate",
+            receipt.get("coordinate").cloned().unwrap_or(Value::Null),
+        ),
         (
             "tombstone",
             object([
@@ -407,18 +473,42 @@ pub fn reject_relabeled_snapshot(value: &Value) -> Result<(), ReceiptError> {
     Ok(())
 }
 
-fn digest_body(receipt: &Value) -> String {
-    let stripped = strip_time_fields(receipt);
-    let body = match stripped {
-        Value::Object(mut map) => {
-            map.remove("manifest");
-            if let Some(Value::Object(sig)) = map.get_mut("signature") {
-                sig.insert("value".to_string(), Value::Null);
-            }
-            Value::Object(map)
-        }
-        other => other,
+/// The bytes the local-continuity MAC is computed over: the content digest
+/// plus both display-only times, newline-separated.
+fn mac_input(manifest_digest: &str, created_at: &str, signed_at: &str) -> String {
+    format!("{manifest_digest}\n{created_at}\n{signed_at}")
+}
+
+/// Remove one `/`-separated path from an object tree, if present.
+fn remove_path(value: &mut Value, path: &[String]) {
+    let Some((head, rest)) = path.split_first() else {
+        return;
     };
+    let Value::Object(map) = value else {
+        return;
+    };
+    if rest.is_empty() {
+        map.remove(head);
+    } else if let Some(child) = map.get_mut(head) {
+        remove_path(child, rest);
+    }
+}
+
+/// The content digest: the Receipt without `manifest`, without the MAC
+/// value, and without the schema-declared display-only fields. No key-name
+/// stripping happens here (`strip_time_fields` is reserved for snapshot
+/// stability digests and redaction, not for Receipt identity).
+fn digest_body(receipt: &Value) -> String {
+    let mut body = receipt.clone();
+    if let Value::Object(map) = &mut body {
+        map.remove("manifest");
+        if let Some(Value::Object(sig)) = map.get_mut("signature") {
+            sig.insert("value".to_string(), Value::Null);
+        }
+    }
+    for path in display_only_paths() {
+        remove_path(&mut body, path);
+    }
     digest_value(&body)
 }
 
@@ -532,6 +622,7 @@ mod tests {
             "one-shot",
             Some(&key),
             "2026-09-06T00:00:00+08:00",
+            "2026-09-06T00:00:00+08:00",
             "r_test",
         )
         .expect("migrate");
@@ -569,19 +660,95 @@ mod tests {
     #[test]
     fn cannot_migrate_already_formal() {
         let formal = parse(r#"{"schema":"ctxpect-receipt-v1","receipt_kind":"one-shot"}"#).unwrap();
-        let err = migrate_dev_inspect_v0(&formal, "one-shot", None, "t", "id").expect_err("no");
+        let err = migrate_dev_inspect_v0(&formal, "one-shot", None, "t", "t", "id").expect_err("no");
         assert_eq!(err.code, "receipt.migration_required");
     }
 
     #[test]
     fn unknown_budget_is_not_zero() {
         let receipt =
-            migrate_dev_inspect_v0(&snapshot(), "one-shot", None, "t", "id").expect("migrate");
+            migrate_dev_inspect_v0(&snapshot(), "one-shot", None, "t", "t", "id").expect("migrate");
         let constant = receipt.pointer(&["budget", "constant"]).expect("budget");
         assert_eq!(
             constant.get("status").and_then(Value::as_str),
             Some("unknown")
         );
         assert_ne!(constant.get("value"), Some(&Value::Int(0)));
+    }
+
+    fn with_field(receipt: &Value, key: &str, value: Value) -> Value {
+        match receipt.clone() {
+            Value::Object(mut map) => {
+                map.insert(key.to_string(), value);
+                Value::Object(map)
+            }
+            other => other,
+        }
+    }
+
+    #[test]
+    fn the_signature_covers_created_at_and_signed_at_but_the_digest_does_not() {
+        let key = ContinuityKey::from_secret(b"test-key".to_vec());
+        let first = migrate_dev_inspect_v0(&snapshot(), "one-shot", Some(&key), "1.0Z", "1.0Z", "r_t")
+            .expect("migrate");
+        let second = migrate_dev_inspect_v0(&snapshot(), "one-shot", Some(&key), "2.0Z", "2.0Z", "r_t")
+            .expect("migrate");
+        // (2) Same content, different clock readings: same content digest.
+        assert_eq!(
+            first.pointer(&["manifest", "digest"]),
+            second.pointer(&["manifest", "digest"])
+        );
+        assert_ne!(
+            first.pointer(&["signature", "value"]),
+            second.pointer(&["signature", "value"]),
+            "the MAC covers the times"
+        );
+        verify_local_continuity(&first, &key).expect("valid");
+
+        // (1) Editing created_at after signing is caught.
+        let edited = with_field(&first, "created_at", string("9.0Z"));
+        let err = verify_local_continuity(&edited, &key).expect_err("tampered created_at");
+        assert_eq!(err.code, "receipt.signature_mismatch");
+
+        // Editing signed_at is caught the same way.
+        let mut sig = match first.get("signature").cloned().unwrap() {
+            Value::Object(map) => map,
+            _ => unreachable!(),
+        };
+        sig.insert("signed_at".into(), string("9.0Z"));
+        let edited = with_field(&first, "signature", Value::Object(sig));
+        let err = verify_local_continuity(&edited, &key).expect_err("tampered signed_at");
+        assert_eq!(err.code, "receipt.signature_mismatch");
+
+        // (3) A Receipt signed without signed_at gets the legacy answer, not Ok.
+        let mut legacy_sig = match first.get("signature").cloned().unwrap() {
+            Value::Object(map) => map,
+            _ => unreachable!(),
+        };
+        legacy_sig.remove("signed_at");
+        let legacy = with_field(&first, "signature", Value::Object(legacy_sig));
+        let err = verify_local_continuity(&legacy, &key).expect_err("legacy");
+        assert_eq!(err.code, "receipt.signature_legacy");
+    }
+
+    #[test]
+    fn the_digest_strips_only_schema_declared_paths_not_key_names() {
+        let paths = display_only_paths();
+        assert!(paths.iter().any(|p| p == &vec!["created_at".to_string()]), "{paths:?}");
+        assert!(
+            paths.iter().any(|p| p == &vec!["signature".to_string(), "signed_at".to_string()]),
+            "{paths:?}"
+        );
+        let key = ContinuityKey::from_secret(b"k".to_vec());
+        let receipt = migrate_dev_inspect_v0(&snapshot(), "one-shot", Some(&key), "t", "t", "r_x").unwrap();
+        // A business field that happens to be called `time` is part of the
+        // content: changing it changes the digest.
+        let findings = vec![object([("rule", string("x")), ("time", string("business-value"))])];
+        let with_time = with_field(&receipt, "findings", array(findings));
+        assert_ne!(
+            digest_body(&with_time),
+            digest_body(&receipt),
+            "a nested `time` key must not be stripped by name"
+        );
     }
 }

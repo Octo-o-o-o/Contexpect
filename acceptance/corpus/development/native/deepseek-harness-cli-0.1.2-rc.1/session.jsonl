@@ -1,0 +1,29 @@
+{"type":"session","version":0,"id":"ctxpect-synthetic-0001","createdAt":1700000000000,"cwd":"/tmp/ctxpect-fixture/project","delegationDepth":0}
+{"type":"turn/start","data":{"turn":1},"seq":0,"time":1700000000000}
+{"type":"user/message","data":{"id":"m-0001","role":"user","content":[{"type":"text","text":"List the files in the project."}],"source":{"kind":"user"}},"surfaceOp":"append","seq":1,"time":1700000001000}
+{"type":"user/message","data":{"id":"m-0002","role":"user","content":[{"type":"text","text":"<system-reminder>AGENTS.md: keep answers brief.</system-reminder>"}],"source":{"kind":"plugin","plugin":"agent-instructions","form":"instructions"}},"surfaceOp":"append","seq":2,"time":1700000002000}
+{"type":"step/start","data":{"turn":1,"step":1},"seq":3,"time":1700000003000}
+{"type":"request/context","data":{"provider":"deepseek","model":"deepseek-chat","contextWindow":128000},"seq":4,"time":1700000004000}
+{"type":"request/header","data":{"header":{"config":{"provider":"deepseek","model":"deepseek-chat"},"system":"You are a coding agent.","tools":[{"name":"bash","description":"Run a shell command","parameters":{"type":"object","properties":{"cmd":{"type":"string"}},"required":["cmd"]}}]},"reason":"initial"},"seq":5,"time":1700000005000}
+{"type":"assistant/chunk","data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"text"}},"seq":6,"time":1700000006000}
+{"type":"assistant/chunk","data":{"turn":1,"step":1,"chunk":{"type":"text-delta","index":0,"text":"Let me "}},"seq":7,"time":1700000007000}
+{"type":"assistant/chunk","data":{"turn":1,"step":1,"chunk":{"type":"text-delta","index":0,"text":"check."}},"seq":8,"time":1700000008000}
+{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"id":"m-0003","role":"assistant","content":[{"type":"text","text":"Let me check."},{"type":"tool-call","id":"call-0001","name":"bash","arguments":"{\"cmd\":\"ls\"}"}],"source":{"kind":"model","provider":"deepseek","model":"deepseek-chat"}},"usage":{"inputTokens":120,"outputTokens":20,"totalTokens":140}},"surfaceOp":"append","sourceEventSeqs":[[6,8]],"seq":9,"time":1700000009000}
+{"type":"tool/call","data":{"turn":1,"step":1,"callId":"call-0001","name":"bash","arguments":"{\"cmd\":\"ls\"}"},"seq":10,"time":1700000010000}
+{"type":"tool/result","data":{"turn":1,"step":1,"message":{"id":"m-0004","role":"user","source":{"kind":"tool","callId":"call-0001"},"content":[{"type":"tool-result","toolCallId":"call-0001","isError":false,"content":[{"type":"text","text":"AGENTS.md README.md src"}]}]}},"surfaceOp":"append","sourceEventSeqs":[10],"seq":11,"time":1700000011000}
+{"type":"step/end","data":{"turn":1,"step":1},"seq":12,"time":1700000012000}
+{"type":"step/start","data":{"turn":1,"step":2},"seq":13,"time":1700000013000}
+{"type":"request/header","data":{"header":{"config":{"provider":"deepseek","model":"deepseek-chat"},"system":"You are a coding agent. Be brief.","tools":[{"name":"bash","description":"Run a shell command","parameters":{"type":"object","properties":{"cmd":{"type":"string"}},"required":["cmd"]}}]},"reason":"change","startsSeries":true},"seq":14,"time":1700000014000}
+{"type":"assistant/message","data":{"turn":1,"step":2,"message":{"id":"m-0005","role":"assistant","content":[{"type":"text","text":"Three entries: AGENTS.md, README.md, src."}],"source":{"kind":"model","provider":"deepseek","model":"deepseek-chat"}},"usage":{"inputTokens":210,"outputTokens":12,"totalTokens":222,"cacheReadTokens":100}},"surfaceOp":"append","sourceEventSeqs":[],"seq":15,"time":1700000015000}
+{"type":"step/end","data":{"turn":1,"step":2},"seq":16,"time":1700000016000}
+{"type":"step/start","data":{"turn":1,"step":3},"seq":17,"time":1700000017000}
+{"type":"assistant/message","data":{"turn":1,"step":3,"message":{"id":"m-0009","role":"assistant","content":[{"type":"text","text":"Nothing else to list."}],"source":{"kind":"model","provider":"deepseek","model":"deepseek-chat"}},"usage":{"inputTokens":230,"outputTokens":6,"totalTokens":236}},"surfaceOp":"append","sourceEventSeqs":[],"seq":18,"time":1700000018000}
+{"type":"step/end","data":{"turn":1,"step":3},"seq":19,"time":1700000019000}
+{"type":"turn/end","data":{"turn":1,"reason":{"kind":"completed"}},"seq":20,"time":1700000020000}
+{"type":"user/message","data":{"id":"m-0006","role":"user","content":[{"type":"text","text":"Summary of the earlier conversation: the user asked for a file listing; the project holds AGENTS.md, README.md and src."}],"source":{"kind":"plugin","plugin":"compaction","form":"recall"}},"surfaceOp":{"op":"replace","start":1,"end":11},"sourceEventSeqs":[1,2,9,11],"seq":21,"time":1700000021000}
+{"type":"turn/start","data":{"turn":2},"seq":22,"time":1700000022000}
+{"type":"user/message","data":{"id":"m-0007","role":"user","content":[{"type":"text","text":"Now show the README."}],"source":{"kind":"user"}},"surfaceOp":"append","seq":23,"time":1700000023000}
+{"type":"step/start","data":{"turn":2,"step":1},"seq":24,"time":1700000024000}
+{"type":"request/header","data":{"header":{"config":{"provider":"deepseek","model":"deepseek-chat"},"system":"You are a coding agent. Be brief.","tools":[{"name":"bash","description":"Run a shell command","parameters":{"type":"object","properties":{"cmd":{"type":"string"}},"required":["cmd"]}}]},"reason":"series"},"seq":25,"time":1700000025000}
+{"type":"assistant/message","data":{"turn":2,"step":1,"message":{"id":"m-0008","role":"assistant","content":[{"type":"tool-call","id":"call-0002","name":"bash","arguments":"{\"cmd\":\"cat README.md\"}"}],"source":{"kind":"model","provider":"deepseek","model":"deepseek-chat"}},"usage":{"inputTokens":90,"outputTokens":15,"totalTokens":105}},"surfaceOp":"append","sourceEventSeqs":[],"seq":26,"time":1700000026000}
+{"type":"tool/call","data":{"turn":2,"step":1,"callId":"call-0002","name":"bash","arguments":"{\"cmd\":\"cat README.md\"}"},"seq":27,"time":1700000027000}

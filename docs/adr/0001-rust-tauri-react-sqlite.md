@@ -2,6 +2,7 @@
 
 > 状态：已接受（规范冻结；尚未实施产品运行时）
 > 日期：2026-09-04
+> 补充：SQLite/FTS5 偏离的结束条件与第三方依赖政策由 [ADR 0006](0006-third-party-dependency-policy-and-estimator.md) 记录（2026-09-09）；本文结论不变。
 
 ## 决策
 

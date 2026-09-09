@@ -1,0 +1,18 @@
+{
+  "schema": "ctxpect-dsh-fixture-meta-v1",
+  "dsh_sha": "67eac41d8788681901915b9f755e9f81d2962a7b",
+  "dsh_session_version": "0.1.2-rc.1",
+  "dsh_license": "MIT",
+  "node_version": "v22.23.1",
+  "script": "scripts/fixtures/deepseek-harness/generate.ts",
+  "script_sha256": "efa8406f6590263767e791db5fabfd1c2f82e2e483c15f4b709eddcf15c39d8b",
+  "generated_at": "2026-09-09T01:49:18.596Z",
+  "live_tested": false,
+  "synthetic": true,
+  "license": "Apache-2.0",
+  "encoding": {
+    "compression": "none",
+    "packed_chunks": false
+  },
+  "session_jsonl_sha256": "5add88bd1df2b874e5e9676426c1e99fa5ec57cb01957ddfe444c5be4bc47ab8"
+}

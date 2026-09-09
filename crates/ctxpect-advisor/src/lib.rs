@@ -44,6 +44,14 @@ pub fn suggest(
         ));
     }
     let local = adapter == "none" || adapter.is_empty();
+    if !local {
+        // No AnalysisAdapter other than the local heuristic exists. Echoing
+        // the name back would claim an analysis path that was never run.
+        return Err(AdvisorError::new(
+            "advisor.adapter_unavailable",
+            format!("analysis adapter `{adapter}` is not implemented; only `none` (local heuristic) exists in this slice"),
+        ));
+    }
     let candidate_id = format!(
         "c_{}",
         &sha256_text(&format!("{}|{}", evidence_ids.join(","), payload_preview))[..12]
@@ -88,6 +96,8 @@ mod tests {
     fn candidates_are_not_claims_and_consent_is_required() {
         let err = suggest(&["e1"], "redacted", false, true, "none").expect_err("consent");
         assert_eq!(err.code, "advisor.consent_required");
+        let err = suggest(&["e1"], "redacted body", true, true, "gpt-x").expect_err("adapter");
+        assert_eq!(err.code, "advisor.adapter_unavailable");
         let out = suggest(&["e1"], "redacted body", true, true, "none").unwrap();
         assert_eq!(out.get("is_claim").and_then(Value::as_bool), Some(false));
         assert_eq!(out.get("unlocks_treatment").and_then(Value::as_bool), Some(false));

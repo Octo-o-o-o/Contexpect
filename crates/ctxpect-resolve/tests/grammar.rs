@@ -3,7 +3,7 @@
 use ctxpect_core::{TruthState, UnknownReason};
 use ctxpect_fs::Root;
 use ctxpect_resolve::{
-    EdgeKind, PROJECT_DOC_MAX_BYTES, ResolveRequest, RootKind, layers_toward_cwd, resolve,
+    EdgeKind, Grammar, PROJECT_DOC_MAX_BYTES, ResolveRequest, RootKind, layers_toward_cwd, resolve,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -60,8 +60,174 @@ fn resolve_at(
         cwd_rel,
         codex_home: home,
         project_doc_max_bytes: PROJECT_DOC_MAX_BYTES,
+        grammar: Grammar::CodexInstructions,
     })
     .expect("resolve")
+}
+
+fn resolve_claude(scratch: &Scratch, cwd_rel: &str) -> ctxpect_resolve::Resolution {
+    let project = scratch.root();
+    resolve(&ResolveRequest {
+        project: &project,
+        cwd_rel,
+        codex_home: None,
+        project_doc_max_bytes: PROJECT_DOC_MAX_BYTES,
+        grammar: Grammar::ClaudeCodeInstructions,
+    })
+    .expect("resolve")
+}
+
+fn included_paths(resolution: &ctxpect_resolve::Resolution) -> Vec<&str> {
+    resolution
+        .edges
+        .iter()
+        .filter(|edge| edge.kind == EdgeKind::IncludedBy)
+        .map(|edge| edge.path.as_str())
+        .collect()
+}
+
+// ---- Claude Code CLI 2.1.259 instructions grammar (CL1–CL6) ----
+
+#[test]
+fn cl1_claude_md_is_additive_from_root_toward_cwd_and_skips_below_cwd() {
+    let scratch = Scratch::new("cl1");
+    scratch.write("CLAUDE.md", "root\n");
+    scratch.write("src/CLAUDE.md", "src\n");
+    scratch.write("src/app/CLAUDE.md", "app\n");
+    scratch.write("other/CLAUDE.md", "other\n");
+    let at_src = resolve_claude(&scratch, "src");
+    assert!(at_src.included);
+    assert_eq!(included_paths(&at_src), vec!["CLAUDE.md", "src/CLAUDE.md"]);
+    assert!(at_src.edges.iter().all(|edge| edge.kind != EdgeKind::OverriddenBy));
+    assert_eq!(at_src.parse_path, "CLAUDE.md");
+    assert!(!at_src.native_paths_used.iter().any(|p| p == "src/app/CLAUDE.md" || p == "other/CLAUDE.md"));
+    assert!(at_src.edges.iter().all(|edge| edge.rule_id != "G1"), "codex rule ids must not appear");
+}
+
+#[test]
+fn cl2_cl3_alternate_location_and_local_file_are_adopted_alongside() {
+    let scratch = Scratch::new("cl23");
+    scratch.write("CLAUDE.md", "a\n");
+    scratch.write(".claude/CLAUDE.md", "b\n");
+    scratch.write("CLAUDE.local.md", "c\n");
+    let resolution = resolve_claude(&scratch, "");
+    assert_eq!(
+        included_paths(&resolution),
+        vec!["CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md"]
+    );
+    let rules: Vec<&str> = resolution
+        .edges
+        .iter()
+        .filter(|edge| edge.kind == EdgeKind::IncludedBy)
+        .map(|edge| edge.rule_id)
+        .collect();
+    assert_eq!(rules, vec!["CL1", "CL2", "CL3"]);
+    assert_eq!(resolution.aggregated_bytes, 6);
+    assert!(!resolution.truncated);
+}
+
+#[test]
+fn cl4_ignore_excludes_as_product_rule_and_absent_is_absent() {
+    let scratch = Scratch::new("cl4");
+    scratch.write("CLAUDE.md", "body\n");
+    scratch.write(".ctxpect-ignore", "CLAUDE.md\n");
+    let resolution = resolve_claude(&scratch, "");
+    assert!(!resolution.included);
+    assert_eq!(resolution.claims.primary.truth_state, TruthState::Absent);
+    assert!(resolution.edges.iter().any(|edge| {
+        edge.kind == EdgeKind::ExcludedBy
+            && edge.rule_id == "CL4"
+            && edge.note.as_deref() == Some("product-user-exclusion")
+    }));
+    assert_eq!(resolution.native_paths_used, vec![".ctxpect-ignore", "CLAUDE.md"]);
+    // The excluded file is not read: no digest.
+    assert!(resolution
+        .evidence
+        .iter()
+        .any(|item| item.path == "CLAUDE.md" && item.content_digest.is_none()));
+
+    let empty = Scratch::new("cl4-empty");
+    let resolution = resolve_claude(&empty, "");
+    assert_eq!(resolution.claims.primary.truth_state, TruthState::Absent);
+    assert_eq!(resolution.parse_path, "CLAUDE.md");
+}
+
+#[test]
+fn cl5_user_memory_is_permission_not_granted_and_does_not_block() {
+    let scratch = Scratch::new("cl5");
+    scratch.write("CLAUDE.md", "body\n");
+    let resolution = resolve_claude(&scratch, "");
+    let global = resolution
+        .layers
+        .iter()
+        .find(|layer| layer.id == "global")
+        .expect("global layer");
+    assert_eq!(global.root_kind, RootKind::HarnessHome);
+    assert_eq!(global.unknown, Some(UnknownReason::PermissionNotGranted));
+    assert!(resolution.edges.iter().any(|edge| {
+        edge.kind == EdgeKind::UnknownBecause && edge.rule_id == "CL5" && edge.root_kind == RootKind::HarnessHome
+    }));
+    // The project file is still present: the global unknown is not blocking.
+    assert_eq!(resolution.claims.primary.truth_state, TruthState::Present);
+}
+
+#[test]
+fn cl6_budget_declaration_truncates_the_named_file_only() {
+    let scratch = Scratch::new("cl6");
+    scratch.write("CLAUDE.md", &"x".repeat(100));
+    scratch.write("budget.json", r#"{"path":"CLAUDE.md","max_bytes":32}"#);
+    let resolution = resolve_claude(&scratch, "");
+    assert!(resolution.included);
+    assert!(resolution.truncated);
+    assert_eq!(resolution.aggregated_bytes, 32);
+    assert!(resolution.edges.iter().any(|edge| {
+        edge.kind == EdgeKind::TruncatedAfter
+            && edge.rule_id == "CL6"
+            && edge.path == "CLAUDE.md"
+            && edge.offset == Some(32)
+            && edge.related_path.as_deref() == Some("budget.json")
+    }));
+    assert_eq!(resolution.native_paths_used, vec!["CLAUDE.md", "budget.json"]);
+    assert!(resolution.evidence.iter().any(|item| item.path == "budget.json" && item.content_digest.is_some()));
+
+    // A declaration naming a file that was not adopted applies to nothing.
+    let other = Scratch::new("cl6-other");
+    other.write("CLAUDE.md", &"x".repeat(100));
+    other.write("budget.json", r#"{"path":"README.md","max_bytes":32}"#);
+    let resolution = resolve_claude(&other, "");
+    assert!(!resolution.truncated);
+    assert_eq!(resolution.native_paths_used, vec!["CLAUDE.md"]);
+}
+
+#[test]
+fn claude_non_regular_candidate_is_unknown_not_absent() {
+    let scratch = Scratch::new("cl-fifo");
+    scratch.write(".claude/CLAUDE.md", "b\n");
+    // A directory named like the instruction file is not a regular file.
+    fs::create_dir_all(scratch.path.join("CLAUDE.md")).unwrap();
+    let resolution = resolve_claude(&scratch, "");
+    assert!(resolution.edges.iter().any(|edge| {
+        edge.kind == EdgeKind::UnknownBecause && edge.rule_id == "CL1" && edge.path == "CLAUDE.md"
+    }));
+    // The other candidate is adopted, so the answer is present rather than a
+    // blocking unknown; the unknown stays recorded.
+    assert_eq!(resolution.claims.primary.truth_state, TruthState::Present);
+    assert!(resolution.layers.iter().any(|layer| layer.unknown == Some(UnknownReason::ContentRedactedByPolicy)));
+}
+
+#[test]
+fn claude_all_layers_unreadable_is_indeterminate() {
+    // No layer adopts a file: the only candidate is a directory, so the
+    // claim cannot be present and must not be absent either.
+    let scratch = Scratch::new("cl-all-unreadable");
+    fs::create_dir_all(scratch.path.join("CLAUDE.md")).unwrap();
+    let resolution = resolve_claude(&scratch, "");
+    assert!(!resolution.included);
+    assert_eq!(resolution.claims.primary.truth_state, TruthState::Indeterminate);
+    assert_eq!(
+        resolution.claims.primary.unknown_reason,
+        Some(UnknownReason::ContentRedactedByPolicy)
+    );
 }
 
 #[test]

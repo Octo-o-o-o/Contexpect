@@ -16,7 +16,7 @@ Tauri 2 窗口，承载本地 daemon 已经在提供的 UI。
 
 ## 为什么是独立的 workspace
 
-仓库根的 Rust workspace 零第三方 crate，13 条 required gate 据此离线运行。壳需要 Tauri 及其依赖树，所以它自带 `[workspace]`、不在根 `members` 里：根目录的 `cargo build --workspace` 永远看不到它，那条性质得以保留。
+仓库根的 Rust workspace 零第三方 crate，16 条 required gate 据此离线运行（2026-09-08 起；壳建成时为 13 条）。壳需要 Tauri 及其依赖树，所以它自带 `[workspace]`、不在根 `members` 里：根目录的 `cargo build --workspace` 永远看不到它，那条性质得以保留。
 
 实测：加入壳之后，根 workspace 仍是 17 个本地 crate、**0 个第三方依赖**。
 

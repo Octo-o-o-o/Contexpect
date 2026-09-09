@@ -63,6 +63,8 @@ from contexpect_contract import (  # noqa: E402
     occurrence_identity,
     occurrence_requirement_id,
     read_traceability_csv,
+    implementation_cell_valid,
+    implementation_paths,
     require_fields,
     require_schema_version,
     require_sensitivity,
@@ -461,6 +463,19 @@ def check_traceability(errors: list[str], root: Path | None = None) -> None:
                         errors,
                     )
         feature = row.get("feature") or ""
+        implementation = row.get("implementation") or ""
+        if not implementation_cell_valid(implementation):
+            fail(
+                f"{req_id} implementation must be `unimplemented`, `partial: <paths>` or `<paths>`, got {implementation!r}",
+                errors,
+            )
+        for rel in implementation_paths(implementation):
+            # Paths are checked against the real repository: an implementation
+            # column that names a file that does not exist is a false claim.
+            if not (ROOT / rel).is_file():
+                fail(f"{req_id} implementation path does not exist: {rel}", errors)
+        if not (row.get("evidence_test") or "").strip():
+            fail(f"{req_id} evidence_test is empty; use `none` when there is none", errors)
         if heading.startswith("F-") and feature != heading.split()[0]:
             fail(f"{req_id} feature {feature} does not close at heading {heading}", errors)
         if heading.startswith("WP-") and feature != "NA":
@@ -529,6 +544,47 @@ def check_corpus(errors: list[str], root: Path | None = None) -> None:
     ids = [item["id"] for item in fixtures]
     if len(ids) != len(set(ids)):
         fail("corpus fixture ids are not unique", errors)
+
+    # Native-synthetic sessions: written by a harness's own API, held fixed
+    # by digest, synthetic and never live-tested. They are not JSONL golden
+    # rows (no `id` per line), so they are checked here, not below.
+    native = manifest.get("native_synthetic")
+    if not isinstance(native, list) or not native:
+        fail("corpus-manifest lacks native_synthetic sessions", errors)
+    else:
+        if (manifest.get("corpora") or {}).get("native-synthetic", {}).get("live_tested") is not False:
+            fail("native-synthetic corpus must declare live_tested false", errors)
+        for item in native:
+            if item.get("live_tested") is not False:
+                fail(f"{item.get('id')} native-synthetic must not claim live_tested", errors)
+            if item.get("license") != "Apache-2.0":
+                fail(f"{item.get('id')} native-synthetic missing Apache-2.0 license", errors)
+            sha = item.get("harness_sha")
+            if not isinstance(sha, str) or len(sha) != 40:
+                fail(f"{item.get('id')} native-synthetic lacks a 40-hex harness_sha", errors)
+            names = {Path(f["path"]).name for f in item.get("files") or []}
+            if names != {"session.jsonl", "expected.json", "meta.json"}:
+                fail(f"{item.get('id')} native-synthetic must list session.jsonl, expected.json, meta.json", errors)
+            for entry in item.get("files") or []:
+                path = root / entry["path"]
+                if not path.is_file():
+                    fail(f"native-synthetic file missing {entry['path']}", errors)
+                    continue
+                text = path.read_text(encoding="utf-8")
+                if sha256_text(text) != entry.get("digest_sha256"):
+                    fail(f"digest mismatch for {entry['path']}", errors)
+                if "/Users/" in text or "/home/" in text:
+                    fail(f"{entry['path']} carries a host home path", errors)
+                if path.name == "meta.json":
+                    meta = json.loads(text)
+                    if meta.get("live_tested") is not False or meta.get("synthetic") is not True:
+                        fail(f"{entry['path']} must declare live_tested false and synthetic true", errors)
+                    if meta.get("dsh_sha") != sha:
+                        fail(f"{entry['path']} dsh_sha != manifest harness_sha", errors)
+                if path.name == "expected.json":
+                    expected = json.loads(text)
+                    if expected.get("schema") != "ctxpect-dsh-fixture-expected-v1":
+                        fail(f"{entry['path']} unexpected schema {expected.get('schema')!r}", errors)
 
     by_corpus = Counter(item["corpus"] for item in fixtures)
     for name in ("development", "sealed", "live"):

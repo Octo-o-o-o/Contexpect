@@ -36,7 +36,7 @@ packages/ui                         React/TypeScript app
 packages/ui-tokens                  design tokens from 02-design-system.md
 ```
 
-已创建：`Cargo.toml`（workspace）、`crates/ctxpect-core`、`ctxpect-schema`、`ctxpect-fs`、`ctxpect-collect`、`ctxpect-resolve`、`ctxpect-cli`，以及 Receipt/ledger/Doctor/diff/policy/projection/importer/advisor/effect/sync。`packages/ui` 与 `packages/ui-tokens` 已创建。`apps/desktop` 的 Tauri 桌面壳**尚未创建**（该目录目前只有 README 与预览脚本，没有 `src-tauri` / `tauri.conf.json`），因此也不是 Cargo workspace member。存在源码不表示已通过其完整验收；以相应阶段合同和有效交付记录为准。SQLite+FTS5 仍是 ADR 目标；当前 ledger 是 std-only JSON 文档库，这是存储引擎偏离，不是 Claim/Receipt 合同偏离。
+已创建：`Cargo.toml`（workspace）、`crates/ctxpect-core`、`ctxpect-schema`、`ctxpect-fs`、`ctxpect-collect`、`ctxpect-resolve`、`ctxpect-cli`，以及 Receipt/ledger/Doctor/diff/policy/projection/importer/advisor/effect/sync。`packages/ui` 与 `packages/ui-tokens` 已创建。`apps/desktop/src-tauri` 的 Tauri 2 桌面壳**已建成，macOS lane 已验**（Windows/Linux 未验，缺设备；见 [交付状态](2026-09-08-delivery-status.md)）；它是独立 workspace，不是根 Cargo workspace member，也没有 required gate。存在源码不表示已通过其完整验收；以相应阶段合同和有效交付记录为准。SQLite+FTS5 仍是 ADR 目标；当前 ledger 是 std-only JSON 文档库，这是存储引擎偏离，不是 Claim/Receipt 合同偏离。
 
 OS lanes：`macos-27-arm64`（已捕获）、`ubuntu-24.04-x86_64`（官方 `ubuntu-24.04.4-live-server-amd64.iso` SHA-256 已冻结）、`windows-11-24h2-x86_64`（官方 build `26100.9278` 已冻结；ISO digest 为 `digest-not-published-by-source`）。详见 `docs/research/2026-09-04-source-backed-coordinates.md` 与 `acceptance/artifact-digest-manifest.json`。
 
@@ -299,9 +299,12 @@ Cursor user instructions 保持 export-only。Codex/Grok 无独立 scoped-rule p
 | cargo-build | `cargo build --workspace` |
 | cargo-test | `cargo test --workspace` |
 | cargo-clippy | `cargo clippy --workspace --all-targets` |
+| corpus-conformance | `cargo test -p ctxpect-cli --test corpus_conformance` |
+| doctor-corpus | `cargo test -p ctxpect-cli --test doctor_corpus` |
+| native-conformance | `cargo test -p ctxpect-cli --test native_conformance` |
 | ui-routes | `python3 scripts/check_ui_routes.py` |
 | ui-unit | `pnpm test` |
 | ui-typecheck | `pnpm typecheck` |
 | ui-build | `pnpm build` |
 
-WP-01 的**文档与合同**部分在 foundation 完成：根开源文件、canonical docs、八份 acceptance 工件、生成夹具，以及上表前六条门禁。WP-02 第一刀（`ctxpect-core` 真值模型与 `ctxpect-schema` 规范化）追加 cargo-build、cargo-test 与 cargo-clippy 三条门禁；后续 crate 与 `packages/ui` 已有阶段实现。存在源码不表示已通过其完整验收。前端四条（ui-routes / ui-unit / ui-typecheck / ui-build）是本阶段新增的 required gate，cwd/env/命令/失败判据见 [test-strategy](test-strategy.md)。
+WP-01 的**文档与合同**部分在 foundation 完成：根开源文件、canonical docs、八份 acceptance 工件、生成夹具，以及上表前六条门禁。WP-02 第一刀（`ctxpect-core` 真值模型与 `ctxpect-schema` 规范化）追加 cargo-build、cargo-test 与 cargo-clippy 三条门禁；2026-09-08 起再追加 corpus-conformance、doctor-corpus 与 native-conformance 三条（静态语料 / Doctor 语料 / 合成原生会话逐行进入 Rust 实现）；后续 crate 与 `packages/ui` 已有阶段实现。存在源码不表示已通过其完整验收。前端四条（ui-routes / ui-unit / ui-typecheck / ui-build）是本阶段新增的 required gate，cwd/env/命令/失败判据见 [test-strategy](test-strategy.md)。

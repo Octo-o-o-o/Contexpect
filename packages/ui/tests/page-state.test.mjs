@@ -148,26 +148,36 @@ test("stateApplies resolves detail routes through their list route", () => {
 // ---- assertions keep those declarations honest against the real code.
 
 
-/** Literal API paths and path prefixes the daemon actually routes. */
+/**
+ * The daemon's routing table, parsed from `ROUTE_TABLE` in http.rs: one
+ * `(method, path pattern)` per routed endpoint. Both dimensions are exact, so
+ * a contract cannot declare a method the daemon does not route for a path.
+ */
 function backendRoutes() {
-  const literals = [...httpSource.matchAll(/"(GET|POST|PUT|DELETE)",\s*"(\/api\/v1[^"]*)"/g)].map(
-    (m) => ({ method: m[1], path: m[2], prefix: false }),
-  );
-  const prefixes = [...httpSource.matchAll(/starts_with\("(\/api\/v1[^"]*)"\)/g)].map((m) => ({
-    method: "*",
-    path: m[1],
-    prefix: true,
+  const start = httpSource.indexOf("pub const ROUTE_TABLE");
+  const end = httpSource.indexOf("];", start);
+  const block = httpSource.slice(start, end);
+  return [...block.matchAll(/\("(GET|POST|PUT|DELETE)",\s*"(\/api\/v1[^"]*)"\)/g)].map((m) => ({
+    method: m[1],
+    path: m[2].replace(/:[A-Za-z]+/g, ":x"),
   }));
-  return [...literals, ...prefixes];
 }
 
 function routedByBackend(declared) {
-  const concrete = declared.path.replace(/:[A-Za-z]+/g, "x");
-  return backendRoutes().some((route) => {
-    if (route.prefix) return concrete.startsWith(route.path);
-    return route.path === concrete && (route.method === declared.method || route.method === "*");
-  });
+  const pattern = declared.path.replace(/:[A-Za-z]+/g, ":x");
+  return backendRoutes().some((route) => route.path === pattern && route.method === declared.method);
 }
+
+test("the routing table is parsed and routes by method as well as path", () => {
+  const routes = backendRoutes();
+  assert.ok(routes.length >= 40, `parsed only ${routes.length} routes`);
+  assert.ok(routedByBackend({ method: "POST", path: "/api/v1/receipts/:id/verify" }));
+  assert.ok(routedByBackend({ method: "GET", path: "/api/v1/care-plan/:findingId" }));
+  // A path the daemon knows under another method is not routed: the method
+  // dimension is checked, not defaulted to `*`.
+  assert.equal(routedByBackend({ method: "DELETE", path: "/api/v1/receipts/:id/verify" }), false);
+  assert.equal(routedByBackend({ method: "POST", path: "/api/v1/care-plan/:id" }), false);
+});
 
 test("every declared query names an endpoint the daemon actually routes", () => {
   for (const contract of PAGE_CONTRACTS) {

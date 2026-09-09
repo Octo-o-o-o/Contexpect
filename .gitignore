@@ -97,3 +97,15 @@ core.*
 
 # Tauri shell build output (its own workspace)
 /apps/desktop/src-tauri/gen/
+
+# UI presentation-layer SSR build output (tests/render.test.mjs)
+/packages/ui/tests/.ssr-out/
+
+# UI browser E2E (playwright.config.ts): built UI, daemon state, traces
+/packages/ui/tests/.e2e-dist/
+/packages/ui/tests/.e2e-out/
+/packages/ui/playwright-report/
+
+# 本地实施交接（同上一份 IMPL-PROMPT 的处理）
+/docs/process/2026-09-08-gap-analysis-IMPL-PROMPT.md
+/docs/process/2026-09-09-deepseek-harness-review-IMPL-PROMPT.md

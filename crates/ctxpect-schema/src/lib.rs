@@ -14,12 +14,14 @@ pub mod boundary;
 pub mod hmac;
 pub mod json;
 pub mod sha256;
+pub mod validate;
 
 pub use hmac::{hmac_sha256, hmac_sha256_hex};
 pub use json::{
     array, canonical_json, object, opt_string, parse, string, strip_time_fields, ParseError, Value,
 };
 pub use sha256::{sha256_hex, sha256_text, Hasher};
+pub use validate::validate;
 
 /// SHA-256 of a value's canonical JSON form.
 ///

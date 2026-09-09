@@ -1,5 +1,6 @@
 import { NavLink, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from "react";
+import { createGeneration } from "./generation";
 import { NAV, navKeyForPath } from "./routes";
 import { t, type Locale } from "./i18n";
 import { asObj, postJson, requestJson, type Json } from "./api";
@@ -61,6 +62,15 @@ export function App() {
     }
   }
 
+  // C01/C40: every inspect run gets a generation. A run that finishes after a
+  // newer one started is dropped, so an older coordinate's answer can never
+  // overwrite the current one.
+  // The same helper `generation.test.mjs` exercises, not a second copy of
+  // the pattern; the previous run's requests are also aborted, not only
+  // ignored.
+  const inspectGeneration = useRef(createGeneration());
+  const inspectAbort = useRef<AbortController | null>(null);
+
   async function runInspect(symptom?: string) {
     if (!project) {
       setError(t(locale, "projectRequired"));
@@ -68,6 +78,11 @@ export function App() {
       setVerdict({ state: "error", reasonCode: "ui.project_required", retryable: false });
       return;
     }
+    inspectAbort.current?.abort();
+    const ctrl = new AbortController();
+    inspectAbort.current = ctrl;
+    const generation = inspectGeneration.current.next();
+    const current = () => inspectGeneration.current.isCurrent(generation);
     setStatus("loading");
     setError("");
     setVerdict(null);
@@ -76,7 +91,9 @@ export function App() {
     const inspected = await requestJson("/api/v1/inspect", {
       method: "POST",
       body: JSON.stringify({ project, harness: "codex", symptom: symptom ?? "" }),
+      signal: ctrl.signal,
     });
+    if (!current()) return;
     if (!inspected.ok) {
       // The reason code survives instead of being folded into a message.
       const failed = classifyFailure(inspected.kind, inspected.code);
@@ -86,11 +103,20 @@ export function App() {
       return;
     }
     const out = asObj(inspected.data);
-    setReceipt(asObj(out.receipt));
+    const receiptObj = asObj(out.receipt);
+    setReceipt(receiptObj);
     setStatus(out.stale === true ? "stale" : "idle");
 
-    const query = symptom ? `?symptom=${encodeURIComponent(symptom)}` : "";
-    const diagnosed = await requestJson(`/api/v1/doctor${query}`);
+    // The diagnosis is asked for *this* Receipt by id. Without the id the
+    // daemon would answer for whichever Receipt is current, and a later
+    // inspect could make that a different observation than the one shown.
+    const receiptId = typeof receiptObj.receipt_id === "string" ? receiptObj.receipt_id : "";
+    const params = new URLSearchParams();
+    if (receiptId) params.set("receipt_id", receiptId);
+    if (symptom) params.set("symptom", symptom);
+    const query = params.toString() ? `?${params.toString()}` : "";
+    const diagnosed = await requestJson(`/api/v1/doctor${query}`, { signal: ctrl.signal });
+    if (!current()) return;
     if (!diagnosed.ok) {
       const failed = classifyFailure(diagnosed.kind, diagnosed.code);
       setStatus("error");
@@ -266,10 +292,24 @@ export function App() {
             <Route path="/assets" element={<AssetsPage locale={locale} />} />
             <Route path="/assets/:id" element={<EntityPage folder="assets" locale={locale} />} />
             <Route path="/sessions" element={<StateView path="/api/v1/sessions" route="/sessions" title={t(locale, "sessions")} locale={locale} />} />
-            <Route path="/sessions/:id" element={<EntityPage folder="sessions" locale={locale} />} />
+            <Route path="/sessions/:id" element={<SessionRequestsPage locale={locale} />} />
             <Route path="/monitor" element={<StateView path="/api/v1/monitor" route="/monitor" title={t(locale, "monitor")} locale={locale} />} />
-            <Route path="/lab" element={<StateView path="/api/v1/lab" route="/lab" title={t(locale, "lab")} locale={locale} />} />
-            <Route path="/lab/:id" element={<EntityPage folder="lab" locale={locale} />} />
+            <Route
+              path="/lab"
+              element={
+                <StateView
+                  path="/api/v1/lab"
+                  route="/lab"
+                  title={t(locale, "lab")}
+                  locale={locale}
+                  render={(data) => <LabListView data={data} locale={locale} />}
+                />
+              }
+            />
+            <Route
+              path="/lab/:id"
+              element={<EntityPage folder="lab" locale={locale} render={(data) => <LabResultView data={data} locale={locale} />} />}
+            />
             <Route path="/sync" element={<SyncPage locale={locale} />} />
             <Route path="/policy" element={<StateView path="/api/v1/policy" route="/policy" title={t(locale, "policy")} locale={locale} />} />
             <Route path="/standards" element={<StateView path="/api/v1/standards" route="/standards" title={t(locale, "standards")} locale={locale} />} />
@@ -938,12 +978,17 @@ function useResource(path: string): Resource {
     data: null,
   });
   const controller = useRef<AbortController | null>(null);
+  // Abort stops the work; the generation stops a late answer that already
+  // left the daemon from touching a newer request's state (C01/C40).
+  const generation = useRef(createGeneration());
 
   useEffect(() => {
     const ctrl = new AbortController();
     controller.current = ctrl;
+    const mine = generation.current.next();
     setState({ status: "loading", reasonCode: "", retryable: false, data: null });
     void requestJson(path, { signal: ctrl.signal }).then((result) => {
+      if (!generation.current.isCurrent(mine)) return;
       if (result.ok) {
         const verdict = classifyPayload(result.data);
         setState({ ...verdict, status: verdict.state, data: result.data });
@@ -997,7 +1042,7 @@ function SharedStateBanner({
 }
 
 /** The banner that states which C04 state a page is in, and what to do. */
-function StateBanner({
+export function StateBanner({
   route,
   status,
   reasonCode,
@@ -1055,6 +1100,7 @@ function StateView({
   title,
   locale,
   headingLevel = 1,
+  render,
 }: {
   path: string;
   route: string;
@@ -1063,6 +1109,8 @@ function StateView({
   /** Use 2 when this view sits inside a page that already has an `h1`;
       two `h1`s in one document make the outline ambiguous (SC 1.3.1). */
   headingLevel?: 1 | 2;
+  /** A presentation for the payload, rendered above the JSON dump. */
+  render?: (data: Json) => ReactNode;
 }) {
   const res = useResource(path);
   const Heading = headingLevel === 2 ? "h2" : "h1";
@@ -1093,8 +1141,352 @@ function StateView({
         locale={locale}
         onRetry={res.retry}
       />
+      {res.data != null && render ? render(asObj(res.data)) : null}
       {res.data != null ? (
         <pre className="mono">{JSON.stringify(res.data, null, 2)}</pre>
+      ) : null}
+    </section>
+  );
+}
+
+/** Effect Lab: the list says which experiments were executed at all. */
+export function LabListView({ data, locale }: { data: Json; locale: Locale }) {
+  const items = Array.isArray(data.experiments) ? data.experiments : [];
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>experiment_id</th>
+          <th>{t(locale, "labExecuted")}</th>
+          <th>{t(locale, "labDecision")}</th>
+          <th>{t(locale, "reasonCodeLabel")}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((raw) => {
+          const item = asObj(raw);
+          const id = String(item.experiment_id ?? "");
+          const executed = item.executed === true;
+          return (
+            <tr key={id} data-executed={String(executed)}>
+              <td>
+                <NavLink to={`/lab/${encodeURIComponent(id)}`}>{id}</NavLink>
+              </td>
+              <td>{executed ? t(locale, "labExecuted") : t(locale, "labNotExecuted")}</td>
+              <td>{item.decision == null ? "—" : String(item.decision)}</td>
+              <td>
+                <code>{String(item.reason_code ?? "")}</code>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+/**
+ * Effect Lab: one experiment. An experiment without per-run results was not
+ * executed and has no decision; the page says so before anything else.
+ */
+export function LabResultView({ data, locale }: { data: Json; locale: Locale }) {
+  const executed = data.executed === true;
+  const estimator = asObj(data.estimator);
+  return (
+    <div data-testid="lab-result" data-executed={String(executed)}>
+      <p role="status">
+        <strong>{executed ? t(locale, "labExecuted") : t(locale, "labNotExecuted")}</strong>
+        {" · "}
+        {t(locale, "labDecision")}: {data.decision == null ? "—" : String(data.decision)}
+        {" · "}
+        {t(locale, "reasonCodeLabel")}: <code>{String(data.reason_code ?? "")}</code>
+      </p>
+      {typeof data.note === "string" ? <p>{data.note}</p> : null}
+      <p>
+        {t(locale, "labEstimator")}: {estimator.available === true ? String(estimator.name ?? "") : t(locale, "unknown")}
+        {typeof estimator.note === "string" ? ` — ${estimator.note}` : null}
+      </p>
+    </div>
+  );
+}
+
+type TimelineRow = { seq: number; type: string; len: number; digest: string; surface_op: string | null };
+
+function timelineRows(session: Json): TimelineRow[] {
+  const rows = Array.isArray(session.timeline) ? session.timeline : [];
+  return rows.map((raw) => {
+    const row = asObj(raw);
+    return {
+      seq: Number(row.seq ?? -1),
+      type: String(row.type ?? ""),
+      len: Number(row.len ?? 0),
+      digest: String(row.digest ?? ""),
+      surface_op: typeof row.surface_op === "string" ? row.surface_op : null,
+    };
+  });
+}
+
+function fmtRanges(value: unknown): string {
+  if (!Array.isArray(value) || value.length === 0) return "—";
+  return value
+    .map((item) => {
+      if (Array.isArray(item) && item.length === 2) {
+        return item[0] === item[1] ? String(item[0]) : `${item[0]}–${item[1]}`;
+      }
+      const r = asObj(item);
+      return `${r.seq}: ${r.start}–${r.end}`;
+    })
+    .join(", ");
+}
+
+/** Rows of type/seq/len/digest only: no body ever reaches this table. */
+function MetadataRows({ rows, caption }: { rows: TimelineRow[]; caption: string }) {
+  return (
+    <table data-metadata-only="true">
+      <caption>{caption}</caption>
+      <thead>
+        <tr>
+          <th>seq</th>
+          <th>type</th>
+          <th>len</th>
+          <th>digest</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.seq}>
+            <td>{row.seq}</td>
+            <td>{row.type}</td>
+            <td>{row.len}</td>
+            <td>
+              <code>{row.digest.slice(0, 16)}</code>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/**
+ * V06 request evidence: what the store knows about each request an
+ * imported session made — header digest, message count, source and
+ * replacement ranges, dispatch evidence — and two metadata-only views: the
+ * human-visible history (append-origin surface events) and the surface the
+ * selected request was derived from. Nothing here renders a body.
+ */
+export function SessionRequestsView({
+  session,
+  requests,
+  selected,
+  onSelect,
+  locale,
+}: {
+  session: Json;
+  requests: Json;
+  selected: number | null;
+  onSelect: (index: number) => void;
+  locale: Locale;
+}) {
+  const rows = timelineRows(session);
+  const bySeq = new Map(rows.map((row) => [row.seq, row]));
+  const list = Array.isArray(requests.requests) ? requests.requests.map(asObj) : [];
+  const tail = asObj(requests.tail);
+  const chosen = selected != null ? list[selected] : undefined;
+  const derived: TimelineRow[] = chosen
+    ? (Array.isArray(chosen.surface_nodes) ? chosen.surface_nodes : [])
+        .map((seq) => bySeq.get(Number(seq)))
+        .filter((row): row is TimelineRow => row !== undefined)
+    : [];
+  const human = rows.filter((row) => row.surface_op === "append");
+  return (
+    <div data-testid="session-requests">
+      <p>
+        {t(locale, "sessionNoBodies")}
+        {requests.partial === true ? ` · ${t(locale, "sessionPartial")}` : null}
+      </p>
+      <table data-testid="request-table">
+        <caption>{t(locale, "sessionRequests")}</caption>
+        <thead>
+          <tr>
+            <th>seq</th>
+            <th>reason</th>
+            <th>{t(locale, "sessionRequestHeader")}</th>
+            <th>{t(locale, "sessionRequestMessages")}</th>
+            <th>{t(locale, "sessionRequestSources")}</th>
+            <th>{t(locale, "sessionRequestReplaced")}</th>
+            <th>{t(locale, "sessionRequestDispatch")}</th>
+            <th>{t(locale, "sessionRequestLimits")}</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((request, index) => {
+            const reasons = Array.isArray(request.unknown_reasons) ? request.unknown_reasons : [];
+            const dispatch = request.dispatch_evidence;
+            return (
+              <tr key={String(request.seq)} data-selected={String(selected === index)}>
+                <td>{String(request.seq)}</td>
+                <td>{String(request.reason ?? "")}</td>
+                <td>
+                  <code>{String(request.header_digest ?? "").slice(0, 16)}</code>
+                </td>
+                <td>{String(request.message_count ?? 0)}</td>
+                <td>{fmtRanges(request.source_seq_ranges)}</td>
+                <td>{fmtRanges(request.replaced_ranges)}</td>
+                <td data-dispatch={dispatch == null ? "none" : "seq"}>
+                  {dispatch == null ? t(locale, "sessionRequestPreparedOnly") : `seq ${String(dispatch)}`}
+                </td>
+                <td>
+                  {reasons.length === 0 ? (
+                    "—"
+                  ) : (
+                    <ul>
+                      {reasons.map((reason) => (
+                        <li key={String(reason)}>{String(reason)}</li>
+                      ))}
+                    </ul>
+                  )}
+                </td>
+                <td>
+                  <button type="button" onClick={() => onSelect(index)} aria-pressed={selected === index}>
+                    {t(locale, "sessionSelectRequest")}
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <section data-testid="session-tail">
+        <h2>{t(locale, "sessionTail")}</h2>
+        <p>{tail.interrupted === true ? t(locale, "sessionTailInterrupted") : t(locale, "sessionTailBalanced")}</p>
+        {Array.isArray(tail.closers) && tail.closers.length > 0 ? (
+          <ul>
+            {tail.closers.map((raw, index) => {
+              const closer = asObj(raw);
+              return (
+                <li key={index}>
+                  {String(closer.type)}
+                  {typeof closer.error_code === "string" ? ` · ${closer.error_code}` : null}
+                  {typeof closer.reason === "string" ? ` · ${closer.reason}` : null}
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+      </section>
+      <MetadataRows rows={human} caption={t(locale, "sessionHumanHistory")} />
+      {chosen ? (
+        <MetadataRows
+          rows={derived}
+          caption={`${t(locale, "sessionDerivedSurface")} · seq ${String(chosen.seq)}`}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * `/sessions/:id`: two GETs (the session record, its request evidence) under
+ * one generation. Switching to another session bumps the generation, so a
+ * late response for the previous id is dropped instead of being rendered
+ * under the new one (the inspect chain's C01/C40 rule, reused).
+ */
+function SessionRequestsPage({ locale }: { locale: Locale }) {
+  const { id } = useParams();
+  const generation = useRef(createGeneration());
+  const [session, setSession] = useState<Json | null>(null);
+  const [requests, setRequests] = useState<Json | null>(null);
+  const [verdict, setVerdict] = useState<StateVerdict & { status: string }>({
+    status: "loading",
+    state: "loading",
+    reasonCode: "",
+    retryable: false,
+  });
+  const [selected, setSelected] = useState<number | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const controller = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!id) return undefined;
+    const gen = generation.current.next();
+    const ctrl = new AbortController();
+    controller.current = ctrl;
+    setSession(null);
+    setRequests(null);
+    setSelected(null);
+    setVerdict({ status: "loading", state: "loading", reasonCode: "", retryable: false });
+    const base = `/api/v1/sessions/${encodeURIComponent(id)}`;
+    void Promise.all([
+      requestJson(base, { signal: ctrl.signal }),
+      requestJson(`${base}/requests`, { signal: ctrl.signal }),
+    ]).then(([doc, reqs]) => {
+      if (!generation.current.isCurrent(gen)) return;
+      if (!doc.ok || !reqs.ok) {
+        const failed = doc.ok ? reqs : doc;
+        if (failed.ok) return;
+        if (failed.code === "api.cancelled") {
+          setVerdict({ status: "cancelled", state: "cancelled", reasonCode: failed.code, retryable: true });
+          return;
+        }
+        const v = classifyFailure(failed.kind, failed.code);
+        setVerdict({ ...v, status: v.state });
+        return;
+      }
+      const v = classifyPayload(reqs.data);
+      setSession(asObj(doc.data));
+      setRequests(asObj(reqs.data));
+      setVerdict({ ...v, status: v.state });
+    });
+    return () => ctrl.abort();
+  }, [id, attempt]);
+
+  if (!id) {
+    return (
+      <section className="panel">
+        <h1>{t(locale, "sessions")}</h1>
+        <p role="alert">{t(locale, "missingId")}</p>
+      </section>
+    );
+  }
+  return (
+    <section className="panel">
+      <h1>
+        {t(locale, "sessions")} / {id}
+      </h1>
+      {verdict.status === "loading" ? (
+        <p role="status">
+          {t(locale, "loading")}{" "}
+          <button type="button" onClick={() => controller.current?.abort()}>
+            {t(locale, "cancel")}
+          </button>
+        </p>
+      ) : null}
+      {verdict.status === "cancelled" ? (
+        <p role="status">
+          {t(locale, "cancelled")}{" "}
+          <button type="button" onClick={() => setAttempt((n) => n + 1)}>
+            {t(locale, "retry")}
+          </button>
+        </p>
+      ) : null}
+      <StateBanner
+        route="/sessions"
+        status={verdict.status}
+        reasonCode={verdict.reasonCode}
+        retryable={verdict.retryable}
+        locale={locale}
+        onRetry={() => setAttempt((n) => n + 1)}
+      />
+      {session && requests ? (
+        <SessionRequestsView
+          session={session}
+          requests={requests}
+          selected={selected}
+          onSelect={setSelected}
+          locale={locale}
+        />
       ) : null}
     </section>
   );
@@ -1296,7 +1688,15 @@ function ReceiptDetail({ locale }: { locale: Locale }) {
   );
 }
 
-function EntityPage({ folder, locale }: { folder: string; locale: Locale }) {
+function EntityPage({
+  folder,
+  locale,
+  render,
+}: {
+  folder: string;
+  locale: Locale;
+  render?: (data: Json) => ReactNode;
+}) {
   const { id } = useParams();
   if (!id) {
     return (
@@ -1312,6 +1712,7 @@ function EntityPage({ folder, locale }: { folder: string; locale: Locale }) {
       route={`/${folder}`}
       title={`${t(locale, folder)} / ${id}`}
       locale={locale}
+      render={render}
     />
   );
 }

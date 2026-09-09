@@ -5,9 +5,9 @@ use crate::jsonutil::{arr, obj, opt_s, s};
 use ctxpect_core::{Claim, LifecycleStage, TruthState, UnknownReason};
 use ctxpect_fs::{Refusal, Root};
 use ctxpect_resolve::{
-    ANCHOR_VERSION, Edge, EdgeKind, Evidence, FacetClaims, INSTRUCTIONS, PROJECT_DOC_MAX_BYTES,
-    Resolution, ResolveError, ResolveRequest, RootKind, coordinate_unknown_reason, honesty_claims,
-    resolve, unsupported_capability_reason,
+    ANCHORS, Anchor, DEFAULT_ANCHOR, Edge, EdgeKind, Evidence, FacetClaims, Grammar, INSTRUCTIONS,
+    PROJECT_DOC_MAX_BYTES, Resolution, ResolveError, ResolveRequest, RootKind, anchor_for,
+    coordinate_unknown_reason, honesty_claims, resolve, unsupported_capability_reason,
 };
 use ctxpect_schema::Value;
 use std::path::Path;
@@ -148,15 +148,20 @@ pub fn inspect(args: InspectArgs) -> Result<InspectReport, InspectFailure> {
 
     let coord_reason =
         coordinate_unknown_reason(&args.harness, &args.version, &args.surface, &args.os_lane);
+    let anchor = anchor_for(&args.harness, &args.version, &args.surface, &args.os_lane);
 
     let mut resolution: Option<Resolution> = None;
-    if coord_reason.is_none() && args.require.iter().any(|item| item == INSTRUCTIONS) {
+    if let Some(anchor) = anchor
+        && coord_reason.is_none()
+        && args.require.iter().any(|item| item == INSTRUCTIONS)
+    {
         resolution = Some(
             resolve(&ResolveRequest {
                 project: &project,
                 cwd_rel: &cwd_rel,
                 codex_home: home_root.as_ref(),
                 project_doc_max_bytes: PROJECT_DOC_MAX_BYTES,
+                grammar: anchor.grammar,
             })
             .map_err(map_resolve)?,
         );
@@ -184,7 +189,7 @@ pub fn inspect(args: InspectArgs) -> Result<InspectReport, InspectFailure> {
     };
 
     let (explanation, unknown, findings, assumptions) =
-        supporting_fields(&cap_results, resolution.as_ref(), &args, coord_reason);
+        supporting_fields(&cap_results, resolution.as_ref(), &args, coord_reason, anchor);
     let warning_values = ignore_warning_values(resolution.as_ref());
 
     let version_provenance = if args.version_explicit {
@@ -242,7 +247,14 @@ pub fn inspect(args: InspectArgs) -> Result<InspectReport, InspectFailure> {
             ]),
         ),
         ("offline", Value::Bool(args.offline)),
-        ("anchor_version_default", s(ANCHOR_VERSION)),
+        ("anchor_version_default", s(DEFAULT_ANCHOR.version)),
+        (
+            "anchor",
+            match anchor {
+                Some(anchor) => s(anchor.coordinate_id()),
+                None => Value::Null,
+            },
+        ),
     ]);
 
     let results_json: Vec<Value> = cap_results.iter().map(cap_to_json).collect();
@@ -275,6 +287,7 @@ pub fn inspect(args: InspectArgs) -> Result<InspectReport, InspectFailure> {
     let human = render_human(HumanRender {
         exit_code,
         args: &args,
+        anchor,
         cwd_rel: &cwd_rel,
         results: &cap_results,
         explanation: &explanation,
@@ -464,6 +477,7 @@ fn edge_to_json(edge: &Edge) -> Value {
 fn layer_rel_display(layer: &ctxpect_resolve::Layer) -> String {
     let prefix = match layer.root_kind {
         RootKind::CodexHome => "<codex-home>",
+        RootKind::HarnessHome => "<harness-home>",
         RootKind::Project => "<project>",
     };
     if layer.rel.is_empty() {
@@ -506,11 +520,31 @@ fn display_project_or_home(path: &str, rule_id: &str) -> String {
     path.to_string()
 }
 
+/// The next evidence that would establish model-visible for an anchor. Only
+/// two repeatable native oracles are declared (AGENTS.md invariant 2); an
+/// anchor without one says so instead of naming an oracle it does not have.
+fn oracle_hint(anchor: Option<&Anchor>) -> &'static str {
+    match anchor.map(|a| a.grammar) {
+        Some(Grammar::CodexInstructions) => {
+            "native runtime snapshot (codex debug prompt-input on Codex 0.147.0) to establish model-visible"
+        }
+        Some(Grammar::ClaudeCodeInstructions) => {
+            "no repeatable native oracle is declared for Claude Code in this stage; model-visible stays indeterminate until one is frozen"
+        }
+        None => "a native runtime snapshot for this coordinate's declared oracle, once one is frozen",
+    }
+}
+
+fn anchor_display(anchor: Option<&Anchor>) -> &'static str {
+    anchor.map_or("the anchor", |a| a.display)
+}
+
 fn supporting_fields(
     results: &[CapResult],
     resolution: Option<&Resolution>,
     args: &InspectArgs,
     coord_reason: Option<UnknownReason>,
+    anchor: Option<&Anchor>,
 ) -> (Vec<Value>, Vec<Value>, Vec<Value>, Vec<Value>) {
     let mut explanation = Vec::new();
     let mut unknown = Vec::new();
@@ -546,21 +580,19 @@ fn supporting_fields(
                         (
                             "why",
                             s(format!(
-                                "Codex instructions grammar adopted this file at its layer (activation always; rule {}).",
+                                "{} instructions grammar adopted this file at its layer (activation always; rule {}).",
+                                anchor_display(anchor),
                                 edge.rule_id
                             )),
                         ),
-                        (
-                            "next_evidence",
-                            s("native runtime snapshot (codex debug prompt-input on Codex 0.147.0) to establish model-visible"),
-                        ),
+                        ("next_evidence", s(oracle_hint(anchor))),
                     ]));
                 }
                 EdgeKind::ExcludedBy => {
                     let shown = format!("<project>/{}", edge.path);
                     explanation.push(obj([
                         ("kind", s("excluded")),
-                        ("rule_id", s("G4")),
+                        ("rule_id", s(edge.rule_id)),
                         ("path", s(&shown)),
                         (
                             "by",
@@ -589,7 +621,7 @@ fn supporting_fields(
                         .unwrap_or_else(|| "<project>/AGENTS.override.md".to_string());
                     explanation.push(obj([
                         ("kind", s(edge.kind.as_str())),
-                        ("rule_id", s("G2")),
+                        ("rule_id", s(edge.rule_id)),
                         ("path", s(&shown)),
                         ("by", s(&by)),
                         (
@@ -604,47 +636,49 @@ fn supporting_fields(
                 }
                 EdgeKind::TruncatedAfter => {
                     let shown = shown_path(edge);
-                    explanation.push(obj([
-                        ("kind", s("truncated")),
-                        ("rule_id", s("G3")),
-                        ("path", s(&shown)),
+                    let offset = i64::try_from(edge.offset.unwrap_or(PROJECT_DOC_MAX_BYTES))
+                        .unwrap_or(i64::MAX);
+                    let (why, next) = if edge.rule_id == "G3" {
                         (
-                            "offset",
-                            Value::Int(
-                                i64::try_from(edge.offset.unwrap_or(PROJECT_DOC_MAX_BYTES))
-                                    .unwrap_or(i64::MAX),
-                            ),
-                        ),
-                        (
-                            "why",
-                            s(format!(
+                            format!(
                                 "Aggregated project docs truncated at {} bytes (official-spec default project_doc_max_bytes; config.toml not read).",
                                 PROJECT_DOC_MAX_BYTES
-                            )),
-                        ),
+                            ),
+                            "none for this slice; a config override of project_doc_max_bytes is not implemented",
+                        )
+                    } else {
                         (
-                            "next_evidence",
-                            s("none for this slice; a config override of project_doc_max_bytes is not implemented"),
-                        ),
+                            format!(
+                                "File truncated at {offset} bytes by a contexpect `{}` declaration; this is not a {} native cap.",
+                                edge.related_path.as_deref().unwrap_or("budget.json"),
+                                anchor_display(anchor)
+                            ),
+                            "none; the cap is a declaration this project carries",
+                        )
+                    };
+                    explanation.push(obj([
+                        ("kind", s("truncated")),
+                        ("rule_id", s(edge.rule_id)),
+                        ("path", s(&shown)),
+                        ("offset", Value::Int(offset)),
+                        ("why", s(why)),
+                        ("next_evidence", s(next)),
                     ]));
                     findings.push(obj([
                         ("kind", s("truncated-after")),
-                        ("rule_id", s("G3")),
+                        ("rule_id", s(edge.rule_id)),
                         ("path", s(&shown)),
-                        (
-                            "offset",
-                            Value::Int(
-                                i64::try_from(edge.offset.unwrap_or(PROJECT_DOC_MAX_BYTES))
-                                    .unwrap_or(i64::MAX),
-                            ),
-                        ),
+                        ("offset", Value::Int(offset)),
                     ]));
                 }
                 EdgeKind::UnknownBecause => {
                     let note = edge.note.as_deref().unwrap_or("permission_not_granted");
                     let permission = note == UnknownReason::PermissionNotGranted.as_str();
                     let shown = if permission {
-                        "$CODEX_HOME/AGENTS.md".to_string()
+                        match edge.root_kind {
+                            RootKind::HarnessHome => format!("$HOME/.claude/{}", edge.path),
+                            _ => "$CODEX_HOME/AGENTS.md".to_string(),
+                        }
                     } else {
                         shown_path(edge)
                     };
@@ -653,7 +687,7 @@ fn supporting_fields(
                     } else {
                         UnknownReason::ContentRedactedByPolicy.as_str()
                     };
-                    let (why, next) = unknown_because_copy(note);
+                    let (why, next) = unknown_because_copy(note, edge.root_kind);
                     explanation.push(obj([
                         ("kind", s("unknown")),
                         ("rule_id", s(edge.rule_id)),
@@ -666,10 +700,10 @@ fn supporting_fields(
                         ("reason_code", s(reason_code)),
                         (
                             "layer",
-                            s(if edge.root_kind == RootKind::CodexHome {
-                                "global"
-                            } else {
+                            s(if edge.root_kind == RootKind::Project {
                                 "project"
+                            } else {
+                                "global"
                             }),
                         ),
                         ("rule_id", s(edge.rule_id)),
@@ -726,10 +760,7 @@ fn supporting_fields(
                     "why",
                     s("Static resolution cannot witness model-visible, use-evidence, or outcome-affecting facets."),
                 ),
-                (
-                    "next_evidence",
-                    s("native runtime snapshot on Codex 0.147.0"),
-                ),
+                ("next_evidence", s(oracle_hint(anchor))),
             ]));
         }
     }
@@ -748,7 +779,7 @@ fn supporting_fields(
             ("key", s("coordinate")),
             (
                 "value",
-                s("this inspect did not apply the Codex instructions grammar"),
+                s("this inspect did not apply any anchor instructions grammar"),
             ),
             ("provenance", s("official-spec")),
         ]));
@@ -758,9 +789,12 @@ fn supporting_fields(
         (
             "value",
             s(if args.version_explicit {
-                "user-supplied --version; not native-runtime evidence of installation"
+                "user-supplied --version; not native-runtime evidence of installation".to_string()
             } else {
-                "default 0.147.0 official-spec anchor; not native-runtime evidence of installation"
+                format!(
+                    "default {} official-spec anchor; not native-runtime evidence of installation",
+                    DEFAULT_ANCHOR.version
+                )
             }),
         ),
         (
@@ -779,12 +813,17 @@ fn supporting_fields(
 fn shown_path(edge: &Edge) -> String {
     match edge.root_kind {
         RootKind::CodexHome => format!("<codex-home>/{}", edge.path),
+        RootKind::HarnessHome => format!("<harness-home>/{}", edge.path),
         RootKind::Project => format!("<project>/{}", edge.path),
     }
 }
 
-fn unknown_because_copy(note: &str) -> (&'static str, &'static str) {
+fn unknown_because_copy(note: &str, root_kind: RootKind) -> (&'static str, &'static str) {
     match note {
+        "permission_not_granted" if root_kind == RootKind::HarnessHome => (
+            "The user memory root (~/.claude) is not read in this slice; HOME is not consulted.",
+            "a later slice that reads the user memory root under an explicit grant",
+        ),
         "permission_not_granted" => (
             "Global Codex instructions were not read because no explicit --codex-home root was granted. HOME and CODEX_HOME are not consulted.",
             "pass --codex-home <dir> for an allowed root containing AGENTS.md",
@@ -809,18 +848,27 @@ fn unknown_because_copy(note: &str) -> (&'static str, &'static str) {
 }
 
 fn coordinate_why(reason: UnknownReason, args: &InspectArgs) -> String {
+    let frozen: Vec<String> = ANCHORS
+        .iter()
+        .filter(|anchor| anchor.harness == args.harness)
+        .map(Anchor::coordinate_id)
+        .collect();
     match reason {
         UnknownReason::OfficialDistributionNotCaptured => format!(
-            "OS lane `{}` (harness `{}`) is not the captured macos-27-arm64 / cli distribution for this slice.",
-            args.os_lane, args.harness
+            "OS lane `{}` (harness `{}`) is not a captured distribution for this slice (captured anchors: {}).",
+            args.os_lane,
+            args.harness,
+            ANCHORS.iter().map(Anchor::coordinate_id).collect::<Vec<_>>().join(", ")
         ),
         UnknownReason::SurfaceNotExposed => format!(
-            "Surface `{}` is not the captured cli surface for this slice.",
+            "Surface `{}` is not a captured surface for this slice.",
             args.surface
         ),
         UnknownReason::UnsupportedHarnessVersion => format!(
-            "Version `{}` is not the frozen Codex 0.147.0 coordinate.",
-            args.version
+            "Version `{}` is not a frozen coordinate for harness `{}` (frozen: {}).",
+            args.version,
+            args.harness,
+            frozen.join(", ")
         ),
         other => format!("Coordinate cannot be resolved ({other})."),
     }
@@ -833,7 +881,7 @@ fn coordinate_next(reason: UnknownReason) -> &'static str {
         }
         UnknownReason::SurfaceNotExposed => "a later slice that implements that surface",
         UnknownReason::UnsupportedHarnessVersion => {
-            "inspect with --version 0.147.0, or a later slice that supports that version"
+            "inspect with a frozen anchor version for this harness, or a later slice that supports that version"
         }
         _ => "additional declared evidence for this coordinate",
     }
@@ -861,6 +909,7 @@ fn policy_exit(required: &[(String, TruthState)]) -> i32 {
 struct HumanRender<'a> {
     exit_code: i32,
     args: &'a InspectArgs,
+    anchor: Option<&'a Anchor>,
     cwd_rel: &'a str,
     results: &'a [CapResult],
     explanation: &'a [Value],
@@ -893,6 +942,7 @@ fn render_human(input: HumanRender<'_>) -> String {
     let HumanRender {
         exit_code,
         args,
+        anchor,
         cwd_rel,
         results,
         explanation,
@@ -913,10 +963,12 @@ fn render_human(input: HumanRender<'_>) -> String {
     } else {
         out.push_str(&format!("cwd: <project>/{cwd_rel}\n"));
     }
-    if args.codex_home.is_some() {
-        out.push_str("codex-home: <codex-home> (granted)\n");
-    } else {
-        out.push_str("codex-home: not granted (G5; pass --codex-home <dir>)\n");
+    match anchor.map(|a| a.grammar) {
+        Some(Grammar::ClaudeCodeInstructions) => {
+            out.push_str("user memory root: not read in this slice (CL5)\n");
+        }
+        _ if args.codex_home.is_some() => out.push_str("codex-home: <codex-home> (granted)\n"),
+        _ => out.push_str("codex-home: not granted (G5; pass --codex-home <dir>)\n"),
     }
     out.push_str(&format!("exit: {exit_code}\n\n"));
     for result in results {

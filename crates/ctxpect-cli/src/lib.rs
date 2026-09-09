@@ -96,6 +96,7 @@
 
 mod args;
 mod catalog;
+pub mod conformance;
 mod dispatch;
 mod http;
 mod inspect;
@@ -105,7 +106,7 @@ mod redact;
 pub use args::{Cli, InspectArgs, ProductArgs, UsageError, parse_args, parse_cli};
 pub use ctxpect_schema::{Value, canonical_json, parse};
 pub use ctxpect_store::Store;
-pub use dispatch::persist_inspect;
+pub use dispatch::{persist_inspect, project_doctor_findings, project_scope_digest, scan_project_for_doctor};
 pub use inspect::{error_envelope, error_human, inspect, InspectFailure, InspectReport};
 pub use jsonutil::{strip_time_fields, with_snapshot_digest};
 pub use redact::{RedactOutcome, RedactRoots, redact_json_envelope, redact_output};
@@ -130,9 +131,15 @@ ctxpect — AI coding context 核对与控制工具
   ctxpect daemon start --project <dir> --store <dir> --listen 127.0.0.1:7420
   ctxpect --help
 
-inspect 仍是 Codex CLI 0.147.0 / cli / macos-27-arm64 / instructions 的静态切片。
+inspect 是两个 anchor 的 instructions 静态切片：Codex CLI 0.147.0 与 Claude Code CLI
+2.1.259（均 cli / macos-27-arm64）；其余坐标与 capability 如实报 Unknown。
 开发快照 schema=dev-inspect-v0 / receipt_kind=development-snapshot。正式 Receipt
 必须经过 migrate_dev_inspect_v0，不能靠改名升级。
+
+mutation 合同（详见 docs/guides/cli-reference.md「授权绑定」）:
+  ctxpect intent preview --project <dir> --store <dir> --target <rel> --desired <text>
+  ctxpect apply --tx <id> --project <dir> --store <dir>
+  ctxpect exception request --action <mutation> --expires-in <秒> [--target <t>] [--reason <r>]
 
 inspect 选项:
   --project <dir>     要检查的项目根（必填）
@@ -192,21 +199,44 @@ where
             let store_path = parsed.store.clone();
             match inspect(parsed) {
                 Ok(mut report) => {
-                    if let Some(path) = store_path
-                        && let Ok(store) = ctxpect_store::Store::open(&path)
-                        && let Ok(receipt) =
-                            dispatch::persist_inspect(&store, &report.envelope, "one-shot")
-                        && let ctxpect_schema::Value::Object(map) = &mut report.envelope
-                    {
-                        map.insert(
-                            "formal_receipt_id".into(),
-                            ctxpect_schema::string(
-                                receipt
-                                    .get("receipt_id")
-                                    .and_then(ctxpect_schema::Value::as_str)
-                                    .unwrap_or(""),
-                            ),
-                        );
+                    if let Some(path) = store_path {
+                        // `--store` asks for a formal Receipt. A persistence
+                        // failure is reported in the envelope and as exit 1
+                        // (IO error class), never swallowed into a clean
+                        // snapshot with no Receipt.
+                        let persisted = ctxpect_store::Store::open(&path)
+                            .map_err(|err| (err.code, err.message))
+                            .and_then(|store| {
+                                dispatch::persist_inspect(&store, &report.envelope, "one-shot")
+                                    .map_err(|err| (err.code(), err.message()))
+                            });
+                        if let ctxpect_schema::Value::Object(map) = &mut report.envelope {
+                            match persisted {
+                                Ok(receipt) => {
+                                    map.insert(
+                                        "formal_receipt_id".into(),
+                                        ctxpect_schema::string(
+                                            receipt
+                                                .get("receipt_id")
+                                                .and_then(ctxpect_schema::Value::as_str)
+                                                .unwrap_or(""),
+                                        ),
+                                    );
+                                    map.insert("persist_error".into(), ctxpect_schema::Value::Null);
+                                }
+                                Err((code, message)) => {
+                                    map.insert("formal_receipt_id".into(), ctxpect_schema::Value::Null);
+                                    map.insert(
+                                        "persist_error".into(),
+                                        ctxpect_schema::object([
+                                            ("code", ctxpect_schema::string(code)),
+                                            ("message", ctxpect_schema::string(message)),
+                                        ]),
+                                    );
+                                    report.exit_code = 1;
+                                }
+                            }
+                        }
                     }
                     emit_ok(report, &roots)
                 }

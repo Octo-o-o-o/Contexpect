@@ -202,6 +202,7 @@ ARTIFACT_REQUIRED_TOP_LEVEL = {
         "fixtures",
         "counts",
         "non_claims",
+        "native_synthetic",
     ],
     "artifact-digest-manifest": [
         "schema_version",
@@ -753,6 +754,9 @@ REQUIRED_GATES = [
     ("cargo-build", "cargo build --workspace"),
     ("cargo-test", "cargo test --workspace"),
     ("cargo-clippy", "cargo clippy --workspace --all-targets"),
+    ("corpus-conformance", "cargo test -p ctxpect-cli --test corpus_conformance"),
+    ("doctor-corpus", "cargo test -p ctxpect-cli --test doctor_corpus"),
+    ("native-conformance", "cargo test -p ctxpect-cli --test native_conformance"),
     ("ui-routes", "python3 scripts/check_ui_routes.py"),
     ("ui-unit", "pnpm test"),
     ("ui-typecheck", "pnpm typecheck"),
@@ -2516,6 +2520,104 @@ def overlay_implemented_trace(
     return gate, artifact
 
 
+# ---- implementation / evidence columns (traceability) ----
+#
+# Every traceability row states where the requirement is implemented and which
+# test or gate is its evidence. `implementation` is `unimplemented`,
+# `partial: <repo paths>` or `<repo paths>` (fully implemented); paths are
+# `;`-separated repo-relative files that must exist. `evidence_test` is `none`
+# or a `;`-separated list of gate names / test files. No feature is marked
+# fully implemented while its acceptance contract is open: partial is the
+# honest ceiling, and the checker refuses an implementation path that does not
+# exist.
+
+IMPLEMENTATION_BY_FEATURE = {
+    "F-01": ("partial: crates/ctxpect-cli/src/catalog.rs; crates/ctxpect-collect/src/lib.rs", "cargo-test; crates/ctxpect-cli/tests/product_loops.rs"),
+    "F-02": ("partial: crates/ctxpect-collect/src/lib.rs; crates/ctxpect-cli/src/dispatch.rs", "cargo-test; crates/ctxpect-collect/tests/passive_scan.rs"),
+    "F-03": ("partial: crates/ctxpect-resolve/src/lib.rs; crates/ctxpect-resolve/src/claude_code.rs; crates/ctxpect-cli/src/inspect.rs", "corpus-conformance; crates/ctxpect-resolve/tests/grammar.rs; crates/ctxpect-cli/tests/corpus_inspect.rs"),
+    "F-04": ("partial: crates/ctxpect-cli/src/dispatch.rs", "cargo-test; crates/ctxpect-cli/tests/product_loops.rs"),
+    "F-05": ("partial: crates/ctxpect-receipt/src/lib.rs; crates/ctxpect-store/src/lib.rs; docs/schemas/ctxpect-receipt-v1.schema.json", "cargo-test; crates/ctxpect-cli/tests/schema_conformance.rs"),
+    "F-06": ("partial: packages/ui/src/App.tsx; packages/ui/src/page-contract.js; packages/ui/src/page-state.js", "ui-unit; packages/ui/tests/render.test.mjs; packages/ui/tests/page-state.test.mjs"),
+    "F-07": ("partial: crates/ctxpect-diff/src/lib.rs", "cargo-test; crates/ctxpect-cli/tests/product_loops.rs"),
+    "F-08": ("partial: crates/ctxpect-doctor/src/lib.rs; crates/ctxpect-doctor/src/rules.rs; docs/schemas/ctxpect-doctor-v1.schema.json", "doctor-corpus; crates/ctxpect-cli/tests/doctor_corpus.rs; crates/ctxpect-cli/tests/schema_conformance.rs"),
+    "F-09": ("partial: crates/ctxpect-projection/src/lib.rs; crates/ctxpect-cli/src/dispatch.rs", "cargo-test; crates/ctxpect-cli/tests/product_loops.rs"),
+    "F-10": ("partial: crates/ctxpect-sync/src/lib.rs", "cargo-test; crates/ctxpect-cli/tests/product_loops.rs"),
+    "F-11": ("partial: crates/ctxpect-assets/src/lib.rs; crates/ctxpect-cli/src/catalog.rs", "cargo-test; crates/ctxpect-cli/tests/product_loops.rs"),
+    "F-12": ("partial: crates/ctxpect-importer/src/lib.rs", "cargo-test; crates/ctxpect-cli/tests/product_loops.rs"),
+    "F-13": ("partial: crates/ctxpect-advisor/src/lib.rs", "cargo-test; crates/ctxpect-cli/tests/product_loops.rs"),
+    "F-14": ("partial: crates/ctxpect-importer/src/lib.rs", "cargo-test; crates/ctxpect-cli/tests/product_loops.rs"),
+    "F-15": ("partial: crates/ctxpect-effect/src/lib.rs", "cargo-test; crates/ctxpect-cli/tests/product_loops.rs"),
+    "F-16": ("partial: crates/ctxpect-cli/src/http.rs; crates/ctxpect-cli/src/dispatch.rs", "cargo-test; crates/ctxpect-cli/tests/product_loops.rs"),
+    "F-17": ("partial: crates/ctxpect-cli/src/http.rs", "cargo-test; crates/ctxpect-cli/tests/product_loops.rs; packages/ui/tests/page-state.test.mjs"),
+    "F-18": ("partial: crates/ctxpect-policy/src/lib.rs; crates/ctxpect-policy/src/principal.rs; crates/ctxpect-cli/src/dispatch.rs", "cargo-test; crates/ctxpect-cli/tests/product_loops.rs"),
+}
+
+IMPLEMENTATION_BY_WP = {
+    "WP-01": ("partial: scripts/generate_acceptance.py; scripts/check_acceptance.py; docs/security/privacy-and-threat-model.md", "docs-structure; acceptance-validation; traceability-validation; corpus-validation"),
+    "WP-02": ("partial: crates/ctxpect-collect/src/lib.rs; crates/ctxpect-resolve/src/lib.rs; crates/ctxpect-cli/src/inspect.rs", "cargo-test; corpus-conformance"),
+    "WP-03": ("partial: crates/ctxpect-store/src/lib.rs; crates/ctxpect-receipt/src/lib.rs; crates/ctxpect-diff/src/lib.rs", "cargo-test; crates/ctxpect-cli/tests/schema_conformance.rs"),
+    "WP-04": ("partial: packages/ui/src/App.tsx; crates/ctxpect-cli/src/http.rs", "ui-routes; ui-unit; ui-typecheck; ui-build"),
+    "WP-05": ("partial: crates/ctxpect-importer/src/lib.rs; crates/ctxpect-cli/src/http.rs", "cargo-test"),
+    "WP-06": ("partial: crates/ctxpect-projection/src/lib.rs", "cargo-test; crates/ctxpect-cli/tests/product_loops.rs"),
+    "WP-07": ("partial: crates/ctxpect-sync/src/lib.rs", "cargo-test"),
+    "WP-08": ("partial: crates/ctxpect-assets/src/lib.rs", "cargo-test"),
+    "WP-09": ("partial: crates/ctxpect-advisor/src/lib.rs", "cargo-test"),
+    "WP-10": ("partial: crates/ctxpect-effect/src/lib.rs", "cargo-test"),
+    "WP-11": ("partial: crates/ctxpect-policy/src/lib.rs; crates/ctxpect-cli/src/dispatch.rs; crates/ctxpect-doctor/src/rules.rs", "cargo-test; doctor-corpus"),
+    "WP-12": ("unimplemented", "none"),
+}
+
+# Non-feature, non-WP statements by PRD section. Sections without an entry are
+# `unimplemented` with no evidence.
+IMPLEMENTATION_BY_SECTION_PREFIX = {
+    "4": ("partial: crates/ctxpect-core/src/claim.rs; crates/ctxpect-core/src/axes.rs; crates/ctxpect-core/src/reason.rs", "cargo-test; crates/ctxpect-core/tests/invariant_semantics.rs"),
+    "6": ("partial: crates/ctxpect-cli/src/dispatch.rs", "cargo-test; crates/ctxpect-cli/tests/product_loops.rs"),
+    "7": ("partial: crates/ctxpect-cli/src/dispatch.rs; packages/ui/src/App.tsx", "cargo-test; ui-unit"),
+    "9": ("partial: packages/ui/src/App.tsx; packages/ui/src/routes.ts; packages/ui/src/page-contract.js", "ui-routes; ui-unit; packages/ui/tests/render.test.mjs"),
+    "10": ("partial: crates/ctxpect-core/src/claim.rs; crates/ctxpect-receipt/src/lib.rs; crates/ctxpect-store/src/settings.rs", "cargo-test"),
+    "11": ("partial: crates/ctxpect-cli/src/catalog.rs; acceptance/compatibility-matrix.yaml", "acceptance-validation; corpus-conformance"),
+    "12": ("partial: crates/ctxpect-cli/src/http.rs; docs/adr/0002-trust-boundaries.md", "cargo-test"),
+    "13": ("partial: crates/ctxpect-cli/src/redact.rs; crates/ctxpect-doctor/src/secrets.rs; crates/ctxpect-fs/src/lib.rs; docs/security/privacy-and-threat-model.md", "cargo-test; crates/ctxpect-fs/tests/containment.rs"),
+    "14": ("partial: crates/ctxpect-projection/src/lib.rs; crates/ctxpect-store/src/lib.rs", "cargo-test"),
+    "17": ("partial: scripts/check_acceptance.py; crates/ctxpect-cli/tests/corpus_conformance.rs; crates/ctxpect-cli/tests/doctor_corpus.rs", "acceptance-validation; corpus-validation; corpus-conformance; doctor-corpus"),
+}
+
+IMPLEMENTATION_UNKNOWN = ("unimplemented", "none")
+
+
+def implementation_for(feature: str, heading: str, section: str) -> tuple[str, str]:
+    if feature in IMPLEMENTATION_BY_FEATURE:
+        return IMPLEMENTATION_BY_FEATURE[feature]
+    wp_match = re.match(r"^(WP-\d{2})\b", heading)
+    if wp_match and wp_match.group(1) in IMPLEMENTATION_BY_WP:
+        return IMPLEMENTATION_BY_WP[wp_match.group(1)]
+    best = ""
+    for prefix in IMPLEMENTATION_BY_SECTION_PREFIX:
+        if (section == prefix or section.startswith(prefix + ".")) and len(prefix) > len(best):
+            best = prefix
+    if best:
+        return IMPLEMENTATION_BY_SECTION_PREFIX[best]
+    return IMPLEMENTATION_UNKNOWN
+
+
+def implementation_paths(value: str) -> list[str]:
+    """Repo-relative paths named by an `implementation` cell (empty for `unimplemented`)."""
+    text = value.strip()
+    if text == "unimplemented":
+        return []
+    if text.startswith("partial:"):
+        text = text[len("partial:"):]
+    return [item.strip() for item in text.split(";") if item.strip()]
+
+
+def implementation_cell_valid(value: str) -> bool:
+    text = value.strip()
+    if text == "unimplemented":
+        return True
+    paths = implementation_paths(text)
+    return bool(paths) and all("/" in item and not item.startswith("/") for item in paths)
+
+
 def assign_trace_metadata(item: dict[str, Any]) -> dict[str, Any]:
     heading = item.get("heading") or ""
     section = item.get("section") or "0"
@@ -2565,6 +2667,7 @@ def assign_trace_metadata(item: dict[str, Any]) -> dict[str, Any]:
         gate = SEMANTIC_TEAM_GATE
         artifact = SEMANTIC_TEAM_ARTIFACT_HINT
     gate, artifact = overlay_implemented_trace(feature, heading, section, gate, artifact)
+    implementation, evidence_test = implementation_for(feature, heading, section)
     return {
         **item,
         "feature": feature,
@@ -2572,6 +2675,8 @@ def assign_trace_metadata(item: dict[str, Any]) -> dict[str, Any]:
         "test_or_gate": gate,
         "artifact": artifact,
         "owner": owner,
+        "implementation": implementation,
+        "evidence_test": evidence_test,
     }
 
 
@@ -2587,6 +2692,8 @@ TRACE_FIELDS = [
     "feature",
     "heading",
     "statement",
+    "implementation",
+    "evidence_test",
 ]
 
 

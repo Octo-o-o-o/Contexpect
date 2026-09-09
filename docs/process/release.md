@@ -38,4 +38,4 @@ Core、adapter、corpus、executor 更新必须来自签名发布或固定 diges
 
 ## 本阶段
 
-没有可发布二进制。Foundation 交付物是文档、`acceptance/` 与离线校验脚本。
+没有已发布、已签名的二进制或安装包：`ctxpect` 与桌面壳可在开发树构建，但不是发布物；发布前检查 6 项也没有对应脚本（见 [交付状态](2026-09-08-delivery-status.md)）。当前交付物是文档、`acceptance/`、离线门禁与阶段实现源码。

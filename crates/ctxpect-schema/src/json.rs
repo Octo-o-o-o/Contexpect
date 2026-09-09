@@ -232,7 +232,16 @@ impl std::error::Error for ParseError {}
 struct Parser<'a> {
     bytes: &'a [u8],
     pos: usize,
+    /// Current nesting of arrays and objects. Recursion is bounded by
+    /// [`MAX_DEPTH`]: a document of ten thousand `[` would otherwise
+    /// overflow the stack and abort the process, which no error path can
+    /// catch.
+    depth: usize,
 }
+
+/// Deepest nesting the parser accepts. Product documents nest a handful of
+/// levels; a session log's largest structures stay well under this.
+pub const MAX_DEPTH: usize = 128;
 
 impl<'a> Parser<'a> {
     fn err<T>(&self, message: &str) -> Result<T, ParseError> {
@@ -402,6 +411,14 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn enter(&mut self) -> Result<(), ParseError> {
+        if self.depth >= MAX_DEPTH {
+            return self.err("nesting deeper than the supported maximum");
+        }
+        self.depth += 1;
+        Ok(())
+    }
+
     fn parse_value(&mut self) -> Result<Value, ParseError> {
         self.skip_ws();
         match self.peek() {
@@ -412,10 +429,12 @@ impl<'a> Parser<'a> {
             Some(b'"') => Ok(Value::Str(self.parse_string()?)),
             Some(b'[') => {
                 self.pos += 1;
+                self.enter()?;
                 let mut items = Vec::new();
                 self.skip_ws();
                 if self.peek() == Some(b']') {
                     self.pos += 1;
+                    self.depth -= 1;
                     return Ok(Value::Array(items));
                 }
                 loop {
@@ -425,6 +444,7 @@ impl<'a> Parser<'a> {
                         Some(b',') => self.pos += 1,
                         Some(b']') => {
                             self.pos += 1;
+                            self.depth -= 1;
                             return Ok(Value::Array(items));
                         }
                         _ => return self.err("expected `,` or `]`"),
@@ -433,10 +453,12 @@ impl<'a> Parser<'a> {
             }
             Some(b'{') => {
                 self.pos += 1;
+                self.enter()?;
                 let mut map = BTreeMap::new();
                 self.skip_ws();
                 if self.peek() == Some(b'}') {
                     self.pos += 1;
+                    self.depth -= 1;
                     return Ok(Value::Object(map));
                 }
                 loop {
@@ -451,6 +473,7 @@ impl<'a> Parser<'a> {
                         Some(b',') => self.pos += 1,
                         Some(b'}') => {
                             self.pos += 1;
+                            self.depth -= 1;
                             return Ok(Value::Object(map));
                         }
                         _ => return self.err("expected `,` or `}`"),
@@ -468,6 +491,7 @@ pub fn parse(text: &str) -> Result<Value, ParseError> {
     let mut parser = Parser {
         bytes: text.as_bytes(),
         pos: 0,
+        depth: 0,
     };
     let value = parser.parse_value()?;
     parser.skip_ws();

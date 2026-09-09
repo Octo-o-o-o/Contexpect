@@ -7,6 +7,7 @@ does not claim live tests, and requires no network.
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -337,6 +338,66 @@ def field_mapping_docs() -> dict[str, dict]:
                     "coverage": "partial-declared-surface",
                     "precision": "exact",
                     "minimum_evidence": "native-runtime",
+                },
+            ]
+        elif family["id"] == "deepseek-harness" and surface["id"] == "cli":
+            # Native session-log fields the `deepseek-harness-cli` importer reads
+            # (crates/ctxpect-importer/src/deepseek_harness.rs). A request/header
+            # proves preparation only; provider output in the same turn/step
+            # (agent-loop/src/agent.ts:364-368 appends assistant/chunk per
+            # streamed chunk after opening the stream) proves dispatch. Usage is
+            # provider-reported and is not occupancy. Stages the log does not
+            # cover are listed as Unknown.
+            fields = [
+                {
+                    "native_field": "declared-static-path",
+                    "lifecycle_stage": "installed",
+                    "claim_kind": "resolved",
+                    "coverage": "partial-declared-surface",
+                    "minimum_evidence": "official-spec",
+                },
+                {
+                    "native_field": "session.jsonl request/header (foldRequestHeader over the log prefix)",
+                    "lifecycle_stage": "eligible",
+                    "claim_kind": "observed",
+                    "coverage": "full-declared-surface",
+                    "minimum_evidence": "native-log",
+                    "precision": "exact",
+                    "notes": "prepared: the header is appended before dispatch (agent.ts:508-517); it does not prove the request reached the model.",
+                },
+                {
+                    "native_field": "session.jsonl assistant/chunk | assistant/message in the header's turn/step (dispatch evidence)",
+                    "lifecycle_stage": "model-visible",
+                    "claim_kind": "observed",
+                    "coverage": "full-declared-surface",
+                    "minimum_evidence": "native-log",
+                    "precision": "exact",
+                    "notes": "The derived surface at the header seq (foldSurface + deriveEventMessage) is what was dispatched; provider output proves dispatch (agent.ts:364-368). Without it the claim is indeterminate (runtime_snapshot_missing).",
+                },
+                {
+                    "native_field": "session.jsonl assistant/message.usage",
+                    "lifecycle_stage": "model-visible",
+                    "claim_kind": "observed",
+                    "coverage": "partial-declared-surface",
+                    "minimum_evidence": "native-log",
+                    "precision": "exact",
+                    "notes": "provider-reported token accounting shown as reported; cumulative input is not occupancy and request/context.contextWindow is capacity, not use.",
+                },
+                {
+                    "native_field": "not-covered:use-evidence",
+                    "lifecycle_stage": "use-evidence",
+                    "claim_kind": "observed",
+                    "coverage": "unknown",
+                    "minimum_evidence": "native-runtime",
+                    "notes": "Unknown: the session log carries no attribution of which context shaped the answer; the importer answers indeterminate (runtime_snapshot_missing).",
+                },
+                {
+                    "native_field": "not-covered:outcome-affecting",
+                    "lifecycle_stage": "outcome-affecting",
+                    "claim_kind": "effect",
+                    "coverage": "unknown",
+                    "minimum_evidence": "native-runtime",
+                    "notes": "Unknown: outcome effect needs an Effect Lab contract, never a log; the importer answers indeterminate (runtime_snapshot_missing).",
                 },
             ]
         elif family["id"] == "grok-build" and surface["id"] == "cli":
@@ -925,7 +986,54 @@ def live_recipes(oracle_coords) -> list[dict]:
     return rows
 
 
-def corpus_manifest(entries: list[dict], file_digests: dict[str, str], counts: dict) -> dict:
+NATIVE_SYNTHETIC_FILES = ("session.jsonl", "expected.json", "meta.json")
+
+
+def native_synthetic_fixtures(root: Path) -> list[dict]:
+    """Register the native-synthetic corpus: session logs produced by a
+    harness's own public API (`scripts/fixtures/<family>/generate.ts` run
+    inside the pinned checkout), with expected values the harness computed.
+    The generator does not produce these files; it records their digests so
+    `check_acceptance.py --corpus` can hold them fixed."""
+    base = root / "acceptance/corpus/development/native"
+    out: list[dict] = []
+    if not base.is_dir():
+        return out
+    for folder in sorted(p for p in base.iterdir() if p.is_dir()):
+        files = []
+        for name in NATIVE_SYNTHETIC_FILES:
+            path = folder / name
+            if not path.is_file():
+                raise SystemExit(f"native-synthetic fixture {folder.name} lacks {name}")
+            files.append(
+                {
+                    "path": path.relative_to(root).as_posix(),
+                    "digest_sha256": sha256_text(path.read_text(encoding="utf-8")),
+                    "license": LICENSE_ID,
+                }
+            )
+        meta = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
+        out.append(
+            {
+                "id": f"dev:native:{folder.name}",
+                "corpus": "native-synthetic",
+                "kind": "native-session",
+                "path": files[0]["path"],
+                "files": files,
+                "generator": meta.get("script"),
+                "harness_sha": meta.get("dsh_sha"),
+                "harness_version": meta.get("dsh_session_version"),
+                "harness_license": meta.get("dsh_license"),
+                "license": LICENSE_ID,
+                "origin": "generated-by-harness-public-api",
+                "sensitivity": "public-synthetic",
+                "live_tested": False,
+            }
+        )
+    return out
+
+
+def corpus_manifest(entries: list[dict], file_digests: dict[str, str], counts: dict, native: list[dict]) -> dict:
     return {
         "schema_version": SCHEMA_VERSION,
         "cutoff": CUTOFF,
@@ -946,8 +1054,15 @@ def corpus_manifest(entries: list[dict], file_digests: dict[str, str], counts: d
                 "executed": False,
                 "live_tested": False,
             },
+            "native-synthetic": {
+                "role": "synthetic session logs written by a harness's own public API at a pinned SHA, with expected values the harness computed; the Rust importer is checked against them (native_conformance gate)",
+                "executed_harness": False,
+                "live_tested": False,
+                "widens_oracles": False,
+            },
         },
         "counts": counts,
+        "native_synthetic": native,
         "files": [
             {"path": path, "digest_sha256": digest, "license": LICENSE_ID}
             for path, digest in sorted(file_digests.items())
@@ -955,6 +1070,7 @@ def corpus_manifest(entries: list[dict], file_digests: dict[str, str], counts: d
         "fixtures": entries,
         "non_claims": [
             "Generated fixtures are not live tests.",
+            "Native-synthetic sessions are synthetic; no harness was executed and no oracle was widened.",
             "Sealed answers are withheld from implementers in this repository.",
             "Live recipes were not executed in the foundation stage.",
             "Security-critical fixtures are listed separately from the 60/12 floors.",
@@ -1203,6 +1319,7 @@ Implementers must not special-case sealed or live answers.
             )
         )
 
+    native = native_synthetic_fixtures(root)
     clean = sum(1 for r in doctor_rows if r["class"] in {"clean", "clean-lookalike"})
     issue = sum(1 for r in doctor_rows if r["class"] == "reachable-issue")
     counts = {
@@ -1216,8 +1333,9 @@ Implementers must not special-case sealed or live answers.
         "doctor_dedicated_clean": 125,
         "families": len(family_ids()),
         "anchor_families": ANCHOR_IDS,
+        "native_synthetic_sessions": len(native),
     }
-    write_json(acceptance / "corpus-manifest.json", corpus_manifest(fixture_entries, file_digests, counts))
+    write_json(acceptance / "corpus-manifest.json", corpus_manifest(fixture_entries, file_digests, counts, native))
     write_semantic_team_artifacts(root)
     write_json(root / ARTIFACT_DIGEST_MANIFEST, artifact_digest_manifest(root))
 

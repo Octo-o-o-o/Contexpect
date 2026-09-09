@@ -4,20 +4,24 @@ use crate::args::{InspectArgs, ProductArgs};
 use crate::catalog::{family_entry, integrations_json};
 use crate::dispatch::{
     asset_lock, assets_status, authorize_store_apply, effective_store_policy, exception_state,
-    listen_addr, load_asset_registry, now_unix, persist_inspect, standard_status,
-    verify_standard_document, ProductReport,
+    listen_addr, load_asset_registry, load_preview, mark_preview, now_unix, persist_inspect,
+    persist_preview, policy_fresh, policy_query_scope, project_scope_digest, standard_status,
+    verify_standard_document, Authorization, ProductReport,
 };
 use crate::inspect::inspect;
 use crate::jsonutil::with_snapshot_digest;
 use ctxpect_advisor::suggest;
 use ctxpect_collect::scan;
 use ctxpect_diff::{diff, EquivalenceProfile};
-use ctxpect_doctor::diagnose;
-use ctxpect_effect::{decide, run_local_instructions_probe, ExperimentContract};
+use ctxpect_doctor::{diagnose, render_project_findings, with_project_findings};
+use ctxpect_effect::{decide as effect_decide, not_executed, RunsDocument};
 use ctxpect_fs::{Refusal, Root};
-use ctxpect_importer::import_session;
+use ctxpect_importer::{deepseek_harness, import_session_bytes};
 use ctxpect_policy::exception_status;
-use ctxpect_projection::{apply as proj_apply, preview as proj_preview, rollback as proj_rollback, Intent};
+use ctxpect_projection::{
+    apply as proj_apply, preview as proj_preview, read_tx, rollback as proj_rollback,
+    target_outside_store, valid_tx_id, Intent, PREVIEW_APPLIED, PREVIEW_ROLLED_BACK,
+};
 use ctxpect_schema::{array, canonical_json, object, parse, string, Value};
 use ctxpect_store::Store;
 use ctxpect_sync::{apply_folder, bundle, preview_apply};
@@ -30,12 +34,47 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+/// The harness coordinate this daemon session is currently about. Set from
+/// the daemon's own `--harness/--surface/--version/--os-lane` and moved by
+/// each `POST /api/v1/inspect`; catalog endpoints read it rather than a
+/// hardcoded family.
+#[derive(Clone)]
+struct Coordinate {
+    harness: String,
+    version: String,
+    surface: String,
+    os_lane: String,
+}
+
+impl Coordinate {
+    fn to_value(&self) -> Value {
+        object([
+            ("harness", string(&self.harness)),
+            ("version", string(&self.version)),
+            ("surface", string(&self.surface)),
+            ("os_lane", string(&self.os_lane)),
+        ])
+    }
+}
+
 struct AppState {
     store: Store,
     project: Option<PathBuf>,
     ui_root: Option<PathBuf>,
     generation: AtomicU64,
     current_receipt: Mutex<Option<String>>,
+    coordinate: Mutex<Coordinate>,
+}
+
+impl AppState {
+    fn coordinate(&self) -> Coordinate {
+        self.coordinate.lock().map(|c| c.clone()).unwrap_or_else(|_| Coordinate {
+            harness: "unknown".into(),
+            version: "unknown".into(),
+            surface: "unknown".into(),
+            os_lane: "unknown".into(),
+        })
+    }
 }
 
 pub fn serve(args: &ProductArgs) -> Result<ProductReport, crate::inspect::InspectFailure> {
@@ -91,6 +130,12 @@ pub fn serve(args: &ProductArgs) -> Result<ProductReport, crate::inspect::Inspec
         ui_root,
         generation: AtomicU64::new(1),
         current_receipt: Mutex::new(None),
+        coordinate: Mutex::new(Coordinate {
+            harness: args.harness.clone(),
+            version: args.version.clone(),
+            surface: args.surface.clone(),
+            os_lane: args.os_lane.clone(),
+        }),
     });
     if args.oneshot {
         // Serve until a single /api/v1/shutdown or process signal. For tests,
@@ -113,15 +158,88 @@ pub fn serve(args: &ProductArgs) -> Result<ProductReport, crate::inspect::Inspec
     })
 }
 
-fn handle_client(mut stream: TcpStream, state: &AppState) -> Result<(), ()> {
-    let mut buf = [0u8; 65536];
-    let n = stream.read(&mut buf).map_err(|_| ())?;
-    let raw = String::from_utf8_lossy(&buf[..n]);
-    let Some(header_end) = raw.find("\r\n\r\n") else {
-        return write_res(&mut stream, 400, "application/json", r#"{"error":{"code":"api.bad_request"}}"#);
+/// Largest request head (request line + headers) accepted.
+const MAX_HEADER_BYTES: usize = 64 * 1024;
+/// Largest request body accepted; a native session log for import fits
+/// comfortably, anything larger is refused with 413 rather than truncated.
+const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
+/// How long one socket read may wait. An idle connection (a browser's
+/// preconnect, a client that never sends) must not hold the single-threaded
+/// daemon forever.
+const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn crlfcrlf(buf: &[u8]) -> Option<usize> {
+    buf.windows(4).position(|w| w == b"\r\n\r\n")
+}
+
+/// Read one request completely: the head up to the blank line, then exactly
+/// `Content-Length` body bytes. One `read()` is not a request — a body that
+/// arrives in a second segment used to be silently dropped and the handler
+/// ran with `{}`.
+fn read_request(stream: &mut TcpStream) -> Result<(String, Vec<u8>), (u16, &'static str)> {
+    let mut buf: Vec<u8> = Vec::with_capacity(8192);
+    let mut chunk = [0u8; 8192];
+    let mut read_more = |stream: &mut TcpStream, buf: &mut Vec<u8>| -> Result<(), (u16, &'static str)> {
+        match stream.read(&mut chunk) {
+            Ok(0) => Err((400, "api.bad_request")),
+            Ok(n) => {
+                buf.extend_from_slice(&chunk[..n]);
+                Ok(())
+            }
+            Err(err) if matches!(err.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
+                Err((408, "api.timeout"))
+            }
+            Err(_) => Err((400, "api.bad_request")),
+        }
     };
-    let head = &raw[..header_end];
-    let body = &raw[header_end + 4..];
+    let header_end = loop {
+        if let Some(pos) = crlfcrlf(&buf) {
+            break pos;
+        }
+        if buf.len() > MAX_HEADER_BYTES {
+            return Err((431, "api.header_too_large"));
+        }
+        read_more(stream, &mut buf)?;
+    };
+    let head = String::from_utf8_lossy(&buf[..header_end]).into_owned();
+    let mut body = buf[header_end + 4..].to_vec();
+    let mut content_length = 0usize;
+    for line in head.lines().skip(1) {
+        let Some((k, v)) = line.split_once(':') else { continue };
+        match k.trim().to_ascii_lowercase().as_str() {
+            "content-length" => {
+                content_length = v.trim().parse::<usize>().map_err(|_| (400, "api.bad_request"))?;
+            }
+            "transfer-encoding" => return Err((501, "api.transfer_encoding_unsupported")),
+            _ => {}
+        }
+    }
+    if content_length > MAX_BODY_BYTES {
+        return Err((413, "api.payload_too_large"));
+    }
+    while body.len() < content_length {
+        read_more(stream, &mut body)?;
+    }
+    body.truncate(content_length);
+    Ok((head, body))
+}
+
+fn handle_client(mut stream: TcpStream, state: &AppState) -> Result<(), ()> {
+    let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
+    let (head, body_bytes) = match read_request(&mut stream) {
+        Ok(parts) => parts,
+        Err((status, code)) => {
+            return write_res(
+                &mut stream,
+                status,
+                "application/json",
+                &format!(r#"{{"error":{{"code":"{code}"}}}}"#),
+            );
+        }
+    };
+    let head = head.as_str();
+    let body_text = String::from_utf8_lossy(&body_bytes);
+    let body: &str = &body_text;
     let mut lines = head.lines();
     let req = lines.next().unwrap_or("");
     let mut parts = req.split_whitespace();
@@ -143,6 +261,17 @@ fn handle_client(mut stream: TcpStream, state: &AppState) -> Result<(), ()> {
     if !origin.is_empty() && !is_loopback_origin(&origin) {
         return write_res(&mut stream, 403, "application/json", r#"{"error":{"code":"api.origin"}}"#);
     }
+    if method == "OPTIONS" {
+        // A preflight-style probe answers for known paths only, with no body.
+        let path_only = path.split('?').next().unwrap_or(path);
+        let known = !path_only.starts_with("/api/v1/")
+            || !matches!(match_route("GET", path_only), RouteMatch::NotFound);
+        return if known {
+            write_res(&mut stream, 204, "text/plain", "")
+        } else {
+            write_res(&mut stream, 400, "application/json", r#"{"error":{"code":"api.not_found"}}"#)
+        };
+    }
     if method != "GET" && method != "HEAD" {
         let client = headers.get("x-ctxpect-client").map(String::as_str).unwrap_or("");
         if client != "desktop" && origin.is_empty() {
@@ -154,8 +283,10 @@ fn handle_client(mut stream: TcpStream, state: &AppState) -> Result<(), ()> {
             );
         }
     }
-    let (status, ctype, body_out) = route(method, path, body, state);
-    write_res(&mut stream, status, ctype, &body_out)
+    // HEAD is GET without the body: same routing, same headers, same length.
+    let head_only = method == "HEAD";
+    let (status, ctype, body_out) = route(if head_only { "GET" } else { method }, path, body, state);
+    write_response(&mut stream, status, ctype, &body_out, head_only)
 }
 
 /// The host part of an authority, without the port.
@@ -192,11 +323,21 @@ fn is_loopback_origin(origin: &str) -> bool {
 }
 
 fn write_res(stream: &mut TcpStream, status: u16, ctype: &str, body: &str) -> Result<(), ()> {
+    write_response(stream, status, ctype, body, false)
+}
+
+fn write_response(stream: &mut TcpStream, status: u16, ctype: &str, body: &str, head_only: bool) -> Result<(), ()> {
     let reason = match status {
         200 => "OK",
+        204 => "No Content",
         400 => "Bad Request",
         403 => "Forbidden",
         404 => "Not Found",
+        405 => "Method Not Allowed",
+        408 => "Request Timeout",
+        413 => "Payload Too Large",
+        431 => "Request Header Fields Too Large",
+        501 => "Not Implemented",
         _ => "Error",
     };
     let resp = format!(
@@ -218,8 +359,9 @@ fn write_res(stream: &mut TcpStream, status: u16, ctype: &str, body: &str) -> Re
          X-Frame-Options: DENY\r\n\
          Referrer-Policy: no-referrer\r\n\
          Cache-Control: no-store\r\n\
-         Connection: close\r\n\r\n{body}",
-        body.len()
+         Connection: close\r\n\r\n{}",
+        body.len(),
+        if head_only { "" } else { body }
     );
     stream.write_all(resp.as_bytes()).map_err(|_| ())?;
     let _ = stream.flush();
@@ -266,8 +408,14 @@ fn object_body(body: &str) -> Result<Value, (u16, &'static str, String)> {
     }
 }
 
-fn require_mutation(state: &AppState) -> Result<Value, (u16, &'static str, String)> {
-    match authorize_store_apply(&state.store, state.project.as_deref()) {
+/// Authorize one mutation. The returned [`Authorization`] holds the store's
+/// advisory lock; callers bind it for the duration of their writes.
+fn require_mutation(
+    state: &AppState,
+    action: &str,
+    target: &str,
+) -> Result<Authorization, (u16, &'static str, String)> {
+    match authorize_store_apply(&state.store, state.project.as_deref(), action, target) {
         Ok(auth) => Ok(auth),
         Err(err) => Err(json_err(err.code(), &err.message())),
     }
@@ -275,51 +423,222 @@ fn require_mutation(state: &AppState) -> Result<Value, (u16, &'static str, Strin
 
 fn route(method: &str, path: &str, body: &str, state: &AppState) -> (u16, &'static str, String) {
     let path_only = path.split('?').next().unwrap_or(path);
-    if method == "OPTIONS" {
-        return (200, "text/plain", String::new());
-    }
     if path_only.starts_with("/api/v1/") {
         return api(method, path_only, path, body, state);
     }
     static_file(path_only, state)
 }
 
+/// Every routed endpoint, as `(method, path pattern)`. A `:name` segment
+/// matches exactly one non-empty segment. Routing is exact on **both**
+/// dimensions: a known path under another method is `api.method_not_allowed`
+/// (405), never a fallthrough into some handler that ignores the method.
+///
+/// The UI page contracts are checked against this table by method and path,
+/// so an endpoint that is not here cannot be declared by a page.
+pub const ROUTE_TABLE: &[(&str, &str)] = &[
+    ("GET", "/api/v1/health"),
+    ("GET", "/api/v1/coordinate"),
+    ("POST", "/api/v1/inspect"),
+    ("GET", "/api/v1/receipts"),
+    ("GET", "/api/v1/receipts/:id"),
+    ("POST", "/api/v1/receipts/:id/verify"),
+    ("POST", "/api/v1/receipts/:id/delete"),
+    ("GET", "/api/v1/doctor"),
+    ("GET", "/api/v1/diff"),
+    ("GET", "/api/v1/integrations"),
+    ("GET", "/api/v1/integrations/:id"),
+    ("GET", "/api/v1/assets"),
+    ("GET", "/api/v1/assets/:id"),
+    ("POST", "/api/v1/assets/:id/preview"),
+    ("POST", "/api/v1/assets/:id/copy"),
+    ("POST", "/api/v1/assets/:id/rollback"),
+    ("GET", "/api/v1/settings/schema"),
+    ("GET", "/api/v1/settings"),
+    ("PUT", "/api/v1/settings"),
+    ("POST", "/api/v1/settings"),
+    ("GET", "/api/v1/sessions"),
+    ("GET", "/api/v1/sessions/:id"),
+    ("GET", "/api/v1/sessions/:id/requests"),
+    ("POST", "/api/v1/sessions/import"),
+    ("GET", "/api/v1/monitor"),
+    ("GET", "/api/v1/policy"),
+    ("GET", "/api/v1/exceptions"),
+    ("GET", "/api/v1/exceptions/:id"),
+    ("POST", "/api/v1/exceptions"),
+    ("GET", "/api/v1/standards"),
+    ("GET", "/api/v1/standards/:id"),
+    ("GET", "/api/v1/sync"),
+    ("POST", "/api/v1/sync/preview"),
+    ("POST", "/api/v1/sync/apply"),
+    ("POST", "/api/v1/advisor"),
+    ("GET", "/api/v1/lab"),
+    ("GET", "/api/v1/lab/:id"),
+    ("POST", "/api/v1/lab"),
+    ("GET", "/api/v1/team/compliance"),
+    ("GET", "/api/v1/care-plan/:id"),
+    ("POST", "/api/v1/collect"),
+    ("POST", "/api/v1/intent/preview"),
+    ("POST", "/api/v1/apply"),
+    ("POST", "/api/v1/rollback"),
+];
+
+/// Match `path` against a pattern, returning the `:id` segment if the
+/// pattern has one. Literal segments must match exactly.
+fn match_pattern<'a>(pattern: &str, path: &'a str) -> Option<Option<&'a str>> {
+    let mut want = pattern.trim_start_matches('/').split('/');
+    let mut have = path.trim_start_matches('/').split('/');
+    let mut id = None;
+    loop {
+        match (want.next(), have.next()) {
+            (None, None) => return Some(id),
+            (Some(w), Some(h)) => {
+                if let Some(_name) = w.strip_prefix(':') {
+                    if h.is_empty() {
+                        return None;
+                    }
+                    id = Some(h);
+                } else if w != h {
+                    return None;
+                }
+            }
+            _ => return None,
+        }
+    }
+}
+
+enum RouteMatch<'a> {
+    /// The matched pattern and the `:id` segment, if any.
+    Found(&'static str, Option<&'a str>),
+    MethodNotAllowed(Vec<&'static str>),
+    NotFound,
+}
+
+/// Exact `(method, path)` routing. Literal patterns win over `:id` patterns
+/// for the same path, so `POST /sessions/import` is not read as a session
+/// named `import`.
+fn match_route<'a>(method: &str, path: &'a str) -> RouteMatch<'a> {
+    let mut allowed: Vec<&'static str> = Vec::new();
+    let mut found: Option<(&'static str, Option<&'a str>, bool)> = None;
+    // When a literal pattern names this path, the `:id` patterns do not
+    // apply to it at all: `GET /sessions/import` is 405 (only POST is
+    // routed there), not a lookup of a session called `import`.
+    let literal_names_path = ROUTE_TABLE
+        .iter()
+        .any(|(_, pattern)| !pattern.contains(':') && match_pattern(pattern, path).is_some());
+    for (m, pattern) in ROUTE_TABLE {
+        if literal_names_path && pattern.contains(':') {
+            continue;
+        }
+        let Some(id) = match_pattern(pattern, path) else {
+            continue;
+        };
+        if !allowed.contains(m) {
+            allowed.push(m);
+        }
+        if *m != method {
+            continue;
+        }
+        let literal = !pattern.contains(':');
+        match &found {
+            Some((_, _, was_literal)) if *was_literal => {}
+            _ => found = Some((pattern, id, literal)),
+        }
+    }
+    match found {
+        Some((pattern, id, _)) => RouteMatch::Found(pattern, id),
+        None if !allowed.is_empty() => RouteMatch::MethodNotAllowed(allowed),
+        None => RouteMatch::NotFound,
+    }
+}
+
 fn api(method: &str, path: &str, full: &str, body: &str, state: &AppState) -> (u16, &'static str, String) {
-    match (method, path) {
+    let (pattern, id) = match match_route(method, path) {
+        RouteMatch::Found(pattern, id) => (pattern, id.unwrap_or("")),
+        RouteMatch::MethodNotAllowed(allowed) => {
+            return (
+                405,
+                "application/json",
+                canonical_json(&object([(
+                    "error",
+                    object([
+                        ("code", string("api.method_not_allowed")),
+                        (
+                            "message",
+                            string(format!("{method} is not routed for {path}; allowed: {}", allowed.join(", "))),
+                        ),
+                        ("allowed", array(allowed.iter().map(|m| string(*m)))),
+                    ]),
+                )])),
+            );
+        }
+        RouteMatch::NotFound => return json_err("api.not_found", path),
+    };
+    let coordinate = state.coordinate();
+    match (method, pattern) {
         ("GET", "/api/v1/health") => json_ok(object([
             ("ok", Value::Bool(true)),
             ("generation", Value::Int(i64::try_from(state.generation.load(Ordering::SeqCst)).unwrap_or(0))),
         ])),
-        ("GET", "/api/v1/coordinate") => json_ok(object([
-            (
-                "project",
-                string(
-                    state
-                        .project
-                        .as_ref()
-                        .map(|_p| "<project>")
-                        .unwrap_or("unset"),
+        ("GET", "/api/v1/coordinate") => json_ok(merge_fields(
+            coordinate.to_value(),
+            [
+                (
+                    "project",
+                    string(
+                        state
+                            .project
+                            .as_ref()
+                            .map(|_p| "<project>")
+                            .unwrap_or("unset"),
+                    ),
                 ),
-            ),
-            ("ui_computes_claims", Value::Bool(false)),
-        ])),
+                ("generation", Value::Int(i64::try_from(state.generation.load(Ordering::SeqCst)).unwrap_or(0))),
+                ("ui_computes_claims", Value::Bool(false)),
+            ],
+        )),
         ("POST", "/api/v1/inspect") => inspect_api(body, state),
         ("GET", "/api/v1/receipts") => match state.store.list_receipts() {
             Ok(v) => json_ok(object([("receipts", v)])),
             Err(err) => json_err(err.code, &err.message),
         },
-        (m, p) if p.starts_with("/api/v1/receipts/") => receipt_api(m, p, body, state),
+        ("GET", "/api/v1/receipts/:id") => match state.store.get_receipt(id) {
+            Ok(v) => json_ok(v),
+            Err(err) => json_err(err.code, &err.message),
+        },
+        ("POST", "/api/v1/receipts/:id/delete") => {
+            let _auth = match require_mutation(state, "receipt.delete", id) {
+                Ok(auth) => auth,
+                Err(denied) => return denied,
+            };
+            match state.store.delete_receipt(id, "api") {
+                Ok(v) => json_ok(v),
+                Err(err) => json_err(err.code, &err.message),
+            }
+        }
+        // R04: the same function the CLI's `receipt verify` calls, so a
+        // tombstone or a legacy signature gets the same answer on both.
+        ("POST", "/api/v1/receipts/:id/verify") => match crate::dispatch::verify_receipt_report(&state.store, id) {
+            Ok((_, report)) => json_ok(report),
+            Err(err) => json_err(err.code(), &err.message()),
+        },
         ("GET", "/api/v1/doctor") => doctor_api(full, state),
         ("GET", "/api/v1/diff") => diff_api(full, state),
-        ("GET", "/api/v1/integrations") => json_ok(integrations_json("codex", true)),
-        ("GET", p) if p.starts_with("/api/v1/assets/") => match strip_id(p, "/api/v1/assets/").and_then(|id| family_entry(id, "codex", true)) {
-            Some(v) => json_ok(v),
-            None => json_err("catalog.unknown", p),
-        },
-        ("GET", "/api/v1/assets") => {
-            json_ok(assets_status("codex", Some(&asset_lock(&state.store))))
+        // Catalog endpoints follow the session coordinate (C01), not a
+        // hardcoded family.
+        ("GET", "/api/v1/integrations") => json_ok(integrations_json(&coordinate.harness, true)),
+        ("GET", "/api/v1/integrations/:id") | ("GET", "/api/v1/assets/:id") => {
+            match family_entry(id, &coordinate.harness, true) {
+                Some(v) => json_ok(v),
+                None => json_err("catalog.unknown", path),
+            }
         }
-        ("POST", p) if p.starts_with("/api/v1/assets/") => assets_api(p, state),
+        ("GET", "/api/v1/assets") => {
+            json_ok(assets_status(&coordinate.harness, Some(&asset_lock(&state.store))))
+        }
+        ("POST", "/api/v1/assets/:id/preview")
+        | ("POST", "/api/v1/assets/:id/copy")
+        | ("POST", "/api/v1/assets/:id/rollback") => assets_api(path, state),
         // Published so the UI renders its editor from the definition the
         // store enforces, instead of a hardcoded copy that can drift.
         ("GET", "/api/v1/settings/schema") => json_ok(ctxpect_store::settings_schema()),
@@ -328,51 +647,44 @@ fn api(method: &str, path: &str, full: &str, body: &str, state: &AppState) -> (u
             Err(err) => json_err(err.code, &err.message),
         },
         ("PUT", "/api/v1/settings") | ("POST", "/api/v1/settings") => {
-            if let Err(denied) = require_mutation(state) {
-                return denied;
+            let _auth = match require_mutation(state, "settings.put", "settings") {
+                Ok(auth) => auth,
+                Err(denied) => return denied,
+            };
+            let mut v = match object_body(body) {
+                Ok(value) => value,
+                Err(refusal) => return refusal,
+            };
+            // `GET /settings` decorates the document with `snapshot_digest`;
+            // putting that answer back is the natural round trip, so the
+            // decoration is not a field the store has to know about.
+            if let Value::Object(map) = &mut v {
+                map.remove("snapshot_digest");
             }
-            match parse(body) {
-                Ok(v) => {
-                    if let Err(err) = state.store.put_settings(v.clone()) {
-                        return json_err(err.code, &err.message);
-                    }
-                    json_ok(v)
-                }
-                Err(err) => json_err("api.parse", &err.to_string()),
+            if let Err(err) = state.store.put_settings(v.clone()) {
+                return json_err(err.code, &err.message);
             }
+            json_ok(v)
         }
-        ("GET", p) if p.starts_with("/api/v1/sessions/") => match strip_id(p, "/api/v1/sessions/") {
-            Some(id) => named_get(state, "sessions", id),
-            None => json_err("api.not_found", p),
-        },
+        ("GET", "/api/v1/sessions/:id") => named_get(state, "sessions", id),
+        ("GET", "/api/v1/sessions/:id/requests") => session_requests_api(state, id),
         ("GET", "/api/v1/sessions") => match state.store.list_named("sessions") {
             Ok(ids) => json_ok(object([("sessions", array(ids.into_iter().map(string)))])),
             Err(err) => json_err(err.code, &err.message),
         },
-        ("POST", "/api/v1/sessions/import") => {
-            if let Err(denied) = require_mutation(state) {
-                return denied;
-            }
-            match parse(body) {
-                Ok(_) => match import_session(body, "generic-json", "s_api") {
-                    Ok(session) => {
-                        let id = session
-                            .get("session_id")
-                            .and_then(Value::as_str)
-                            .unwrap_or("s_api");
-                        if let Err(err) = state.store.put_named("sessions", id, &session) {
-                            return json_err(err.code, &err.message);
-                        }
-                        json_ok(session)
-                    }
-                    Err(err) => json_err(err.code, &err.message),
-                },
-                Err(err) => json_err("import_parse_failed", &err.to_string()),
-            }
-        }
+        ("POST", "/api/v1/sessions/import") => sessions_import_api(body, state),
         ("GET", "/api/v1/monitor") => json_ok(monitor_status(state)),
         ("GET", "/api/v1/policy") => {
-            json_ok(effective_store_policy(&state.store, state.project.as_deref()))
+            let (action, target) = policy_query_scope(
+                query(full, "action").as_deref(),
+                query(full, "target").map(|t| url_decode(&t)).as_deref(),
+            );
+            json_ok(effective_store_policy(
+                &state.store,
+                state.project.as_deref(),
+                &action,
+                &target,
+            ))
         }
         ("GET", "/api/v1/exceptions") => match state.store.list_named("exceptions") {
             Ok(ids) => json_ok(object([("exceptions", array(ids.into_iter().map(string)))])),
@@ -391,47 +703,50 @@ fn api(method: &str, path: &str, full: &str, body: &str, state: &AppState) -> (u
         }
         // Same function the CLI's `standard status` calls: one question, one
         // answer (R04).
-        ("GET", p) if p.starts_with("/api/v1/standards/") => match strip_id(p, "/api/v1/standards/") {
-            Some(id) => match standard_status(&state.store, id) {
+        ("GET", "/api/v1/standards/:id") => match standard_status(&state.store, id) {
+            Ok(value) => json_ok(value),
+            Err(err) => json_err(err.code(), &err.message()),
+        },
+        ("GET", "/api/v1/exceptions/:id") => {
+            match exception_state(&state.store, state.project.as_deref(), id) {
                 Ok(value) => json_ok(value),
                 Err(err) => json_err(err.code(), &err.message()),
-            },
-            None => json_err("api.not_found", p),
-        },
-        ("GET", p) if p.starts_with("/api/v1/exceptions/") => match strip_id(p, "/api/v1/exceptions/") {
-            Some(id) => match exception_state(&state.store, id) {
-                Ok(value) => json_ok(value),
-                Err(err) => json_err(err.code(), &err.message()),
-            },
-            None => json_err("api.not_found", p),
-        },
+            }
+        }
         ("GET", "/api/v1/standards") => match state.store.list_named("standards") {
             Ok(ids) => json_ok(object([("standards", array(ids.into_iter().map(string)))])),
             Err(err) => json_err(err.code, &err.message),
         },
-        ("GET", "/api/v1/sync") => json_ok(sync_status(state)),
+        ("GET", "/api/v1/sync") => json_ok(crate::dispatch::sync_status_doc(&state.store)),
         ("POST", "/api/v1/sync/preview") => sync_api(body, state, false),
         ("POST", "/api/v1/sync/apply") => sync_api(body, state, true),
         ("POST", "/api/v1/advisor") => advisor_api(body),
-        ("GET", p) if p.starts_with("/api/v1/lab/") => match strip_id(p, "/api/v1/lab/") {
-            Some(id) => named_get(state, "experiments", id),
-            None => json_err("api.not_found", p),
-        },
+        ("GET", "/api/v1/lab/:id") => named_get(state, "experiments", id),
+        // The list carries each experiment's execution state and decision, so
+        // a not-executed experiment reads as such without opening it.
         ("GET", "/api/v1/lab") => match state.store.list_named("experiments") {
             Ok(ids) => json_ok(object([
-                ("experiments", array(ids.into_iter().map(string))),
+                (
+                    "experiments",
+                    array(ids.iter().map(|id| {
+                        let doc = state.store.get_named("experiments", id).unwrap_or(Value::Null);
+                        object([
+                            ("experiment_id", string(id)),
+                            ("executed", doc.get("executed").cloned().unwrap_or(Value::Null)),
+                            ("decision", doc.get("decision").cloned().unwrap_or(Value::Null)),
+                            ("reason_code", doc.get("reason_code").cloned().unwrap_or(Value::Null)),
+                        ])
+                    })),
+                ),
                 ("single_ab_is_causal", Value::Bool(false)),
             ])),
             Err(err) => json_err(err.code, &err.message),
         },
         ("POST", "/api/v1/lab") => lab_api(body, state),
         ("GET", "/api/v1/team/compliance") => json_ok(team_compliance(state)),
-        (m, p) if p.starts_with("/api/v1/care-plan/") => care_plan_api(m, p, body, state),
-        ("GET", p) if p.starts_with("/api/v1/integrations/") => match strip_id(p, "/api/v1/integrations/").and_then(|id| family_entry(id, "codex", true)) {
-            Some(v) => json_ok(v),
-            None => json_err("catalog.unknown", p),
-        },
+        ("GET", "/api/v1/care-plan/:id") => care_plan_api(id, state),
         ("POST", "/api/v1/collect") => collect_api(state),
+        ("POST", "/api/v1/intent/preview") => intent_preview_api(body, state),
         ("POST", "/api/v1/apply") => apply_api(body, state),
         ("POST", "/api/v1/rollback") => rollback_api(body, state),
         _ => json_err("api.not_found", path),
@@ -452,37 +767,49 @@ fn inspect_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
         return json_err("usage.invalid", "--project required");
     };
     let generation = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
+    // The request moves the session coordinate; fields it omits keep the
+    // session's current value rather than snapping back to a hardcoded family.
+    let previous = state.coordinate();
+    let coordinate = Coordinate {
+        harness: parsed
+            .get("harness")
+            .and_then(Value::as_str)
+            .unwrap_or(&previous.harness)
+            .to_string(),
+        surface: parsed
+            .get("surface")
+            .and_then(Value::as_str)
+            .unwrap_or(&previous.surface)
+            .to_string(),
+        version: parsed
+            .get("version")
+            .and_then(Value::as_str)
+            .unwrap_or(&previous.version)
+            .to_string(),
+        os_lane: parsed
+            .get("os_lane")
+            .and_then(Value::as_str)
+            .unwrap_or(&previous.os_lane)
+            .to_string(),
+    };
+    if let Ok(mut current) = state.coordinate.lock() {
+        *current = coordinate.clone();
+    }
     let args = InspectArgs {
         json: true,
         offline: true,
         project,
         cwd: None,
-        harness: parsed
-            .get("harness")
-            .and_then(Value::as_str)
-            .unwrap_or("codex")
-            .to_string(),
-        surface: parsed
-            .get("surface")
-            .and_then(Value::as_str)
-            .unwrap_or("cli")
-            .to_string(),
-        version: parsed
-            .get("version")
-            .and_then(Value::as_str)
-            .unwrap_or("0.147.0")
-            .to_string(),
+        harness: coordinate.harness.clone(),
+        surface: coordinate.surface.clone(),
+        version: coordinate.version.clone(),
         version_explicit: parsed.get("version").is_some(),
         codex_home: parsed
             .get("codex_home")
             .and_then(Value::as_str)
             .map(PathBuf::from),
         require: vec!["instructions".into()],
-        os_lane: parsed
-            .get("os_lane")
-            .and_then(Value::as_str)
-            .unwrap_or("macos-27-arm64")
-            .to_string(),
+        os_lane: coordinate.os_lane.clone(),
         store: None,
     };
     match inspect(args) {
@@ -518,42 +845,6 @@ fn inspect_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
     }
 }
 
-fn receipt_api(method: &str, path: &str, body: &str, state: &AppState) -> (u16, &'static str, String) {
-    let rest = path.trim_start_matches("/api/v1/receipts/");
-    let mut segs = rest.split('/');
-    let id = segs.next().unwrap_or("");
-    let action = segs.next();
-    match (method, action) {
-        ("GET", None) => match state.store.get_receipt(id) {
-            Ok(v) => json_ok(v),
-            Err(err) => json_err(err.code, &err.message),
-        },
-        ("POST", Some("delete")) => {
-            if let Err(denied) = require_mutation(state) {
-                return denied;
-            }
-            match state.store.delete_receipt(id, "api") {
-                Ok(v) => json_ok(v),
-                Err(err) => json_err(err.code, &err.message),
-            }
-        }
-        ("POST", Some("verify")) => match state.store.get_receipt(id) {
-            Ok(v) => match state.store.continuity_key() {
-                Ok(key) => match ctxpect_receipt::verify_local_continuity(&v, &key) {
-                    Ok(()) => json_ok(object([("ok", Value::Bool(true)), ("org_identity", Value::Bool(false))])),
-                    Err(err) => json_err(err.code, &err.message),
-                },
-                Err(err) => json_err(err.code, &err.message),
-            },
-            Err(err) => json_err(err.code, &err.message),
-        },
-        _ => {
-            let _ = body;
-            json_err("api.not_found", path)
-        }
-    }
-}
-
 fn doctor_api(full: &str, state: &AppState) -> (u16, &'static str, String) {
     let id = query(full, "receipt_id");
     let receipt = if let Some(id) = id {
@@ -574,7 +865,10 @@ fn doctor_api(full: &str, state: &AppState) -> (u16, &'static str, String) {
     };
     match receipt {
         Ok(v) => {
-            let mut diagnosis = diagnose(&v);
+            let mut diagnosis = match diagnose_with_project(state, &v) {
+                Ok(diagnosis) => diagnosis,
+                Err(refusal) => return refusal,
+            };
             // A diagnosis that does not name the observation it rests on
             // cannot be checked against that observation. The CLI reports
             // this; the API did not, so a caller using the session's current
@@ -594,6 +888,24 @@ fn doctor_api(full: &str, state: &AppState) -> (u16, &'static str, String) {
         }
         Err(err) => json_err(err.code, &err.message),
     }
+}
+
+/// The same diagnosis the CLI reports: Receipt-derived findings plus the
+/// project-content rules over the daemon's declared project (R04).
+fn diagnose_with_project(state: &AppState, receipt: &Value) -> Result<Value, (u16, &'static str, String)> {
+    let base = diagnose(receipt);
+    let Some(project) = state.project.as_deref() else {
+        return Ok(base);
+    };
+    // A project that cannot be scanned yields no diagnosis, not a diagnosis
+    // with the project rules quietly missing (the CLI answers the same way).
+    let root = Root::new(project).map_err(|err| json_err("io.missing", &err.to_string()))?;
+    let files = crate::dispatch::scan_project_for_doctor(&root)
+        .map_err(|err| json_err(err.code(), &err.message()))?;
+    Ok(with_project_findings(
+        base,
+        &render_project_findings(&ctxpect_doctor::project_findings(&files)),
+    ))
 }
 
 fn diff_api(full: &str, state: &AppState) -> (u16, &'static str, String) {
@@ -629,58 +941,58 @@ fn advisor_api(body: &str) -> (u16, &'static str, String) {
     }
 }
 
+/// `POST /api/v1/lab { experiment_id?, runs?: <ctxpect-effect-runs-v1> }`.
+/// Same semantics as `ctxpect experiment`: no runs document → not executed,
+/// nothing persisted; a runs document → judged, persisted under
+/// `experiment.persist` authority.
 fn lab_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
-    // Running an experiment writes its result into the store.
-    if let Err(denied) = require_mutation(state) {
-        return denied;
-    }
     let parsed = match object_body(body) {
         Ok(value) => value,
         Err(refusal) => return refusal,
     };
-    let n = parsed.get("n").and_then(Value::as_i64).unwrap_or(4);
+    let Some(runs) = parsed.get("runs") else {
+        let experiment_id = parsed
+            .get("experiment_id")
+            .and_then(Value::as_str)
+            .unwrap_or("exp-api");
+        return json_ok(not_executed(experiment_id, parsed.get("n").and_then(Value::as_i64)));
+    };
+    let document = match RunsDocument::from_value(runs) {
+        Ok(document) => document,
+        Err(err) => return json_err(err.code, &err.message),
+    };
     let experiment_id = parsed
         .get("experiment_id")
         .and_then(Value::as_str)
-        .unwrap_or("exp-api")
+        .unwrap_or(document.contract.experiment_id.as_str())
         .to_string();
-    let changed = parsed
-        .get("n_changed_after_results")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    if let Ok(prev) = state.store.get_named("experiments", &experiment_id) {
-        let prev_n = prev
-            .pointer(&["contract", "n_planned"])
-            .and_then(Value::as_i64)
-            .or_else(|| prev.get("n_planned").and_then(Value::as_i64));
-        if let Some(prev_n) = prev_n
-            && prev_n != n
-        {
-            return json_err(
-                "effect.n_locked",
-                "sample size cannot change after results are observed",
-            );
-        }
+    if experiment_id != document.contract.experiment_id {
+        return json_err(
+            "effect.runs_invalid",
+            "experiment_id does not name the experiment the runs document's contract was frozen for",
+        );
     }
-    let contract = ExperimentContract {
-        experiment_id: experiment_id.clone(),
-        n_planned: n,
-        margin: 1,
-        metric: "instructions-present".into(),
+    if let Ok(prev) = state.store.get_named("experiments", &experiment_id)
+        && let Some(prev_n) = prev.pointer(&["contract", "n_planned"]).and_then(Value::as_i64)
+        && prev_n != document.contract.n_planned
+    {
+        return json_err(
+            "effect.n_locked",
+            "sample size cannot change after results are observed",
+        );
+    }
+    // Recording an experiment result writes into the store.
+    let _auth = match require_mutation(state, "experiment.persist", &experiment_id) {
+        Ok(auth) => auth,
+        Err(denied) => return denied,
     };
-    let control: Vec<i64> = (0..n).map(|_| run_local_instructions_probe(false)).collect();
-    let treatment: Vec<i64> = (0..n).map(|_| run_local_instructions_probe(true)).collect();
-    match decide(&contract, &control, &treatment, changed) {
-        Ok(v) => {
-            if let Err(err) = state.store.put_named("experiments", &experiment_id, &v) {
-                // A result the store refused to keep must not be returned as
-                // if it had been recorded.
-                return json_err(err.code, &err.message);
-            }
-            json_ok(v)
-        }
-        Err(err) => json_err(err.code, &err.message),
+    let result = effect_decide(&document);
+    if let Err(err) = state.store.put_named("experiments", &experiment_id, &result) {
+        // A result the store refused to keep must not be returned as if it
+        // had been recorded.
+        return json_err(err.code, &err.message);
     }
+    json_ok(result)
 }
 
 /// Observe the project after a mutation and return the Receipt's id.
@@ -688,18 +1000,19 @@ fn observe_after_mutation(
     state: &AppState,
     project: &Path,
 ) -> Result<String, (u16, &'static str, String)> {
+    let coordinate = state.coordinate();
     let args = InspectArgs {
         json: true,
         offline: true,
         project: project.to_path_buf(),
         cwd: None,
-        harness: "codex".into(),
-        surface: "cli".into(),
-        version: "0.147.0".into(),
+        harness: coordinate.harness,
+        surface: coordinate.surface,
+        version: coordinate.version,
         version_explicit: false,
         codex_home: None,
         require: vec!["instructions".into()],
-        os_lane: "macos-27-arm64".into(),
+        os_lane: coordinate.os_lane,
         store: None,
     };
     let report = inspect(args).map_err(|err| json_err(err.code(), &err.message()))?;
@@ -735,9 +1048,13 @@ fn assets_api(path: &str, state: &AppState) -> (u16, &'static str, String) {
     };
 
     if action == "rollback" {
-        if let Err(denied) = require_mutation(state) {
-            return denied;
+        if !valid_tx_id(id) {
+            return json_err("store.bad_id", "rollback needs a transaction id of the form tx_<16 hex>");
         }
+        let _auth = match require_mutation(state, "assets.rollback", id) {
+            Ok(auth) => auth,
+            Err(denied) => return denied,
+        };
         let backup = ctxpect_assets::backup_dir(state.store.root(), id);
         return match ctxpect_assets::rollback(&root, &backup) {
             Ok(value) => {
@@ -764,9 +1081,10 @@ fn assets_api(path: &str, state: &AppState) -> (u16, &'static str, String) {
     match action {
         "preview" => json_ok(plan.to_value()),
         "copy" => {
-            if let Err(denied) = require_mutation(state) {
-                return denied;
-            }
+            let _auth = match require_mutation(state, "assets.copy", id) {
+                Ok(auth) => auth,
+                Err(denied) => return denied,
+            };
             let backup = ctxpect_assets::backup_dir(state.store.root(), &plan.tx_id);
             let meta = match ctxpect_assets::apply(&root, &plan, &backup, true) {
                 Ok(meta) => meta,
@@ -829,9 +1147,14 @@ fn sync_api(body: &str, state: &AppState, apply: bool) -> (u16, &'static str, St
     if !valid_bundle_id(bundle_id) {
         return json_err("sync.bundle_id_invalid", "bundle_id must be a short id");
     }
-    if apply && let Err(denied) = require_mutation(state) {
-        return denied;
-    }
+    let _auth = if apply {
+        match require_mutation(state, "sync.apply", bundle_id) {
+            Ok(auth) => Some(auth),
+            Err(denied) => return denied,
+        }
+    } else {
+        None
+    };
 
     let settings = state.store.settings().unwrap_or(Value::Null);
     let vault_required = settings.get("vault").and_then(Value::as_str) == Some("required");
@@ -896,44 +1219,6 @@ fn merge_fields<'a>(base: Value, extra: impl IntoIterator<Item = (&'a str, Value
         map.insert(key.to_string(), value);
     }
     Value::Object(map)
-}
-
-/// Sync state read from this store.
-///
-/// `encryption: "unavailable"` is kept because it is true: E2EE is not
-/// implemented in this slice. What was missing is everything else — the
-/// endpoint reported no actual state at all.
-fn sync_status(state: &AppState) -> Value {
-    let settings = state.store.settings().unwrap_or(Value::Null);
-    let vault_required = settings.get("vault").and_then(Value::as_str) == Some("required");
-    let bundles = state.store.list_named("sync").unwrap_or_default();
-    let receipts = match state.store.list_receipts() {
-        Ok(Value::Array(items)) => items.len() as i64,
-        _ => 0,
-    };
-
-    object([
-        ("schema", string("ctxpect-sync-status-v1")),
-        // Not implemented, and reported as such rather than as "off".
-        ("encryption", string("unavailable")),
-        ("encryption_reason_code", string("sync.e2ee_unimplemented")),
-        // A transport that succeeded moved bytes; it did not verify meaning.
-        ("transport_success_is_verified", Value::Bool(false)),
-        ("vault_required", Value::Bool(vault_required)),
-        ("local_bundles", Value::Int(bundles.len() as i64)),
-        (
-            "bundle_ids",
-            array(bundles.iter().map(|id| string(id.as_str())).collect::<Vec<_>>()),
-        ),
-        ("syncable_receipts", Value::Int(receipts)),
-        (
-            "remote",
-            object([
-                ("configured", Value::Bool(false)),
-                ("reason_code", string("sync.no_remote_transport")),
-            ]),
-        ),
-    ])
 }
 
 /// Whether the current Receipt still describes the project on disk.
@@ -1116,7 +1401,8 @@ fn team_compliance(state: &AppState) -> Value {
         let Ok(record) = state.store.get_named("exceptions", id) else {
             continue;
         };
-        let Ok(status) = exception_status(&record, now, true) else {
+        let fresh = policy_fresh(&state.store, state.project.as_deref(), now);
+        let Ok(status) = exception_status(&record, now, fresh) else {
             continue;
         };
         if status.get("grants").and_then(Value::as_bool) == Some(true) {
@@ -1137,7 +1423,7 @@ fn team_compliance(state: &AppState) -> Value {
     // Drift, unknown and freshness are properties of a Receipt. Without one in
     // this session they are unknown, not zero.
     let receipt = current_receipt(state).ok();
-    let diagnosis = receipt.as_ref().map(diagnose);
+    let diagnosis = receipt.as_ref().and_then(|r| diagnose_with_project(state, r).ok());
     let unknown_cells = diagnosis
         .as_ref()
         .and_then(|item| item.pointer(&["counts", "unknown"]).cloned())
@@ -1267,9 +1553,7 @@ fn findings_of(diagnosis: &Value) -> &[Value] {
 /// Every field here comes from the Receipt. The endpoint previously answered
 /// with the same four constants for any id, including ids that did not exist,
 /// which made an unknown finding indistinguishable from a locked one.
-fn care_plan_api(method: &str, path: &str, body: &str, state: &AppState) -> (u16, &'static str, String) {
-    let _ = (method, body);
-    let finding_id = path.trim_start_matches("/api/v1/care-plan/");
+fn care_plan_api(finding_id: &str, state: &AppState) -> (u16, &'static str, String) {
     if finding_id.is_empty() {
         return json_err("api.not_found", "care-plan requires a finding id");
     }
@@ -1277,7 +1561,10 @@ fn care_plan_api(method: &str, path: &str, body: &str, state: &AppState) -> (u16
         Ok(receipt) => receipt,
         Err(err) => return json_err(err.code, &err.message),
     };
-    let diagnosis = diagnose(&receipt);
+    let diagnosis = match diagnose_with_project(state, &receipt) {
+        Ok(diagnosis) => diagnosis,
+        Err(refusal) => return refusal,
+    };
     let Some(finding) = findings_of(&diagnosis).iter().find(|item| {
         item.get("finding_id").and_then(Value::as_str) == Some(finding_id)
     }) else {
@@ -1337,6 +1624,121 @@ fn care_plan_api(method: &str, path: &str, body: &str, state: &AppState) -> (u16
     ]))
 }
 
+/// Import a session over the API.
+///
+/// The session id comes from the body or is derived from the content digest,
+/// and the mapping from the body; nothing is hardcoded, so two imports land
+/// as two sessions and a declared mapping is required.
+fn sessions_import_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
+    let parsed = match object_body(body) {
+        Ok(value) => value,
+        Err(refusal) => return refusal,
+    };
+    let session_id = parsed
+        .get("session_id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("s_{}", &ctxpect_schema::sha256_text(body)[..12]));
+    let mapping = parsed
+        .get("mapping_id")
+        .and_then(Value::as_str)
+        .unwrap_or("generic-json");
+    let _auth = match require_mutation(state, "sessions.import", &session_id) {
+        Ok(auth) => auth,
+        Err(denied) => return denied,
+    };
+    // A native JSONL artifact travels in `jsonl` (it is not itself a JSON
+    // object); every other mapping is the JSON body.
+    let native = if mapping == deepseek_harness::MAPPING_ID {
+        match parsed.get("jsonl").and_then(Value::as_str) {
+            Some(text) => Some(text.to_string()),
+            None => {
+                return json_err(
+                    "import_parse_failed",
+                    "mapping deepseek-harness-cli takes the session artifact as the `jsonl` string field",
+                );
+            }
+        }
+    } else {
+        None
+    };
+    let bytes: &[u8] = native.as_deref().map_or(body.as_bytes(), str::as_bytes);
+    match import_session_bytes(bytes, mapping, &session_id) {
+        Ok(session) => {
+            if let Err(err) = state.store.put_named("sessions", &session_id, &session) {
+                return json_err(err.code, &err.message);
+            }
+            json_ok(session)
+        }
+        Err(err) => json_err(err.code, &err.message),
+    }
+}
+
+/// The intent a preview request names. `target` and `desired` are required:
+/// a preview computed from silent defaults would be a persisted plan the
+/// caller never asked for, and `apply` needs nothing but its `tx_id`.
+fn intent_from_body(parsed: &Value) -> Result<Intent, (u16, &'static str, String)> {
+    let required = |key: &str| -> Result<String, (u16, &'static str, String)> {
+        parsed
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| json_err("usage.invalid", &format!("intent preview requires `{key}`")))
+    };
+    Ok(Intent {
+        intent_id: parsed
+            .get("intent_id")
+            .and_then(Value::as_str)
+            .unwrap_or("intent-api")
+            .to_string(),
+        authority: parsed
+            .get("authority")
+            .and_then(Value::as_str)
+            .unwrap_or("contexpect-native")
+            .to_string(),
+        target_rel: required("target")?,
+        desired: required("desired")?,
+    })
+}
+
+/// Compute and persist a projection preview. Read-only for the project; the
+/// persisted record is what `POST /api/v1/apply` is bound to.
+fn intent_preview_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
+    let parsed = match object_body(body) {
+        Ok(value) => value,
+        Err(refusal) => return refusal,
+    };
+    let Some(project) = state.project.as_ref() else {
+        return json_err("usage.invalid", "project required");
+    };
+    let Ok(root) = Root::new(project) else {
+        return json_err("io.missing", "project");
+    };
+    let intent = match intent_from_body(&parsed) {
+        Ok(intent) => intent,
+        Err(refusal) => return refusal,
+    };
+    let scope = project_scope_digest(state.store.root(), Some(project.as_path()));
+    if let Err(err) = target_outside_store(&root, &intent.target_rel, state.store.root()) {
+        return json_err(err.code, &err.message);
+    }
+    match proj_preview(&root, &intent, &scope) {
+        Ok(preview) => {
+            if let Err(err) = persist_preview(&state.store, &preview) {
+                return json_err(err.code(), &err.message());
+            }
+            json_ok(merge_fields(
+                preview.to_value(),
+                [("persisted", Value::Bool(true))],
+            ))
+        }
+        Err(err) => json_err(err.code, &err.message),
+    }
+}
+
+/// Apply a persisted preview. The body names the transaction; the intent,
+/// desired bytes and frozen digests come from the store, so the apply is
+/// bound to what the caller previewed and nothing else.
 fn apply_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
     let parsed = match object_body(body) {
         Ok(value) => value,
@@ -1348,78 +1750,61 @@ fn apply_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
     let Ok(root) = Root::new(project) else {
         return json_err("io.missing", "project");
     };
-    let intent = Intent {
-        intent_id: parsed
-            .get("intent_id")
-            .and_then(Value::as_str)
-            .unwrap_or("intent-api")
-            .to_string(),
-        authority: parsed
-            .get("authority")
-            .and_then(Value::as_str)
-            .unwrap_or("contexpect-native")
-            .to_string(),
-        target_rel: parsed
-            .get("target")
-            .and_then(Value::as_str)
-            .unwrap_or("AGENTS.md")
-            .to_string(),
-        desired: parsed
-            .get("desired")
-            .and_then(Value::as_str)
-            .unwrap_or("updated\n")
-            .to_string(),
+    let Some(tx) = parsed.get("tx_id").and_then(Value::as_str) else {
+        return json_err(
+            "usage.invalid",
+            "apply requires `tx_id` from POST /api/v1/intent/preview; the preview is not recomputed",
+        );
     };
-    // Client-supplied `approved` is not authorization evidence and is ignored.
-    match authorize_store_apply(&state.store, Some(project.as_path())) {
-        Ok(_) => {}
+    let scope = project_scope_digest(state.store.root(), Some(project.as_path()));
+    // The lock is taken before the preview's state is read (see the CLI).
+    let _guard = match state.store.lock_mutation() {
+        Ok(guard) => guard,
+        Err(err) => return json_err(err.code, &err.message),
+    };
+    let preview = match load_preview(&state.store, tx, &scope) {
+        Ok(preview) => preview,
         Err(err) => return json_err(err.code(), &err.message()),
+    };
+    if let Err(err) = target_outside_store(&root, &preview.target_rel, state.store.root()) {
+        return json_err(err.code, &err.message);
     }
-    match proj_preview(&root, &intent) {
-        Ok(preview) => match proj_apply(
-            &root,
-            &intent,
-            &preview,
-            &ctxpect_projection::backup_dir(state.store.root(), &preview.tx_id),
-            true,
-        ) {
-            Ok(v) => {
-                let inspect_args = InspectArgs {
-                    json: true,
-                    offline: true,
-                    project: project.clone(),
-                    cwd: None,
-                    harness: "codex".into(),
-                    surface: "cli".into(),
-                    version: "0.147.0".into(),
-                    version_explicit: false,
-                    codex_home: None,
-                    require: vec!["instructions".into()],
-                    os_lane: "macos-27-arm64".into(),
-                    store: None,
-                };
-                match inspect(inspect_args) {
-                    Ok(report) => match persist_inspect(&state.store, &report.envelope, "one-shot")
-                    {
-                        Ok(receipt) => json_ok(object([
-                            ("transaction", v),
-                            (
-                                "post_receipt_id",
-                                string(
-                                    receipt
-                                        .get("receipt_id")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or(""),
-                                ),
-                            ),
-                        ])),
-                        Err(err) => json_err(err.code(), &err.message()),
-                    },
-                    Err(err) => json_err(err.code(), &err.message()),
-                }
+    // Client-supplied `approved` is not authorization evidence and is ignored.
+    let _auth = match require_mutation(state, "apply", &preview.target_rel) {
+        Ok(auth) => auth,
+        Err(denied) => return denied,
+    };
+    let intent = Intent {
+        intent_id: preview.intent_id.clone(),
+        authority: preview.authority.clone(),
+        target_rel: preview.target_rel.clone(),
+        desired: preview.desired.clone(),
+    };
+    if let Err(err) = state
+        .store
+        .put_named("intents", &intent.intent_id, &intent.to_value())
+    {
+        return json_err(err.code, &err.message);
+    }
+    match proj_apply(
+        &root,
+        &preview,
+        &ctxpect_projection::backup_dir(state.store.root(), &preview.tx_id),
+        true,
+    ) {
+        Ok(v) => {
+            if let Err(err) = mark_preview(&state.store, &preview.tx_id, PREVIEW_APPLIED) {
+                return json_err(err.code(), &err.message());
             }
-            Err(err) => json_err(err.code, &err.message),
-        },
+            let _ = state.store.audit("projection.apply", "projection", Some(&preview.tx_id));
+            match observe_after_mutation(state, project) {
+                Ok(post) => json_ok(object([
+                    ("transaction", v),
+                    ("post_receipt_id", string(&post)),
+                ])),
+                Err(refusal) => refusal,
+            }
+        }
         Err(err) => json_err(err.code, &err.message),
     }
 }
@@ -1443,16 +1828,28 @@ fn collect_api(state: &AppState) -> (u16, &'static str, String) {
     }
 }
 
+/// The request-evidence view of one imported session: its reconstructed
+/// requests, tail and unknowns. Absent once the session is deleted.
+fn session_requests_api(state: &AppState, id: &str) -> (u16, &'static str, String) {
+    match state.store.get_named("sessions", id) {
+        Ok(session) => json_ok(object([
+            ("session_id", string(id)),
+            ("mapping_id", session.get("mapping_id").cloned().unwrap_or(Value::Null)),
+            ("requests", session.get("requests").cloned().unwrap_or_else(|| array([]))),
+            ("tail", session.get("tail").cloned().unwrap_or(Value::Null)),
+            ("unknown", session.get("unknown").cloned().unwrap_or_else(|| array([]))),
+            ("partial", session.get("partial").cloned().unwrap_or(Value::Bool(true))),
+            ("bodies_stored", Value::Bool(false)),
+        ])),
+        Err(err) => json_err(err.code, &err.message),
+    }
+}
+
 fn named_get(state: &AppState, folder: &str, id: &str) -> (u16, &'static str, String) {
     match state.store.get_named(folder, id) {
         Ok(v) => json_ok(v),
         Err(err) => json_err(err.code, &err.message),
     }
-}
-
-fn strip_id<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
-    path.strip_prefix(prefix)
-        .filter(|id| !id.is_empty() && !id.contains('/'))
 }
 
 fn url_decode(input: &str) -> String {
@@ -1495,18 +1892,39 @@ fn rollback_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
     let Ok(root) = Root::new(project) else {
         return json_err("io.missing", "project");
     };
-    if let Err(denied) = require_mutation(state) {
-        return denied;
-    }
     let tx = parsed.get("tx_id").and_then(Value::as_str).unwrap_or("");
-    let target = parsed.get("target").and_then(Value::as_str).unwrap_or("AGENTS.md");
-    match proj_rollback(&root, &ctxpect_projection::backup_dir(state.store.root(), tx), target) {
+    if !valid_tx_id(tx) {
+        return json_err("store.bad_id", "rollback needs `tx_id` of the form tx_<16 hex>");
+    }
+    let _guard = match state.store.lock_mutation() {
+        Ok(guard) => guard,
+        Err(err) => return json_err(err.code, &err.message),
+    };
+    let backup = ctxpect_projection::backup_dir(state.store.root(), tx);
+    // The transaction record names the target; authorization is bound to it.
+    let target = read_tx(&backup)
+        .ok()
+        .and_then(|meta| meta.get("target_rel").and_then(Value::as_str).map(str::to_string))
+        .or_else(|| parsed.get("target").and_then(Value::as_str).map(str::to_string))
+        .unwrap_or_else(|| "AGENTS.md".to_string());
+    let _auth = match require_mutation(state, "rollback", &target) {
+        Ok(auth) => auth,
+        Err(denied) => return denied,
+    };
+    let scope = project_scope_digest(state.store.root(), Some(project.as_path()));
+    match proj_rollback(&root, &backup, &target, &scope) {
         // R05: a rollback changes the project, so the state after it is
         // observed rather than assumed.
-        Ok(v) => match observe_after_mutation(state, project) {
-            Ok(post) => json_ok(merge_fields(v, [("post_receipt_id", string(&post))])),
-            Err(refusal) => refusal,
-        },
+        Ok(v) => {
+            if let Err(err) = mark_preview(&state.store, tx, PREVIEW_ROLLED_BACK) {
+                return json_err(err.code(), &err.message());
+            }
+            let _ = state.store.audit("projection.rollback", "projection", Some(tx));
+            match observe_after_mutation(state, project) {
+                Ok(post) => json_ok(merge_fields(v, [("post_receipt_id", string(&post))])),
+                Err(refusal) => refusal,
+            }
+        }
         Err(err) => json_err(err.code, &err.message),
     }
 }

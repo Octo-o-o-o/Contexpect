@@ -37,7 +37,10 @@ pub fn integrations_json(active_harness: &str, inspect_supported: bool) -> Value
     let items: Vec<Value> = FAMILIES
         .iter()
         .map(|family| {
-            let supported = family.id == "codex" && inspect_supported;
+            // A family is "supported" when a resolver grammar exists for it
+            // (`ctxpect_resolve::ANCHORS`), not by name.
+            let supported = inspect_supported
+                && !ctxpect_resolve::implemented_capabilities(family.id).is_empty();
             let (install, auth, connector, version, surface, reason) = if supported {
                 (
                     "unknown-not-claimed-from-config",

@@ -1,19 +1,28 @@
 //! Negative cases for L01–L11 product loops.
 
-use ctxpect_cli::{canonical_json, persist_inspect, parse, Store, Value};
+use ctxpect_cli::{canonical_json, persist_inspect, parse, project_scope_digest, Store, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const PASS_LAYERS: &str = r#"[{"layer":"organization","mode":"enforceable","rules":[]},{"layer":"team","mode":"enforceable","rules":[]},{"layer":"project","mode":"enforceable","rules":[]},{"layer":"user","mode":"detect-only","rules":[]},{"layer":"session","mode":"detect-only","rules":[]}]"#;
 
-const LIVE_EXCEPTION: &str = r#"{"exception_id":"ex-planted","requester":"operator","scope":"project","state":"approved","expires_at":4102444800,"approver":"enrolled-out-of-band"}"#;
-
-fn plant_pass_policy_and_live_exception(store: &Path) {
+/// Plant a passing five-layer policy and one live approved exception **per
+/// action**, each bound to `project` (or, without one, to the store) with
+/// target `*`. An exception approved for one action does not cover another,
+/// so a test names exactly the mutations it performs.
+fn plant_grants(store: &Path, project: Option<&Path>, actions: &[&str]) {
     fs::create_dir_all(store.join("policies")).unwrap();
     fs::write(store.join("policies/active.json"), PASS_LAYERS).unwrap();
     fs::create_dir_all(store.join("exceptions")).unwrap();
-    fs::write(store.join("exceptions/ex-planted.json"), LIVE_EXCEPTION).unwrap();
+    let digest = project_scope_digest(store, project);
+    for action in actions {
+        let id = format!("ex-planted-{}", action.replace('.', "-"));
+        let record = format!(
+            r#"{{"exception_id":"{id}","requester":"operator","action":"{action}","project_digest":"{digest}","target":"*","state":"approved","created_at":1,"expires_at":4102444800,"reason":"test grant","approver":"enrolled-out-of-band"}}"#
+        );
+        fs::write(store.join(format!("exceptions/{id}.json")), record).unwrap();
+    }
 }
 
 fn bin() -> PathBuf {
@@ -115,6 +124,18 @@ fn err_code(json: &Value) -> Option<&str> {
     json.pointer(&["error", "code"]).and_then(Value::as_str)
 }
 
+/// `intent preview` then `apply --tx`, the only apply path the product has.
+/// Returns the preview envelope and the apply result.
+fn preview_then_apply(project: &str, store: &str, target: &str, desired: &str) -> (i32, Value, String) {
+    let (code, preview, out) = run(&[
+        "intent", "preview", "--json", "--project", project, "--store", store, "--target", target,
+        "--desired", desired,
+    ]);
+    assert_eq!(code, 0, "preview failed: {out} {preview:?}");
+    let tx = preview.get("tx_id").and_then(Value::as_str).expect("tx_id").to_string();
+    run(&["apply", "--json", "--project", project, "--store", store, "--tx", &tx])
+}
+
 #[test]
 fn l01_residue_is_not_installed_unknown_version_fail_closed_no_default_home() {
     let scratch = Scratch::new("l01");
@@ -210,18 +231,14 @@ fn l03_apply_without_policy_authorization() {
     let project = scratch.path.to_str().unwrap();
     let store = scratch.path.join("store");
     let store_s = store.to_str().unwrap();
+    // `apply` without a persisted preview is a usage error, not a policy
+    // question: there is nothing to bind the apply to.
     let (code, json, out) = run(&[
-        "apply",
-        "--json",
-        "--project",
-        project,
-        "--store",
-        store_s,
-        "--desired",
-        "PWNED\n",
-        "--target",
-        "AGENTS.md",
+        "apply", "--json", "--project", project, "--store", store_s, "--desired", "PWNED\n",
     ]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("usage.invalid"));
+    let (code, json, out) = preview_then_apply(project, store_s, "AGENTS.md", "PWNED\n");
     assert_eq!(code, 1, "{out} {json:?}");
     assert_eq!(err_code(&json), Some("policy.unknown"));
     assert_eq!(
@@ -235,18 +252,7 @@ fn l03_apply_without_policy_authorization() {
         r#"[{"layer":"organization","mode":"enforceable","rules":[{"id":"r1","required":true,"effect":"deny"}]},{"layer":"team","mode":"enforceable","rules":[]},{"layer":"project","mode":"enforceable","rules":[]},{"layer":"user","mode":"detect-only","rules":[]},{"layer":"session","mode":"detect-only","rules":[]}]"#,
     )
     .unwrap();
-    let (code, json, out) = run(&[
-        "apply",
-        "--json",
-        "--project",
-        project,
-        "--store",
-        store_s,
-        "--desired",
-        "PWNED\n",
-        "--target",
-        "AGENTS.md",
-    ]);
+    let (code, json, out) = preview_then_apply(project, store_s, "AGENTS.md", "PWNED\n");
     assert_eq!(code, 1, "{out} {json:?}");
     assert_eq!(err_code(&json), Some("policy.denied"));
     assert_eq!(
@@ -341,7 +347,7 @@ fn l05_secret_and_replay_and_transport_not_verified() {
     assert!(!dest.join("current.json").exists());
     assert!(!dest.join("applied.jsonl").exists());
 
-    plant_pass_policy_and_live_exception(&store);
+    plant_grants(&store, Some(&scratch.path), &["sync.apply"]);
     let (code, json, out) = run(&[
         "sync",
         "apply",
@@ -464,7 +470,7 @@ fn l08_import_does_not_invent_and_delete_drops_insights() {
     assert_eq!(err_code(&json), Some("policy.unknown"));
     assert!(!store.join("sessions/s1.json").exists());
 
-    plant_pass_policy_and_live_exception(&store);
+    plant_grants(&store, None, &["sessions.import", "sessions.delete"]);
     let (code, json, out) = run(&[
         "import",
         "--json",
@@ -532,52 +538,102 @@ fn l09_advisor_requires_consent_and_does_not_unlock() {
     );
 }
 
+const RUNS_CONTRACT: &str = r#"{"schema":"experiment-contract-v1","experiment_id":"e-lock","primary_outcome":"task-pass","margin_pp":10,"pairing":"paired-by-task","n_planned":NPLANNED,"alpha":"0.05","power":"0.80","multiplicity":"none","itt":"count-as-fail","locked":{"code_digest":"c","model":"m","harness":"h","tool_availability_digest":"t"},"frozen_at":"100.0Z","invalidation":["harness update"]}"#;
+
+/// A runs document with `pairs` control/treatment pairs (control fails,
+/// treatment passes) under a contract planning `n_planned` pairs.
+fn runs_document(n_planned: i64, pairs: usize) -> String {
+    let mut runs = Vec::new();
+    for index in 0..pairs {
+        for (arm, outcome) in [("control", "fail"), ("treatment", "pass")] {
+            runs.push(format!(
+                r#"{{"run_id":"{arm}-{index}","arm":"{arm}","task_id":"t{index}","outcome":"{outcome}","code_digest":"c","model":"m","harness":"h","tool_availability_digest":"t","started_at":"101.0Z","ended_at":"102.0Z"}}"#
+            ));
+        }
+    }
+    format!(
+        r#"{{"schema":"ctxpect-effect-runs-v1","contract":{},"runs":[{}]}}"#,
+        RUNS_CONTRACT.replace("NPLANNED", &n_planned.to_string()),
+        runs.join(",")
+    )
+}
+
+/// L10 / T2: without per-run results nothing was executed; a single pair is
+/// inconclusive; a valid document is still inconclusive because the product
+/// carries no estimator; persisting needs authority; the planned sample
+/// size cannot change afterwards.
 #[test]
 fn l10_single_pair_not_causal_and_n_locked() {
     let scratch = Scratch::new("l10");
     let store = scratch.path.join("store");
     let store_s = store.to_str().unwrap();
-    let (code, json, _) = run(&["experiment", "--json", "--n", "1", "--id", "e1"]);
-    assert_eq!(code, 0, "{json:?}");
-    assert_eq!(
-        json.get("decision").and_then(Value::as_str),
-        Some("inconclusive")
-    );
-    assert_eq!(json.get("causal").and_then(Value::as_bool), Some(false));
+
+    // No runs: not executed, no decision, exit 3.
+    let (code, json, out) = run(&["experiment", "--json", "--id", "e1"]);
+    assert_eq!(code, 3, "{out} {json:?}");
+    assert_eq!(json.get("executed"), Some(&Value::Bool(false)));
+    assert_eq!(json.get("decision"), Some(&Value::Null));
+    assert_eq!(json.get("reason_code").and_then(Value::as_str), Some("effect.runs_required"));
+    assert_eq!(json.get("causal"), Some(&Value::Bool(false)));
+
+    // A single pair under a contract planning four: inconclusive, n insufficient.
+    let one = scratch.write("one.json", runs_document(4, 1));
+    let (code, json, out) = run(&["experiment", "--json", "--runs", one.to_str().unwrap()]);
+    assert_eq!(code, 3, "{out} {json:?}");
+    assert_eq!(json.get("executed"), Some(&Value::Bool(true)));
+    assert_eq!(json.get("decision").and_then(Value::as_str), Some("inconclusive"));
+    assert_eq!(json.get("reason_code").and_then(Value::as_str), Some("effect.n_insufficient"));
+    assert_eq!(json.get("runs").and_then(Value::as_array).map(<[Value]>::len), Some(2));
+
+    // Four valid pairs: the frozen exact estimator runs and finds four
+    // discordant pairs are not evidence (p = 0.125); the numbers are shown.
+    let four = scratch.write("four.json", runs_document(4, 4));
+    let (code, json, out) = run(&["experiment", "--json", "--runs", four.to_str().unwrap()]);
+    assert_eq!(code, 3, "{out} {json:?}");
+    assert_eq!(json.get("decision").and_then(Value::as_str), Some("inconclusive"));
+    assert_eq!(json.get("reason_code").and_then(Value::as_str), Some("effect.estimator_inconclusive"));
+    assert_eq!(json.pointer(&["estimator", "available"]), Some(&Value::Bool(true)));
+    assert_eq!(json.pointer(&["estimator", "name"]).and_then(Value::as_str), Some("paired-exact-binomial-v2"));
+    assert_eq!(json.pointer(&["estimator", "detail", "p_value"]).and_then(Value::as_str), Some("0.125000"));
+    // Ten discordant pairs favouring treatment: supported, exit 0.
+    let ten = scratch.write("ten.json", runs_document(10, 10));
+    let (code, json, out) = run(&["experiment", "--json", "--runs", ten.to_str().unwrap()]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("decision").and_then(Value::as_str), Some("supported-beneficial"));
+    assert_eq!(json.get("causal"), Some(&Value::Bool(false)));
+
+    // A drifted confounder invalidates the experiment with its own reason.
+    let drifted = scratch.write("drift.json", runs_document(4, 4).replacen("\"model\":\"m\"", "\"model\":\"other\"", 1));
+    let (code, json, _) = run(&["experiment", "--json", "--runs", drifted.to_str().unwrap()]);
+    assert_eq!(code, 3);
+    assert_eq!(json.get("reason_code").and_then(Value::as_str), Some("effect.confounder_drift"));
+
+    // A malformed document is not an experiment.
+    let bad = scratch.write("bad.json", r#"{"schema":"ctxpect-effect-runs-v1","contract":{"schema":"experiment-contract-v1"},"runs":[]}"#);
+    let (code, json, _) = run(&["experiment", "--json", "--runs", bad.to_str().unwrap()]);
+    assert_eq!(code, 1);
+    assert_eq!(err_code(&json), Some("effect.contract_invalid"));
 
     // Persisting an experiment result is a store mutation. Without authority
     // it is refused and nothing is written.
-    let (code, json, out) = run(&[
-        "experiment", "--json", "--n", "4", "--id", "e-lock", "--store", store_s,
-    ]);
+    let (code, json, out) = run(&["experiment", "--json", "--runs", four.to_str().unwrap(), "--store", store_s]);
     assert_eq!(code, 1, "{out} {json:?}");
     assert_eq!(err_code(&json), Some("policy.unknown"));
     assert!(!store.join("experiments/e-lock.json").exists());
 
     fs::create_dir_all(&store).unwrap();
-    plant_pass_policy_and_live_exception(&store);
-    let (code, json, out) = run(&[
-        "experiment",
-        "--json",
-        "--n",
-        "4",
-        "--id",
-        "e-lock",
-        "--store",
-        store_s,
-    ]);
-    assert_eq!(code, 0, "{out} {json:?}");
-    let (code, json, out) = run(&[
-        "experiment",
-        "--json",
-        "--n",
-        "8",
-        "--id",
-        "e-lock",
-        "--store",
-        store_s,
-    ]);
+    plant_grants(&store, None, &["experiment.persist"]);
+    let (code, json, out) = run(&["experiment", "--json", "--runs", four.to_str().unwrap(), "--store", store_s]);
+    assert_eq!(code, 3, "{out} {json:?}");
+    assert!(store.join("experiments/e-lock.json").exists());
+    // The planned sample size is locked once results are recorded.
+    let eight = scratch.write("eight.json", runs_document(8, 8));
+    let (code, json, out) = run(&["experiment", "--json", "--runs", eight.to_str().unwrap(), "--store", store_s]);
     assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("effect.n_locked"));
+    // `--n` cannot override the frozen contract either.
+    let (code, json, _) = run(&["experiment", "--json", "--runs", four.to_str().unwrap(), "--n", "2"]);
+    assert_eq!(code, 1);
     assert_eq!(err_code(&json), Some("effect.n_locked"));
 }
 
@@ -646,18 +702,7 @@ fn policy_show_matches_apply_decision() {
         Some("policy.unknown")
     );
     assert_eq!(json.get("verdict").and_then(Value::as_str), Some("unknown"));
-    let (acode, ajson, _) = run(&[
-        "apply",
-        "--json",
-        "--project",
-        project,
-        "--store",
-        store_s,
-        "--desired",
-        "PWNED\n",
-        "--target",
-        "AGENTS.md",
-    ]);
+    let (acode, ajson, _) = preview_then_apply(project, store_s, "AGENTS.md", "PWNED\n");
     assert_eq!(acode, 1);
     assert_eq!(
         err_code(&ajson),
@@ -668,7 +713,7 @@ fn policy_show_matches_apply_decision() {
         "one\n"
     );
 
-    plant_pass_policy_and_live_exception(&store);
+    plant_grants(&store, Some(&scratch.path), &["apply"]);
     let (code, json, out) = run(&[
         "policy",
         "show",
@@ -683,18 +728,7 @@ fn policy_show_matches_apply_decision() {
         json.get("mutation_allowed").and_then(Value::as_bool),
         Some(true)
     );
-    let (acode, ajson, out) = run(&[
-        "apply",
-        "--json",
-        "--project",
-        project,
-        "--store",
-        store_s,
-        "--desired",
-        "ok\n",
-        "--target",
-        "AGENTS.md",
-    ]);
+    let (acode, ajson, out) = preview_then_apply(project, store_s, "AGENTS.md", "ok\n");
     assert_eq!(acode, 0, "{out} {ajson:?}");
     let post = ajson
         .get("post_receipt_id")
@@ -719,7 +753,7 @@ fn rollback_without_authorization_does_not_write() {
         "--store",
         scratch.path.join("store").to_str().unwrap(),
         "--id",
-        "tx_none",
+        "tx_0000000000000000",
     ]);
     assert_eq!(code, 1, "{out} {json:?}");
     assert_eq!(err_code(&json), Some("policy.unknown"));
@@ -758,12 +792,12 @@ fn exception_approve_cannot_self_attest_role() {
     assert_eq!(err_code(&json), Some("principal.secret_mismatch"));
     assert!(!store.join("exceptions/ex-1.json").exists());
 
-    // An enrolled requester may request.
+    // An enrolled requester may request, for one action with one lifetime.
     let (code, json, out) = run_as(
         "alice-secret",
         &[
             "exception", "request", "--json", "--store", store_s, "--project", project_s, "--id",
-            "ex-1", "--principal", "alice",
+            "ex-1", "--principal", "alice", "--action", "standard.publish", "--expires-in", "3600",
         ],
     );
     assert_eq!(code, 0, "{out} {json:?}");
@@ -844,7 +878,7 @@ fn standard_signature_rejects_payload_and_mac_tamper() {
     // Publishing a standard is a store mutation and needs the same authority
     // as any other; this test is about signatures, so grant it up front.
     fs::create_dir_all(&store).unwrap();
-    plant_pass_policy_and_live_exception(&store);
+    plant_grants(&store, None, &["standard.publish"]);
     let (code, json, out) = run(&[
         "standard",
         "publish",
@@ -896,6 +930,1120 @@ fn standard_signature_rejects_payload_and_mac_tamper() {
     ]);
     assert_eq!(code, 1, "{out} {json:?}");
     assert_eq!(err_code(&json), Some("standard.signature_mismatch"));
+}
+
+/// C31: an approved exception is bound to one action, one project and one
+/// target. The same record must not authorize another project or action.
+#[test]
+fn an_exception_for_one_project_and_action_does_not_authorize_another() {
+    let a = Scratch::new("scope-a");
+    let b = Scratch::new("scope-b");
+    a.write("AGENTS.md", "a\n");
+    b.write("AGENTS.md", "b\n");
+    let store = a.path.join("store");
+    let store_s = store.to_str().unwrap();
+    fs::create_dir_all(&store).unwrap();
+    // Approved for project A, action `apply`, any target.
+    plant_grants(&store, Some(&a.path), &["apply"]);
+
+    // Project B, same action: refused, and its file is untouched.
+    let (code, json, out) = preview_then_apply(b.path.to_str().unwrap(), store_s, "AGENTS.md", "x\n");
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("policy.approval_required"));
+    assert!(
+        json.pointer(&["error", "message"])
+            .and_then(Value::as_str)
+            .is_some_and(|m| m.contains("exception.project_mismatch")),
+        "{json:?}"
+    );
+    assert_eq!(fs::read_to_string(b.path.join("AGENTS.md")).unwrap(), "b\n");
+
+    // Project A, another action (`sessions.import`): refused too.
+    a.write("sess.json", r#"{"events":[{"type":"user","text":"hi"}]}"#);
+    let (code, json, out) = run(&[
+        "import", "--json", "--project", a.path.to_str().unwrap(), "--store", store_s, "--from",
+        a.path.join("sess.json").to_str().unwrap(), "--session", "s-scope",
+    ]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("policy.approval_required"));
+    assert!(
+        json.pointer(&["error", "message"])
+            .and_then(Value::as_str)
+            .is_some_and(|m| m.contains("exception.action_mismatch")),
+        "{json:?}"
+    );
+    assert!(!store.join("sessions/s-scope.json").exists());
+
+    // Project A, the approved action: allowed.
+    let (code, json, out) = preview_then_apply(a.path.to_str().unwrap(), store_s, "AGENTS.md", "x\n");
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(fs::read_to_string(a.path.join("AGENTS.md")).unwrap(), "x\n");
+}
+
+/// C32: `apply --tx` is bound to the previewed digest. A target edited after
+/// the preview is not overwritten by an apply that recomputed nothing.
+#[test]
+fn apply_is_bound_to_the_persisted_preview_not_a_recomputed_one() {
+    let scratch = Scratch::new("bind");
+    scratch.write("AGENTS.md", "one\n");
+    let project = scratch.path.to_str().unwrap();
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    fs::create_dir_all(&store).unwrap();
+    plant_grants(&store, Some(&scratch.path), &["apply"]);
+
+    let (code, preview, out) = run(&[
+        "intent", "preview", "--json", "--project", project, "--store", store_s, "--target",
+        "AGENTS.md", "--desired", "two\n",
+    ]);
+    assert_eq!(code, 0, "{out} {preview:?}");
+    assert_eq!(preview.get("persisted").and_then(Value::as_bool), Some(true));
+    let tx = preview.get("tx_id").and_then(Value::as_str).unwrap().to_string();
+    assert!(store.join(format!("previews/{tx}.json")).is_file());
+
+    // The user edits the file between preview and apply.
+    scratch.write("AGENTS.md", "edited meanwhile\n");
+    let (code, json, out) = run(&["apply", "--json", "--project", project, "--store", store_s, "--tx", &tx]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("projection.concurrent_hash"));
+    assert_eq!(
+        fs::read_to_string(scratch.path.join("AGENTS.md")).unwrap(),
+        "edited meanwhile\n"
+    );
+    // An unknown transaction id is a missing preview, not a silent recompute.
+    let (code, json, _) = run(&["apply", "--json", "--project", project, "--store", store_s, "--tx", "tx_nope"]);
+    assert_eq!(code, 1);
+    assert_eq!(err_code(&json), Some("projection.preview_missing"));
+}
+
+/// C33: rollback re-hashes the target and refuses a concurrent edit; a file
+/// the apply created is removed, not emptied.
+/// T1(a): a persisted preview is bound to the project it was computed in and
+/// is consumed by its apply. Project B, holding its own apply exception,
+/// cannot apply project A's transaction; A's own transaction cannot be
+/// applied twice, and a rollback does not make it applicable again.
+#[test]
+fn a_preview_is_bound_to_its_project_and_consumed_by_its_apply() {
+    let a = Scratch::new("scope-a");
+    let b = Scratch::new("scope-b");
+    a.write("AGENTS.md", "same\n");
+    b.write("AGENTS.md", "same\n");
+    let store = a.path.join("store");
+    let store_s = store.to_str().unwrap();
+    let project_a = a.path.to_str().unwrap();
+    let project_b = b.path.to_str().unwrap();
+    fs::create_dir_all(&store).unwrap();
+    // Both projects hold their own grants in the shared store.
+    plant_grants(&store, Some(&a.path), &["apply", "rollback"]);
+    let digest_b = project_scope_digest(&store, Some(&b.path));
+    for action in ["apply", "rollback"] {
+        let id = format!("ex-b-{action}");
+        fs::write(
+            store.join(format!("exceptions/{id}.json")),
+            format!(
+                r#"{{"exception_id":"{id}","requester":"operator","action":"{action}","project_digest":"{digest_b}","target":"*","state":"approved","created_at":1,"expires_at":4102444800,"reason":"test grant","approver":"enrolled-out-of-band"}}"#
+            ),
+        )
+        .unwrap();
+    }
+
+    let (code, preview, out) = run(&[
+        "intent", "preview", "--json", "--project", project_a, "--store", store_s, "--target",
+        "AGENTS.md", "--desired", "from-a\n",
+    ]);
+    assert_eq!(code, 0, "{out}");
+    let tx = preview.get("tx_id").and_then(Value::as_str).unwrap().to_string();
+    assert_eq!(preview.get("state").and_then(Value::as_str), Some("previewed"));
+    assert_eq!(
+        preview.get("project_digest").and_then(Value::as_str),
+        Some(project_scope_digest(&store, Some(&a.path)).as_str())
+    );
+
+    // B cannot consume A's transaction, and A's record is untouched.
+    let (code, json, out) = run(&["apply", "--json", "--project", project_b, "--store", store_s, "--tx", &tx]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("projection.preview_scope"));
+    assert_eq!(fs::read_to_string(b.path.join("AGENTS.md")).unwrap(), "same\n");
+    assert!(!store.join("apply").join(&tx).exists(), "no transaction directory was written for B");
+
+    // A applies once.
+    let (code, json, out) = run(&["apply", "--json", "--project", project_a, "--store", store_s, "--tx", &tx]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(fs::read_to_string(a.path.join("AGENTS.md")).unwrap(), "from-a\n");
+    // ... and not twice.
+    let (code, json, out) = run(&["apply", "--json", "--project", project_a, "--store", store_s, "--tx", &tx]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("projection.tx_consumed"));
+    // A rollback closes the transaction; it does not reopen the preview.
+    let (code, json, out) = run(&["rollback", "--json", "--project", project_a, "--store", store_s, "--id", &tx]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(fs::read_to_string(a.path.join("AGENTS.md")).unwrap(), "same\n");
+    let (code, json, out) = run(&["apply", "--json", "--project", project_a, "--store", store_s, "--tx", &tx]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("projection.tx_consumed"));
+    // A fresh preview is a fresh transaction: it never reuses the consumed
+    // id, so the closed record and its backup are left intact.
+    let (code, preview, _) = run(&[
+        "intent", "preview", "--json", "--project", project_a, "--store", store_s, "--target",
+        "AGENTS.md", "--desired", "from-a\n",
+    ]);
+    assert_eq!(code, 0);
+    assert_ne!(preview.get("tx_id").and_then(Value::as_str), Some(tx.as_str()));
+    assert_eq!(preview.get("state").and_then(Value::as_str), Some("previewed"));
+    let closed = ctxpect_schema::parse(
+        &fs::read_to_string(Path::new(store_s).join("apply").join(&tx).join("tx.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(closed.get("state").and_then(Value::as_str), Some("rolled-back"));
+    // A caller-supplied id that is not a transaction id never reaches a path.
+    let (code, json, _) = run(&["rollback", "--json", "--project", project_a, "--store", store_s, "--id", "../../evil"]);
+    assert_eq!(code, 1);
+    assert_eq!(err_code(&json), Some("store.bad_id"));
+}
+
+/// T1(b): a persistence failure under `inspect --store` is reported and
+/// exits 1; `store status` shows the in-doubt record; `store repair`
+/// rebuilds the index and the retry lands the Receipt exactly once.
+#[test]
+fn inspect_store_reports_a_persistence_failure_and_repair_recovers_it() {
+    let scratch = Scratch::new("persist");
+    scratch.write("AGENTS.md", "hello\n");
+    let project = scratch.path.to_str().unwrap();
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    let (code, json, _) = run(&["inspect", "--json", "--project", project, "--store", store_s]);
+    assert_eq!(code, 0, "{json:?}");
+    assert!(json.get("formal_receipt_id").and_then(Value::as_str).is_some());
+
+    fs::write(store.join("index.json"), "{not json").unwrap();
+    scratch.write("AGENTS.md", "changed\n");
+    let (code, json, out) = run(&["inspect", "--json", "--project", project, "--store", store_s]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(json.get("formal_receipt_id"), Some(&Value::Null));
+    assert_eq!(
+        json.pointer(&["persist_error", "code"]).and_then(Value::as_str),
+        Some("store.index_corrupt")
+    );
+
+    let (code, json, out) = run(&["store", "status", "--json", "--store", store_s]);
+    assert_eq!(code, 3, "{out} {json:?}");
+    assert_eq!(json.pointer(&["index", "status"]).and_then(Value::as_str), Some("corrupt"));
+    assert_eq!(json.pointer(&["journal", "in_doubt"]).and_then(Value::as_i64), Some(1));
+
+    let (code, json, out) = run(&["store", "repair", "--json", "--store", store_s]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("rebuilt"), Some(&Value::Bool(true)));
+    assert_eq!(json.pointer(&["status", "journal", "in_doubt"]).and_then(Value::as_i64), Some(0));
+    let (code, json, out) = run(&["inspect", "--json", "--project", project, "--store", store_s]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    let id = json.get("formal_receipt_id").and_then(Value::as_str).unwrap().to_string();
+    let index = parse(&fs::read_to_string(store.join("index.json")).unwrap()).unwrap();
+    let rows = index.as_array().unwrap();
+    assert_eq!(rows.len(), 2, "{index:?}");
+    assert_eq!(
+        rows.iter().filter(|r| r.get("receipt_id").and_then(Value::as_str) == Some(id.as_str())).count(),
+        1
+    );
+    let audit = fs::read_to_string(store.join("audit/events.jsonl")).unwrap();
+    let puts = audit
+        .lines()
+        .filter(|line| line.contains("\"action\":\"receipt.put\"") && line.contains(&format!("\"target\":\"{id}\"")))
+        .count();
+    assert_eq!(puts, 1, "one receipt.put audit entry for the retried put");
+}
+
+/// T1(b): the same-machine advisory lock. A live holder makes a mutation
+/// fail with `store.busy`; a dead holder is stale and taken over; and two
+/// real `ctxpect` processes applying the same transaction at once produce
+/// exactly one success.
+#[cfg(unix)]
+#[test]
+fn a_live_lock_holder_refuses_a_mutation_and_concurrent_applies_yield_one_success() {
+    let scratch = Scratch::new("lock");
+    scratch.write("AGENTS.md", "one\n");
+    let project = scratch.path.to_str().unwrap();
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    fs::create_dir_all(&store).unwrap();
+    plant_grants(&store, Some(&scratch.path), &["apply", "rollback"]);
+    let (code, preview, out) = run(&[
+        "intent", "preview", "--json", "--project", project, "--store", store_s, "--target",
+        "AGENTS.md", "--desired", "two\n",
+    ]);
+    assert_eq!(code, 0, "{out}");
+    let tx = preview.get("tx_id").and_then(Value::as_str).unwrap().to_string();
+
+    // A foreign process holds the lock: this test process takes the OS lock
+    // on store/lock, exactly as another ctxpect would.
+    fs::write(store.join("lock"), "").unwrap();
+    let holder = fs::OpenOptions::new().read(true).write(true).open(store.join("lock")).unwrap();
+    holder.try_lock().unwrap();
+    let (code, json, out) = run(&["apply", "--json", "--project", project, "--store", store_s, "--tx", &tx]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("store.busy"));
+    assert_eq!(fs::read_to_string(scratch.path.join("AGENTS.md")).unwrap(), "one\n");
+    let (_, status, _) = run(&["store", "status", "--json", "--store", store_s]);
+    assert_eq!(status.pointer(&["lock", "held"]), Some(&Value::Bool(true)));
+    assert_eq!(status.pointer(&["lock", "holder"]).and_then(Value::as_str), Some("other-process"));
+    drop(holder);
+    let (_, status, _) = run(&["store", "status", "--json", "--store", store_s]);
+    assert_eq!(status.pointer(&["lock", "held"]), Some(&Value::Bool(false)));
+
+    // Two real processes race for the same transaction.
+    let mut children: Vec<std::process::Child> = (0..2)
+        .map(|_| {
+            Command::new(bin())
+                .args(["apply", "--json", "--project", project, "--store", store_s, "--tx", &tx])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    let mut successes = 0;
+    let mut refusals = Vec::new();
+    for child in children.iter_mut() {
+        let output = child.wait_with_output_ref();
+        if output.0 == 0 {
+            successes += 1;
+        } else {
+            refusals.push(err_code(&output.1).unwrap_or("?").to_string());
+        }
+    }
+    assert_eq!(successes, 1, "exactly one apply may land; refusals: {refusals:?}");
+    assert!(
+        refusals.iter().all(|code| {
+            matches!(code.as_str(), "store.busy" | "projection.tx_consumed" | "projection.concurrent_hash")
+        }),
+        "{refusals:?}"
+    );
+    assert_eq!(fs::read_to_string(scratch.path.join("AGENTS.md")).unwrap(), "two\n");
+    let (_, status, _) = run(&["store", "status", "--json", "--store", store_s]);
+    assert_eq!(status.pointer(&["lock", "held"]), Some(&Value::Bool(false)), "released after the mutation");
+}
+
+trait WaitOutput {
+    fn wait_with_output_ref(&mut self) -> (i32, Value);
+}
+
+impl WaitOutput for std::process::Child {
+    fn wait_with_output_ref(&mut self) -> (i32, Value) {
+        use std::io::Read;
+        let mut stdout = String::new();
+        if let Some(mut pipe) = self.stdout.take() {
+            let _ = pipe.read_to_string(&mut stdout);
+        }
+        let code = self.wait().ok().and_then(|s| s.code()).unwrap_or(255);
+        (code, parse(stdout.trim()).unwrap_or(Value::Null))
+    }
+}
+
+/// T1(b): a transaction interrupted after its record landed is listed and
+/// judged by `apply status` / `store status` without rewriting the target.
+#[cfg(unix)]
+#[test]
+fn pending_transactions_are_judged_not_rewritten() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new("pending");
+    scratch.write("locked/AGENTS.md", "one\n");
+    let project = scratch.path.to_str().unwrap();
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    fs::create_dir_all(&store).unwrap();
+    plant_grants(&store, Some(&scratch.path), &["apply", "rollback"]);
+    let (code, preview, _) = run(&[
+        "intent", "preview", "--json", "--project", project, "--store", store_s, "--target",
+        "locked/AGENTS.md", "--desired", "two\n",
+    ]);
+    assert_eq!(code, 0);
+    let tx = preview.get("tx_id").and_then(Value::as_str).unwrap().to_string();
+    fs::set_permissions(scratch.path.join("locked"), fs::Permissions::from_mode(0o555)).unwrap();
+    let (code, json, _) = run(&["apply", "--json", "--project", project, "--store", store_s, "--tx", &tx]);
+    fs::set_permissions(scratch.path.join("locked"), fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(code, 1);
+    assert_eq!(err_code(&json), Some("projection.io"));
+
+    let (code, json, out) = run(&["apply", "status", "--json", "--project", project, "--store", store_s]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    let txs = json.get("transactions").and_then(Value::as_array).unwrap();
+    assert_eq!(txs.len(), 1);
+    assert_eq!(txs[0].get("tx_id").and_then(Value::as_str), Some(tx.as_str()));
+    assert_eq!(txs[0].get("judgement").and_then(Value::as_str), Some("aborted"));
+
+    fs::write(scratch.path.join("locked/AGENTS.md"), "someone else\n").unwrap();
+    let (code, json, _) = run(&["store", "status", "--json", "--project", project, "--store", store_s]);
+    assert_eq!(code, 3, "in-doubt is not a clean status: {json:?}");
+    let txs = json.get("transactions").and_then(Value::as_array).unwrap();
+    assert_eq!(txs[0].get("judgement").and_then(Value::as_str), Some("in-doubt"));
+    assert_eq!(fs::read_to_string(scratch.path.join("locked/AGENTS.md")).unwrap(), "someone else\n");
+}
+
+/// T1(c)/(d): `ci --store` persists a `ci` Receipt and `collect --store` a
+/// `device-baseline` one; a Receipt signed without `signed_at` verifies as
+/// `receipt.signature_legacy`, and one whose `created_at` was edited fails.
+#[test]
+fn ci_and_collect_persist_their_kinds_and_verify_covers_the_times() {
+    let scratch = Scratch::new("kinds");
+    scratch.write("AGENTS.md", "hello\n");
+    let project = scratch.path.to_str().unwrap();
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    fs::create_dir_all(store.join("policies")).unwrap();
+    fs::write(store.join("policies/active.json"), PASS_LAYERS).unwrap();
+
+    let (code, json, out) = run(&["ci", "--json", "--project", project, "--store", store_s]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    let ci_id = json.get("receipt_id").and_then(Value::as_str).unwrap().to_string();
+    assert_eq!(json.get("receipt_persisted"), Some(&Value::Bool(true)));
+    let (code, receipt, _) = run(&["receipt", "show", "--json", "--store", store_s, "--receipt", &ci_id]);
+    assert_eq!(code, 0);
+    assert_eq!(receipt.get("receipt_kind").and_then(Value::as_str), Some("ci"));
+
+    let (code, json, out) = run(&["collect", "--json", "--project", project, "--store", store_s]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    let base_id = json.get("receipt_id").and_then(Value::as_str).unwrap().to_string();
+    let (code, receipt, _) = run(&["receipt", "show", "--json", "--store", store_s, "--receipt", &base_id]);
+    assert_eq!(code, 0);
+    assert_eq!(receipt.get("receipt_kind").and_then(Value::as_str), Some("device-baseline"));
+    assert!(
+        receipt.get("evidence").and_then(Value::as_array).is_some_and(|e| {
+            e.iter().any(|item| item.get("path").and_then(Value::as_str) == Some("AGENTS.md"))
+        }),
+        "{receipt:?}"
+    );
+    // Without a store, neither command claims a Receipt.
+    let (_, json, _) = run(&["collect", "--json", "--project", project]);
+    assert_eq!(json.get("receipt_id"), Some(&Value::Null));
+    assert_eq!(json.get("receipt_persisted"), Some(&Value::Bool(false)));
+
+    // Verify covers the times.
+    let (code, json, out) = run(&["receipt", "verify", "--json", "--store", store_s, "--receipt", &ci_id]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("signed_at_trusted"), Some(&Value::Bool(false)));
+    let path = store.join(format!("receipts/{ci_id}.json"));
+    let original = fs::read_to_string(&path).unwrap();
+    let stored = parse(&original).unwrap();
+    let created = stored.get("created_at").and_then(Value::as_str).unwrap().to_string();
+    fs::write(&path, original.replace(&format!("\"created_at\":\"{created}\""), "\"created_at\":\"0.0Z\"")).unwrap();
+    let (code, json, _) = run(&["receipt", "verify", "--json", "--store", store_s, "--receipt", &ci_id]);
+    assert_eq!(code, 1, "{json:?}");
+    assert_eq!(err_code(&json), Some("receipt.signature_mismatch"));
+    // A legacy signature (no signed_at) is named, not waved through.
+    let signed = stored.pointer(&["signature", "signed_at"]).and_then(Value::as_str).unwrap().to_string();
+    fs::write(&path, original.replace(&format!("\"signed_at\":\"{signed}\","), "")).unwrap();
+    let (code, json, out) = run(&["receipt", "verify", "--json", "--store", store_s, "--receipt", &ci_id]);
+    assert_eq!(code, 3, "{out} {json:?}");
+    assert_eq!(json.get("ok"), Some(&Value::Bool(false)));
+    assert_eq!(json.get("reason_code").and_then(Value::as_str), Some("receipt.signature_legacy"));
+}
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root")
+        .to_path_buf()
+}
+
+fn sha256_file(path: &Path) -> String {
+    ctxpect_schema::sha256_hex(&fs::read(path).unwrap())
+}
+
+/// Copy the codex static corpus (matrix, manifest, rows and the inputs the
+/// rows name) into a scratch acceptance tree so a golden row can be tampered
+/// with outside the repository.
+fn copy_codex_corpus(into: &Path) {
+    let root = repo_root();
+    for rel in ["acceptance/compatibility-matrix.yaml", "acceptance/corpus-manifest.json", "acceptance/corpus/development/static/codex__cli.jsonl"] {
+        let target = into.join(rel);
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::copy(root.join(rel), target).unwrap();
+    }
+    let rows = fs::read_to_string(root.join("acceptance/corpus/development/static/codex__cli.jsonl")).unwrap();
+    for line in rows.lines().filter(|l| !l.trim().is_empty()) {
+        let row = parse(line).unwrap();
+        let input = row.get("input_path").and_then(Value::as_str).unwrap();
+        copy_tree(&root.join(input), &into.join(input));
+    }
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    if from.is_dir() {
+        fs::create_dir_all(to).unwrap();
+        for entry in fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            copy_tree(&entry.path(), &to.join(entry.file_name()));
+        }
+    } else if from.is_file() {
+        fs::create_dir_all(to.parent().unwrap()).unwrap();
+        fs::copy(from, to).unwrap();
+    }
+}
+
+/// T3: `adapter test --adapter <family>` really runs that family's static
+/// rows through the shared runner and binds the result to the corpus, the
+/// matrix and the resolver version; a family without an implementation is
+/// `unimplemented`, never a pass; and a tampered golden row is reported by
+/// both the gate runner and the command.
+#[test]
+fn adapter_test_runs_the_family_corpus_and_binds_digests() {
+    let root = repo_root();
+    let root_s = root.to_str().unwrap();
+    let (code, json, _) = run(&["adapter", "test", "--json", "--adapter", "not-a-family", "--from", root_s]);
+    assert_eq!(code, 1);
+    assert_eq!(err_code(&json), Some("usage.invalid"));
+
+    // An unimplemented family: every row executed, none implemented.
+    let (code, json, out) = run(&["adapter", "test", "--json", "--adapter", "deepseek-harness", "--from", root_s]);
+    assert_eq!(code, 3, "{out} {json:?}");
+    assert_eq!(json.get("ran"), Some(&Value::Bool(true)));
+    assert_eq!(json.get("decision").and_then(Value::as_str), Some("unimplemented"));
+    assert_eq!(json.get("implemented_rows").and_then(Value::as_i64), Some(0));
+    assert!(json.get("executed_rows").and_then(Value::as_i64).unwrap_or(0) >= 60, "{json:?}");
+    assert_eq!(json.pointer(&["counts", "implemented_pass"]).and_then(Value::as_i64), Some(0));
+    assert_eq!(json.pointer(&["counts", "unknown_honesty_pass"]).and_then(Value::as_i64), Some(0));
+    assert_eq!(json.get("live_oracle_executed"), Some(&Value::Bool(false)));
+
+    // The anchor family: implemented rows pass and the digests bind the run.
+    let (code, json, out) = run(&["adapter", "test", "--json", "--adapter", "codex", "--from", root_s]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("decision").and_then(Value::as_str), Some("pass"));
+    assert!(json.get("implemented_rows").and_then(Value::as_i64).unwrap_or(0) >= 3, "{json:?}");
+    assert_eq!(json.pointer(&["counts", "fail"]).and_then(Value::as_i64), Some(0));
+    assert_eq!(
+        json.get("matrix_digest").and_then(Value::as_str),
+        Some(sha256_file(&root.join("acceptance/compatibility-matrix.yaml")).as_str())
+    );
+    let files = json.get("files").and_then(Value::as_array).unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].get("path").and_then(Value::as_str), Some("acceptance/corpus/development/static/codex__cli.jsonl"));
+    assert_eq!(
+        files[0].get("sha256").and_then(Value::as_str),
+        Some(sha256_file(&root.join("acceptance/corpus/development/static/codex__cli.jsonl")).as_str())
+    );
+    assert!(json.get("corpus_digest").and_then(Value::as_str).is_some_and(|d| d.len() == 64));
+    assert_eq!(json.get("resolver_version").and_then(Value::as_str), Some(ctxpect_resolve::VERSION));
+    assert!(json.pointer(&["not_executed", "sealed"]).and_then(Value::as_i64).unwrap_or(0) > 0);
+
+    // Mutation: a tampered implemented row is reported by both paths.
+    let scratch = Scratch::new("mutant");
+    copy_codex_corpus(&scratch.path);
+    let jsonl = scratch.path.join("acceptance/corpus/development/static/codex__cli.jsonl");
+    let original = fs::read_to_string(&jsonl).unwrap();
+    let tampered: Vec<String> = original
+        .lines()
+        .map(|line| {
+            if line.contains("\"id\":\"dev:static:codex/0.147.0/cli/macos-27-arm64:instructions:positive\"") {
+                line.replacen("\"truth_state\":\"present\"", "\"truth_state\":\"absent\"", 1)
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    assert_ne!(tampered.join("\n"), original.trim_end());
+    fs::write(&jsonl, tampered.join("\n") + "\n").unwrap();
+    let (code, json, out) = run(&["adapter", "test", "--json", "--adapter", "codex", "--from", scratch.path.to_str().unwrap()]);
+    assert_eq!(code, 2, "{out} {json:?}");
+    assert_eq!(json.get("decision").and_then(Value::as_str), Some("fail"));
+    assert!(json.get("failures").and_then(Value::as_array).is_some_and(|f| {
+        f.iter().any(|item| item.as_str().is_some_and(|t| t.contains("instructions:positive")))
+    }), "{json:?}");
+    let gate = ctxpect_cli::conformance::run_static_corpus(&scratch.path, None).unwrap();
+    assert!(gate.failures.iter().any(|f| f.contains("instructions:positive")), "{:?}", gate.failures);
+    assert_eq!(gate.totals().fail, 1);
+}
+
+/// T4(f): the request-evidence endpoint follows the session's life. A native
+/// artifact imported through the API is readable at `/sessions/:id/requests`
+/// without any body; once the session is deleted, requests and insights are
+/// gone with it.
+#[test]
+fn native_session_requests_follow_import_and_delete() {
+    let scratch = Scratch::new("native-api");
+    scratch.write("AGENTS.md", "hello\n");
+    let store = scratch.path.join("store");
+    fs::create_dir_all(&store).unwrap();
+    plant_grants(&store, Some(&scratch.path), &["sessions.import", "sessions.delete"]);
+    let (_child, listen) = start_daemon(&scratch, &store);
+    let jsonl = fs::read_to_string(
+        repo_root().join("acceptance/corpus/development/native/deepseek-harness-cli-0.1.2-rc.1/session.jsonl"),
+    )
+    .unwrap();
+    let body = canonical_json(&parse(&format!(
+        r#"{{"session_id":"s-native","mapping_id":"deepseek-harness-cli","jsonl":{}}}"#,
+        serde_quote(&jsonl)
+    ))
+    .unwrap());
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/sessions/import", &body);
+    assert_eq!(status, 200, "{raw}");
+    let (status, requests) = get_json(&listen, "/api/v1/sessions/s-native/requests");
+    assert_eq!(status, 200, "{requests:?}");
+    let list = requests.get("requests").and_then(Value::as_array).unwrap();
+    assert_eq!(list.len(), 4);
+    assert_eq!(list[0].get("dispatch_evidence").and_then(Value::as_i64), Some(6));
+    // The header-less step reuses the previous snapshot and is still listed.
+    assert_eq!(list[2].get("header_seq").and_then(Value::as_i64), Some(14));
+    assert_eq!(list[2].get("header_logged_in_step"), Some(&Value::Bool(false)));
+    assert_eq!(requests.get("bodies_stored"), Some(&Value::Bool(false)));
+    assert_eq!(requests.pointer(&["tail", "interrupted"]), Some(&Value::Bool(true)));
+    let text = canonical_json(&requests);
+    assert!(!text.contains("List the files") && !text.contains("/tmp/ctxpect-fixture"), "{text}");
+    // Without the artifact the mapping has nothing to read.
+    let (status, raw) = http_call(
+        &listen,
+        "POST",
+        "/api/v1/sessions/import",
+        r#"{"session_id":"s-bare","mapping_id":"deepseek-harness-cli"}"#,
+    );
+    assert_eq!(status, 400, "{raw}");
+    assert!(raw.contains("import_parse_failed"), "{raw}");
+
+    // Delete through the CLI on the same store: the endpoint stops answering.
+    let store_s = store.to_str().unwrap();
+    let (code, json, out) = run(&[
+        "sessions", "--json", "--store", store_s, "--project", scratch.path.to_str().unwrap(), "--session", "s-native", "--reason", "delete",
+    ]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    let (status, raw) = http_call(&listen, "GET", "/api/v1/sessions/s-native/requests", "");
+    assert_eq!(status, 400, "{raw}");
+    assert!(raw.contains("store.missing"), "{raw}");
+    let (status, raw) = http_call(&listen, "GET", "/api/v1/sessions/s-native", "");
+    assert_eq!(status, 400, "{raw}");
+    assert!(!store.join("insights/s-native.json").exists());
+}
+
+#[test]
+fn rollback_preserves_a_later_edit_and_removes_a_created_file() {
+    let scratch = Scratch::new("rbc");
+    scratch.write("AGENTS.md", "one\n");
+    let project = scratch.path.to_str().unwrap();
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    fs::create_dir_all(&store).unwrap();
+    plant_grants(&store, Some(&scratch.path), &["apply", "rollback"]);
+
+    let (code, applied, out) = preview_then_apply(project, store_s, "AGENTS.md", "two\n");
+    assert_eq!(code, 0, "{out} {applied:?}");
+    let tx = applied
+        .pointer(&["transaction", "tx_id"])
+        .and_then(Value::as_str)
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        applied.pointer(&["transaction", "state"]).and_then(Value::as_str),
+        Some("committed")
+    );
+    scratch.write("AGENTS.md", "user edit after apply\n");
+    let (code, json, out) = run(&["rollback", "--json", "--project", project, "--store", store_s, "--id", &tx]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("projection.rollback_conflict"));
+    assert_eq!(
+        fs::read_to_string(scratch.path.join("AGENTS.md")).unwrap(),
+        "user edit after apply\n"
+    );
+
+    // A brand-new file: the transaction records it did not exist, and the
+    // rollback deletes it rather than leaving an empty file behind.
+    let (code, applied, out) = preview_then_apply(project, store_s, "docs/NEW.md", "fresh\n");
+    assert_eq!(code, 0, "{out} {applied:?}");
+    assert_eq!(
+        applied.pointer(&["transaction", "existed_before"]).and_then(Value::as_bool),
+        Some(false)
+    );
+    let tx = applied
+        .pointer(&["transaction", "tx_id"])
+        .and_then(Value::as_str)
+        .unwrap()
+        .to_string();
+    assert_eq!(fs::read_to_string(scratch.path.join("docs/NEW.md")).unwrap(), "fresh\n");
+    let (code, json, out) = run(&["rollback", "--json", "--project", project, "--store", store_s, "--id", &tx]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("action").and_then(Value::as_str), Some("removed-created-file"));
+    assert!(!scratch.path.join("docs/NEW.md").exists(), "created file must be removed, not emptied");
+}
+
+/// C34: an imported session carrying a secret and an absolute path leaves
+/// neither byte string anywhere in the store.
+#[test]
+fn import_keeps_no_secret_or_path_bytes_in_the_store() {
+    let scratch = Scratch::new("imp");
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    fs::create_dir_all(&store).unwrap();
+    plant_grants(&store, None, &["sessions.import"]);
+    let secret = "sk-abcdefghijklmnopqrstuvwxyz0123";
+    let home = "/Users/someone/private/notes";
+    scratch.write(
+        "sess.json",
+        format!(
+            r#"{{"events":[{{"type":"user","text":"token {secret} in {home}"}},{{"type":"{secret}","text":"x"}}]}}"#
+        ),
+    );
+    let (code, json, out) = run(&[
+        "import", "--json", "--store", store_s, "--from",
+        scratch.path.join("sess.json").to_str().unwrap(), "--session", "s-priv", "--mapping",
+        "codex-cli",
+    ]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("bodies_stored").and_then(Value::as_bool), Some(false));
+
+    fn walk(dir: &Path, needles: &[&str]) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, needles);
+            } else if let Ok(text) = fs::read_to_string(&path) {
+                for needle in needles {
+                    assert!(!text.contains(needle), "{} carries {needle}", path.display());
+                }
+            }
+        }
+    }
+    walk(&store, &[secret, home, "/Users/"]);
+
+    // An undeclared mapping is refused rather than accepted as generic.
+    let (code, json, _) = run(&[
+        "import", "--json", "--store", store_s, "--from",
+        scratch.path.join("sess.json").to_str().unwrap(), "--session", "s-map", "--mapping",
+        "made-up",
+    ]);
+    assert_eq!(code, 1);
+    assert_eq!(err_code(&json), Some("import.mapping_unknown"));
+}
+
+/// C35: a desired payload carrying a credential shape is refused at preview,
+/// so no backup directory and no transaction record ever exist for it.
+#[test]
+fn a_secret_bearing_apply_is_refused_before_any_backup_exists() {
+    let scratch = Scratch::new("secret");
+    scratch.write("AGENTS.md", "one\n");
+    let project = scratch.path.to_str().unwrap();
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    fs::create_dir_all(&store).unwrap();
+    plant_grants(&store, Some(&scratch.path), &["apply"]);
+    let (code, json, out) = run(&[
+        "intent", "preview", "--json", "--project", project, "--store", store_s, "--target",
+        "AGENTS.md", "--desired", "token=ghp_fixture_not_a_real_secret_00\n",
+    ]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("projection.contains_secrets"));
+    assert!(
+        fs::read_dir(store.join("apply")).map(|d| d.count()).unwrap_or(0) == 0,
+        "no backup may exist for a refused apply"
+    );
+    assert_eq!(fs::read_to_string(scratch.path.join("AGENTS.md")).unwrap(), "one\n");
+    assert!(
+        fs::read_dir(store.join("previews")).map(|d| d.count()).unwrap_or(0) == 0,
+        "a refused preview is not persisted"
+    );
+}
+
+/// C38: `ci` gates on the store's effective policy. No policy is exit 3,
+/// a required deny is exit 2.
+#[test]
+fn ci_gates_on_store_policy_and_never_reads_no_policy_as_pass() {
+    let scratch = Scratch::new("cigate");
+    scratch.write("AGENTS.md", "hello\n");
+    let project = scratch.path.to_str().unwrap();
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    fs::create_dir_all(&store).unwrap();
+
+    let (code, json, out) = run(&["ci", "--json", "--project", project, "--store", store_s]);
+    assert_eq!(code, 3, "{out} {json:?}");
+    assert_eq!(json.get("policy_exit_code").and_then(Value::as_i64), Some(3));
+    assert_eq!(
+        json.pointer(&["policy", "reason_code"]).and_then(Value::as_str),
+        Some("policy.unknown")
+    );
+
+    fs::create_dir_all(store.join("policies")).unwrap();
+    fs::write(
+        store.join("policies/active.json"),
+        r#"[{"layer":"organization","mode":"enforceable","rules":[{"id":"r1","required":true,"effect":"deny"}]}]"#,
+    )
+    .unwrap();
+    let (code, json, out) = run(&["ci", "--json", "--project", project, "--store", store_s]);
+    assert_eq!(code, 2, "{out} {json:?}");
+    assert_eq!(json.get("policy_exit_code").and_then(Value::as_i64), Some(2));
+
+    fs::write(store.join("policies/active.json"), PASS_LAYERS).unwrap();
+    let (code, json, out) = run(&["ci", "--json", "--project", project, "--store", store_s]);
+    assert_eq!(json.get("policy_exit_code").and_then(Value::as_i64), Some(0), "{out} {json:?}");
+    // The inspect verdict still applies: the instructions are present, so
+    // with a passing policy and no blocking finding the run is green.
+    assert_eq!(code, 0, "{out} {json:?}");
+
+    // Without `--store`, `ci` does not create one in the project.
+    let (code, _, _) = run(&["ci", "--json", "--project", project]);
+    assert_eq!(code, 3);
+    assert!(!scratch.path.join(".ctxpect/store").exists(), "ci must not create a store");
+}
+
+/// C22: an exception needs an explicit lifetime and action, keeps its
+/// reason, and expires.
+#[test]
+fn exception_request_requires_a_lifetime_and_the_exception_expires() {
+    let scratch = Scratch::new("exp");
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    let project_s = scratch.path.to_str().unwrap();
+    enroll_principals(&scratch.path);
+
+    let (code, json, out) = run_as(
+        "alice-secret",
+        &[
+            "exception", "request", "--json", "--store", store_s, "--project", project_s, "--id",
+            "ex-t", "--principal", "alice", "--action", "apply",
+        ],
+    );
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("usage.invalid"));
+    assert!(!store.join("exceptions/ex-t.json").exists());
+
+    let (code, json, out) = run_as(
+        "alice-secret",
+        &[
+            "exception", "request", "--json", "--store", store_s, "--project", project_s, "--id",
+            "ex-t", "--principal", "alice", "--expires-in", "1", "--reason", "hotfix",
+        ],
+    );
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("usage.invalid"), "--action is required");
+
+    let (code, json, out) = run_as(
+        "alice-secret",
+        &[
+            "exception", "request", "--json", "--store", store_s, "--project", project_s, "--id",
+            "ex-t", "--principal", "alice", "--action", "apply", "--target", "AGENTS.md",
+            "--expires-in", "1", "--reason", "hotfix",
+        ],
+    );
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("reason").and_then(Value::as_str), Some("hotfix"));
+    assert_eq!(json.get("action").and_then(Value::as_str), Some("apply"));
+    assert_eq!(json.get("target").and_then(Value::as_str), Some("AGENTS.md"));
+    // `created_at` is a time field and is stripped from the printed envelope;
+    // the stored record carries it.
+    let stored = parse(&fs::read_to_string(store.join("exceptions/ex-t.json")).unwrap()).unwrap();
+    let created = stored.get("created_at").and_then(Value::as_i64).unwrap();
+    assert_eq!(stored.get("expires_at").and_then(Value::as_i64), Some(created + 1));
+
+    let (code, _, out) = run_as(
+        "carol-secret",
+        &[
+            "exception", "approve", "--json", "--store", store_s, "--project", project_s, "--id",
+            "ex-t", "--principal", "carol",
+        ],
+    );
+    assert_eq!(code, 0, "{out}");
+    std::thread::sleep(std::time::Duration::from_millis(2100));
+    let (code, json, out) = run(&[
+        "exception", "status", "--json", "--store", store_s, "--project", project_s, "--id", "ex-t",
+    ]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("state").and_then(Value::as_str), Some("expired"));
+    assert_eq!(json.get("reason_code").and_then(Value::as_str), Some("exception.expired"));
+    assert_eq!(json.get("grants").and_then(Value::as_bool), Some(false));
+}
+
+/// C22: `offline_fresh` is computed from the policy source's refresh time,
+/// not written as `true`. A stale policy source makes a live exception
+/// `stale`, and it no longer grants.
+#[test]
+fn an_exception_over_a_stale_policy_source_does_not_grant() {
+    let scratch = Scratch::new("stale");
+    scratch.write("AGENTS.md", "one\n");
+    let project = scratch.path.to_str().unwrap();
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    fs::create_dir_all(&store).unwrap();
+    plant_grants(&store, Some(&scratch.path), &["apply"]);
+    let policy_file = store.join("policies/active.json");
+    let sixty_days_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(60 * 86_400);
+    fs::File::options()
+        .write(true)
+        .open(&policy_file)
+        .unwrap()
+        .set_modified(sixty_days_ago)
+        .unwrap();
+
+    let (code, json, out) = run(&[
+        "exception", "status", "--json", "--store", store_s, "--project", project, "--id",
+        "ex-planted-apply",
+    ]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("state").and_then(Value::as_str), Some("stale"));
+    assert_eq!(json.get("reason_code").and_then(Value::as_str), Some("exception.offline_stale"));
+    let (code, json, out) = preview_then_apply(project, store_s, "AGENTS.md", "two\n");
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("policy.approval_required"));
+    assert_eq!(fs::read_to_string(scratch.path.join("AGENTS.md")).unwrap(), "one\n");
+}
+
+/// C15: `adapter test`, `daemon stop` and `daemon status` no longer assert
+/// actions that did not happen.
+#[test]
+fn constants_are_replaced_by_honest_unimplemented_answers() {
+    let scratch = Scratch::new("honest");
+    scratch.write("AGENTS.md", "hello\n");
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+
+    // `adapter test` without a family is a usage error, not a constant.
+    let (code, json, out) = run(&["adapter", "test", "--json"]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("usage.invalid"));
+
+    // No daemon: status says so from a probe, not from a pid file.
+    fs::create_dir_all(&store).unwrap();
+    fs::write(store.join("daemon.pid"), "424242").unwrap();
+    let (code, json, out) = run(&["daemon", "status", "--json", "--store", store_s]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("running").and_then(Value::as_bool), Some(false));
+    assert_eq!(json.get("pid_file_present").and_then(Value::as_bool), Some(true));
+    assert_eq!(json.get("probe").and_then(Value::as_str), Some("no_addr"));
+
+    let (code, json, out) = run(&["daemon", "stop", "--json", "--store", store_s]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("stopped").and_then(Value::as_bool), Some(false));
+    assert_eq!(json.get("reason_code").and_then(Value::as_str), Some("pid_file_removed_only"));
+    assert_eq!(json.get("signal_sent").and_then(Value::as_bool), Some(false));
+    assert!(!store.join("daemon.pid").exists());
+
+    // A live daemon: status finds it, and "stop" admits it is still there.
+    let (_child, _listen) = start_daemon(&scratch, &store);
+    let (code, json, out) = run(&["daemon", "status", "--json", "--store", store_s]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("running").and_then(Value::as_bool), Some(true));
+    assert_eq!(json.get("probe").and_then(Value::as_str), Some("reachable"));
+    let (code, json, out) = run(&["daemon", "stop", "--json", "--store", store_s]);
+    assert_eq!(code, 3, "{out} {json:?}");
+    assert_eq!(json.get("stopped").and_then(Value::as_bool), Some(false));
+    assert_eq!(json.get("reachable_after").and_then(Value::as_bool), Some(true));
+}
+
+/// C14: `intent validate|show|project|preview`, `sync status|preview` and
+/// `align status|diff` are distinct operations with truthful `command`
+/// fields, not aliases of one branch.
+#[test]
+fn subcommands_are_distinct_operations_not_aliases() {
+    let scratch = Scratch::new("subs");
+    scratch.write("AGENTS.md", "one\n");
+    let project = scratch.path.to_str().unwrap();
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+
+    let (code, validate, out) = run(&[
+        "intent", "validate", "--json", "--project", project, "--authority", "not-a-writer",
+    ]);
+    assert_eq!(code, 2, "{out} {validate:?}");
+    assert_eq!(validate.get("command").and_then(Value::as_str), Some("intent validate"));
+    assert_eq!(validate.get("valid").and_then(Value::as_bool), Some(false));
+    assert_eq!(validate.get("reason_code").and_then(Value::as_str), Some("projection.authority"));
+
+    let (code, show, _) = run(&["intent", "show", "--json", "--project", project, "--desired", "x\n"]);
+    assert_eq!(code, 0);
+    assert_eq!(show.get("command").and_then(Value::as_str), Some("intent show"));
+    assert_eq!(show.get("schema").and_then(Value::as_str), Some("canonical-intent-v1"));
+    assert!(show.get("tx_id").is_none(), "show renders the intent, not a preview");
+
+    let (code, projected, _) = run(&["intent", "project", "--json", "--project", project, "--desired", "x\n"]);
+    assert_eq!(code, 0);
+    assert_eq!(projected.get("command").and_then(Value::as_str), Some("intent project"));
+    assert_eq!(projected.get("persisted").and_then(Value::as_bool), Some(false));
+    assert!(!store.join("previews").exists() || fs::read_dir(store.join("previews")).unwrap().count() == 0);
+
+    let (code, previewed, _) = run(&[
+        "intent", "preview", "--json", "--project", project, "--store", store_s, "--desired", "x\n",
+    ]);
+    assert_eq!(code, 0);
+    assert_eq!(previewed.get("command").and_then(Value::as_str), Some("intent preview"));
+    assert_eq!(previewed.get("persisted").and_then(Value::as_bool), Some(true));
+    assert_eq!(fs::read_dir(store.join("previews")).unwrap().count(), 1);
+
+    let (code, status, _) = run(&["sync", "status", "--json", "--store", store_s]);
+    assert_eq!(code, 0);
+    assert_eq!(status.get("command").and_then(Value::as_str), Some("sync status"));
+    assert_eq!(status.get("schema").and_then(Value::as_str), Some("ctxpect-sync-status-v1"));
+    let (code, preview, _) = run(&["sync", "preview", "--json", "--store", store_s, "--id", "b1"]);
+    assert_eq!(code, 0);
+    assert_eq!(preview.get("command").and_then(Value::as_str), Some("sync preview"));
+    assert!(preview.get("bundle_id").is_some() || preview.get("receipts").is_some(), "{preview:?}");
+    assert_ne!(canonical_json(&status), canonical_json(&preview));
+
+    let (code, aligned, _) = run(&["align", "status", "--json", "--store", store_s]);
+    assert_eq!(code, 0);
+    assert_eq!(aligned.get("command").and_then(Value::as_str), Some("align status"));
+    let (code, json, _) = run(&["align", "diff", "--json", "--store", store_s]);
+    assert_eq!(code, 1);
+    assert_eq!(err_code(&json), Some("usage.invalid"));
+    assert_eq!(json.get("command").and_then(Value::as_str), Some("align"));
+}
+
+/// C29: a named analysis adapter that does not exist is refused, not echoed.
+#[test]
+fn advisor_refuses_an_unimplemented_adapter() {
+    let (code, json, _) = run(&[
+        "advisor", "--json", "--reason", "consent", "--text", "ack", "--adapter", "gpt-x",
+    ]);
+    assert_eq!(code, 1, "{json:?}");
+    assert_eq!(err_code(&json), Some("advisor.adapter_unavailable"));
+}
+
+/// C8 / C9 / C17 / C40 over the daemon: routes are exact on method, the
+/// catalog follows the session coordinate, imports do not overwrite each
+/// other, and a diagnosis asked for by Receipt id stays that Receipt's.
+#[test]
+fn api_routes_are_exact_and_follow_the_session_coordinate() {
+    let scratch = Scratch::new("routes");
+    scratch.write("AGENTS.md", "hello\n");
+    let store = scratch.path.join("store");
+    fs::create_dir_all(&store).unwrap();
+    plant_grants(&store, Some(&scratch.path), &["sessions.import"]);
+    let (_child, listen) = start_daemon(&scratch, &store);
+
+    // C17: a known path under another method is 405, not a fallthrough.
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/care-plan/f_x", "{}");
+    assert_eq!(status, 405, "{raw}");
+    assert!(raw.contains("api.method_not_allowed"), "{raw}");
+    let (status, raw) = http_call(&listen, "DELETE", "/api/v1/receipts/r/verify", "");
+    assert_eq!(status, 405, "{raw}");
+    let (status, _) = http_call(&listen, "GET", "/api/v1/no-such-thing", "");
+    assert_eq!(status, 400);
+
+    // C9: the catalog follows the session coordinate.
+    let (_, coord) = get_json(&listen, "/api/v1/coordinate");
+    assert_eq!(coord.get("harness").and_then(Value::as_str), Some("codex"));
+    let active = |catalog: &Value| -> Vec<String> {
+        catalog
+            .get("families")
+            .and_then(Value::as_array)
+            .unwrap_or(&[])
+            .iter()
+            .filter(|f| f.get("active_coordinate").and_then(Value::as_bool) == Some(true))
+            .map(|f| f.get("family_id").and_then(Value::as_str).unwrap_or("").to_string())
+            .collect()
+    };
+    let (_, catalog) = get_json(&listen, "/api/v1/integrations");
+    assert_eq!(active(&catalog), vec!["codex".to_string()]);
+    let (status, raw) = http_call(
+        &listen,
+        "POST",
+        "/api/v1/inspect",
+        &format!(r#"{{"project":"{}","harness":"claude-code","version":"2.1.259"}}"#, scratch.path.display()),
+    );
+    assert_eq!(status, 200, "{raw}");
+    let (_, coord) = get_json(&listen, "/api/v1/coordinate");
+    assert_eq!(coord.get("harness").and_then(Value::as_str), Some("claude-code"));
+    let (_, catalog) = get_json(&listen, "/api/v1/integrations");
+    assert_eq!(active(&catalog), vec!["claude-code".to_string()]);
+    let (_, entry) = get_json(&listen, "/api/v1/integrations/claude-code");
+    assert_eq!(entry.get("active_coordinate").and_then(Value::as_bool), Some(true));
+
+    // C8: two imports are two sessions; the id comes from the body or the
+    // content digest, never a constant.
+    let (status, raw) = http_call(
+        &listen,
+        "POST",
+        "/api/v1/sessions/import",
+        r#"{"session_id":"s-one","mapping_id":"codex-cli","events":[{"type":"user","text":"a"}]}"#,
+    );
+    assert_eq!(status, 200, "{raw}");
+    let (status, raw) = http_call(
+        &listen,
+        "POST",
+        "/api/v1/sessions/import",
+        r#"{"events":[{"type":"user","text":"b"}]}"#,
+    );
+    assert_eq!(status, 200, "{raw}");
+    let (_, sessions) = get_json(&listen, "/api/v1/sessions");
+    let ids = sessions.get("sessions").and_then(Value::as_array).unwrap();
+    assert_eq!(ids.len(), 2, "{sessions:?}");
+    assert!(ids.iter().any(|id| id.as_str() == Some("s-one")));
+    assert!(!ids.iter().any(|id| id.as_str() == Some("s_api")), "no hardcoded id");
+    let (status, raw) = http_call(
+        &listen,
+        "POST",
+        "/api/v1/sessions/import",
+        r#"{"mapping_id":"made-up","events":[]}"#,
+    );
+    assert_eq!(status, 400, "{raw}");
+    assert!(raw.contains("import.mapping_unknown"), "{raw}");
+
+    // C40: the diagnosis for an older Receipt is not overwritten by a newer
+    // inspect when the caller names the Receipt.
+    let project_body = format!(r#"{{"project":"{}","harness":"codex","version":"0.147.0"}}"#, scratch.path.display());
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/inspect", &project_body);
+    assert_eq!(status, 200, "{raw}");
+    let first = http_json(&raw)
+        .pointer(&["receipt", "receipt_id"])
+        .and_then(Value::as_str)
+        .unwrap()
+        .to_string();
+    scratch.write("AGENTS.md", "changed\n");
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/inspect", &project_body);
+    assert_eq!(status, 200, "{raw}");
+    let second = http_json(&raw)
+        .pointer(&["receipt", "receipt_id"])
+        .and_then(Value::as_str)
+        .unwrap()
+        .to_string();
+    assert_ne!(first, second);
+    let (status, doc) = get_json(&listen, &format!("/api/v1/doctor?receipt_id={first}"));
+    assert_eq!(status, 200, "{doc:?}");
+    assert_eq!(doc.get("receipt_id").and_then(Value::as_str), Some(first.as_str()));
+    let (_, current) = get_json(&listen, "/api/v1/doctor");
+    assert_eq!(current.get("receipt_id").and_then(Value::as_str), Some(second.as_str()));
+}
+
+/// C1 / S4: `ci` and `doctor --fail-on` share one blocking judgement, and a
+/// blocking corpus rule (a secret literal) turns the project red in both.
+#[test]
+fn ci_and_doctor_block_on_the_same_project_rule() {
+    let scratch = Scratch::new("block");
+    scratch.write("AGENTS.md", "hello\n");
+    let project = scratch.path.to_str().unwrap();
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    fs::create_dir_all(store.join("policies")).unwrap();
+    fs::write(store.join("policies/active.json"), PASS_LAYERS).unwrap();
+
+    let (code, json, out) = run(&["ci", "--json", "--project", project, "--store", store_s]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("doctor_exit_code").and_then(Value::as_i64), Some(0));
+
+    // A credential shape in project text is a blocking finding.
+    scratch.write("NOTES.md", "token=ghp_fixture_not_a_real_secret_42\n");
+    let (code, json, out) = run(&["ci", "--json", "--project", project, "--store", store_s]);
+    assert_eq!(code, 2, "{out} {json:?}");
+    assert_eq!(json.get("doctor_exit_code").and_then(Value::as_i64), Some(2));
+    let findings = json.pointer(&["doctor", "findings"]).and_then(Value::as_array).unwrap();
+    assert!(findings.iter().any(|f| {
+        f.get("rule_id").and_then(Value::as_str) == Some("secret_literal")
+            && f.get("blocking").and_then(Value::as_bool) == Some(true)
+            && f.get("path").and_then(Value::as_str) == Some("NOTES.md")
+    }), "{findings:?}");
+
+    // The CLI doctor reports the same finding and the same exit.
+    let (code, json, out) = run(&["doctor", "--json", "--project", project]);
+    assert_eq!(code, 2, "{out} {json:?}");
+    assert_eq!(json.pointer(&["counts", "blocking"]).and_then(Value::as_i64), Some(1));
+
+    // A non-blocking rule (stale frontmatter) is reported without exit 2.
+    fs::remove_file(scratch.path.join("NOTES.md")).unwrap();
+    scratch.write("OLD.md", "---\nupdated: 2019-01-01\n---\nold\n");
+    let (code, json, out) = run(&["doctor", "--json", "--project", project]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    let findings = json.get("findings").and_then(Value::as_array).unwrap();
+    assert!(findings.iter().any(|f| {
+        f.get("rule_id").and_then(Value::as_str) == Some("stale")
+            && f.get("blocking").and_then(Value::as_bool) == Some(false)
+    }), "{findings:?}");
+    // `--fail-on confirmed` still fails on a confirmed finding; same function.
+    let (code, _, _) = run(&["doctor", "--json", "--project", project, "--fail-on", "confirmed"]);
+    assert_eq!(code, 2);
 }
 
 struct ChildGuard {
@@ -1227,7 +2375,7 @@ fn settings_are_validated_whole_and_invariants_are_not_editable() {
     scratch.write("AGENTS.md", "hello\n");
     let store = scratch.path.join("store");
     fs::create_dir_all(&store).unwrap();
-    plant_pass_policy_and_live_exception(&store);
+    plant_grants(&store, Some(&scratch.path), &["settings.put"]);
     let (_child, listen) = start_daemon(&scratch, &store);
 
     let (status, schema) = get_json(&listen, "/api/v1/settings/schema");
@@ -1324,7 +2472,11 @@ fn a_rollback_is_followed_by_an_observation() {
     let store_s = store.to_str().unwrap();
     let project_s = scratch.path.to_str().unwrap();
     fs::create_dir_all(&store).unwrap();
-    plant_pass_policy_and_live_exception(&store);
+    plant_grants(
+        &store,
+        Some(&scratch.path),
+        &["assets.copy", "assets.rollback", "apply", "rollback"],
+    );
 
     let post_id = |value: &Value| -> String {
         value
@@ -1357,7 +2509,7 @@ fn a_rollback_is_followed_by_an_observation() {
 
     // Projection apply, then undo it. This one changes a file the inspect
     // actually observes, so the Receipt ids must differ and then come back.
-    let (code, applied, out) = run(&["apply", "--json", "--project", project_s, "--store", store_s]);
+    let (code, applied, out) = preview_then_apply(project_s, store_s, "AGENTS.md", "updated\n");
     assert_eq!(code, 0, "{out} {applied:?}");
     let after_apply = post_id(&applied);
     assert!(!after_apply.is_empty(), "apply needs a post-Receipt");
@@ -1399,7 +2551,7 @@ fn the_cli_and_the_api_answer_the_same_question_identically() {
     let store_s = store.to_str().unwrap();
     let project_s = scratch.path.to_str().unwrap();
     fs::create_dir_all(&store).unwrap();
-    plant_pass_policy_and_live_exception(&store);
+    plant_grants(&store, Some(&scratch.path), &["standard.publish"]);
 
     let (code, _, out) = run(&[
         "standard", "publish", "--json", "--store", store_s, "--project", project_s, "--id",
@@ -1459,9 +2611,9 @@ fn the_cli_and_the_api_answer_the_same_question_identically() {
             "exception status",
             vec![
                 "exception", "status", "--json", "--store", store_s, "--project", project_s,
-                "--id", "ex-planted",
+                "--id", "ex-planted-standard-publish",
             ],
-            "/api/v1/exceptions/ex-planted",
+            "/api/v1/exceptions/ex-planted-standard-publish",
         ),
     ] {
         let (_, cli_json, cli_out) = run(&cli_args);
@@ -1831,7 +2983,7 @@ fn asset_copy_is_vetted_authorized_and_reversible() {
     assert!(!scratch.path.join(".ctxpect/skills/skill-a.md").exists());
 
     fs::create_dir_all(&store).unwrap();
-    plant_pass_policy_and_live_exception(&store);
+    plant_grants(&store, Some(&scratch.path), &["assets.copy", "assets.rollback"]);
 
     let (code, json, out) = copy();
     assert_eq!(code, 0, "{out} {json:?}");
@@ -1916,7 +3068,7 @@ fn asset_api_takes_no_path_from_the_request() {
     assert!(!scratch.path.join(".ctxpect/skills/skill-a.md").exists());
 
     fs::create_dir_all(&store).unwrap();
-    plant_pass_policy_and_live_exception(&store);
+    plant_grants(&store, Some(&scratch.path), &["assets.copy", "assets.rollback"]);
     let (status, raw) = http_call(&listen, "POST", "/api/v1/assets/skill-a/copy", "{}");
     assert_eq!(status, 200, "{raw}");
     assert!(scratch.path.join(".ctxpect/skills/skill-a.md").exists());
@@ -1972,7 +3124,7 @@ fn sync_api_previews_before_applying_and_fixes_its_destination() {
     assert!(!store.join("sync/folder/current.json").exists(), "refused apply must not write");
 
     fs::create_dir_all(&store).unwrap();
-    plant_pass_policy_and_live_exception(&store);
+    plant_grants(&store, Some(&scratch.path), &["sync.apply"]);
 
     let (code, raw) = http_call(&listen, "POST", "/api/v1/sync/apply", r#"{"bundle_id":"b1"}"#);
     assert_eq!(code, 200, "{raw}");
@@ -2018,7 +3170,7 @@ fn team_compliance_counts_real_standards_and_exceptions() {
     let store_s = store.to_str().unwrap();
     let project_s = scratch.path.to_str().unwrap();
     fs::create_dir_all(&store).unwrap();
-    plant_pass_policy_and_live_exception(&store);
+    plant_grants(&store, Some(&scratch.path), &["standard.publish", "standard.adopt"]);
 
     let (code, json, out) = run(&[
         "standard", "publish", "--json", "--store", store_s, "--project", project_s, "--id",
@@ -2058,10 +3210,10 @@ fn team_compliance_counts_real_standards_and_exceptions() {
             .and_then(Value::as_str),
         Some("adopted")
     );
-    // The planted exception is live and is counted as granting.
+    // The two planted exceptions are live and are counted as granting.
     assert_eq!(
         compliance.pointer(&["exception", "live"]).and_then(Value::as_i64),
-        Some(1),
+        Some(2),
         "{compliance:?}"
     );
 
@@ -2146,8 +3298,19 @@ fn daemon_health_and_inspect_via_localhost() {
                 .to_string();
             assert_eq!(policy_reason, "policy.unknown", "{praw}");
 
-            let apply_body = r#"{"approved":true,"desired":"PWNED\n","target":"AGENTS.md"}"#;
-            let (astatus, araw) = http_call(&listen, "POST", "/api/v1/apply", apply_body);
+            // Preview first (read-only for the project), then apply the
+            // persisted preview. A client-supplied `approved` is not input.
+            let preview_body = r#"{"desired":"PWNED\n","target":"AGENTS.md"}"#;
+            let (pvstatus, pvraw) = http_call(&listen, "POST", "/api/v1/intent/preview", preview_body);
+            assert_eq!(pvstatus, 200, "{pvraw}");
+            let pwned_tx = http_json(&pvraw)
+                .get("tx_id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            assert!(!pwned_tx.is_empty(), "{pvraw}");
+            let apply_body = format!(r#"{{"approved":true,"tx_id":"{pwned_tx}"}}"#);
+            let (astatus, araw) = http_call(&listen, "POST", "/api/v1/apply", &apply_body);
             assert_eq!(astatus, 400, "{araw}");
             let apply_json = http_json(&araw);
             assert_eq!(err_code(&apply_json), Some(policy_reason.as_str()), "{araw}");
@@ -2194,7 +3357,7 @@ fn daemon_health_and_inspect_via_localhost() {
                 &listen,
                 "POST",
                 "/api/v1/rollback",
-                r#"{"tx_id":"tx_none","target":"AGENTS.md"}"#,
+                r#"{"tx_id":"tx_0000000000000000","target":"AGENTS.md"}"#,
             );
             assert_eq!(rstatus, 400, "{rraw}");
             assert!(rraw.contains("policy.unknown"), "{rraw}");
@@ -2203,7 +3366,11 @@ fn daemon_health_and_inspect_via_localhost() {
                 "hello\n"
             );
 
-            plant_pass_policy_and_live_exception(&store);
+            plant_grants(
+                &store,
+                Some(&scratch.path),
+                &["apply", "settings.put", "sessions.import", "rollback"],
+            );
             let (pstatus, praw) = http_call(&listen, "GET", "/api/v1/policy", "");
             let policy_ok = http_json(&praw);
             assert_eq!(pstatus, 200, "{praw}");
@@ -2213,8 +3380,20 @@ fn daemon_health_and_inspect_via_localhost() {
                 "{praw}"
             );
 
-            let apply_ok_body = r#"{"desired":"from-http\n","target":"AGENTS.md"}"#;
-            let (astatus, araw) = http_call(&listen, "POST", "/api/v1/apply", apply_ok_body);
+            let (pvstatus, pvraw) = http_call(
+                &listen,
+                "POST",
+                "/api/v1/intent/preview",
+                r#"{"desired":"from-http\n","target":"AGENTS.md"}"#,
+            );
+            assert_eq!(pvstatus, 200, "{pvraw}");
+            let ok_tx = http_json(&pvraw)
+                .get("tx_id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let apply_ok_body = format!(r#"{{"tx_id":"{ok_tx}"}}"#);
+            let (astatus, araw) = http_call(&listen, "POST", "/api/v1/apply", &apply_ok_body);
             assert_eq!(astatus, 200, "{araw}");
             let apply_ok = http_json(&araw);
             let http_post = apply_ok
@@ -2227,18 +3406,12 @@ fn daemon_health_and_inspect_via_localhost() {
                 "from-http\n"
             );
 
-            let (ccode, cjson, cout) = run(&[
-                "apply",
-                "--json",
-                "--project",
+            let (ccode, cjson, cout) = preview_then_apply(
                 scratch.path.to_str().unwrap(),
-                "--store",
                 store.to_str().unwrap(),
-                "--desired",
-                "from-cli\n",
-                "--target",
                 "AGENTS.md",
-            ]);
+                "from-cli\n",
+            );
             assert_eq!(ccode, 0, "{cout} {cjson:?}");
             let cli_post = cjson
                 .get("post_receipt_id")

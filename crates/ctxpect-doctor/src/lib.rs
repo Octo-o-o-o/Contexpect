@@ -2,6 +2,15 @@
 
 use ctxpect_schema::{array, object, sha256_text, string, Value};
 
+pub mod rules;
+pub mod secrets;
+
+pub use rules::{
+    is_blocking_rule, project_findings, render_project_findings, ProjectFinding, ScannedFile,
+    BLOCKING_RULES, NON_BLOCKING_RULES,
+};
+pub use secrets::{contains_secret, secret_literal, SecretClass};
+
 /// Confirmation state of a finding. Distinct from severity and from Unknown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Confirmation {
@@ -115,7 +124,9 @@ pub fn diagnose(receipt: &Value) -> Value {
     if let Some(items) = receipt.get("findings").and_then(Value::as_array) {
         for item in items {
             if item.get("kind").and_then(Value::as_str) == Some("truncated-after") {
-                findings.push(finding(FindingSpec {
+                // Same meaning as the corpus rule `cap_truncation`; the id is
+                // kept and the alias recorded (docs/process/doctor-rule-map.md).
+                findings.push(with_aliases(finding(FindingSpec {
                     rule_id: "D-TRUNCATED",
                     confirmation: Confirmation::Confirmed,
                     severity: Severity::Confirmed,
@@ -126,7 +137,7 @@ pub fn diagnose(receipt: &Value) -> Value {
                     treatment_locked: false,
                     reason_code: "G3",
                     facet: "instructions",
-                }));
+                }), &["cap_truncation"]));
             }
         }
     }
@@ -215,6 +226,61 @@ pub fn diagnose(receipt: &Value) -> Value {
         ),
         ("findings", array(findings)),
     ])
+}
+
+fn with_aliases(finding: Value, aliases: &[&str]) -> Value {
+    match finding {
+        Value::Object(mut map) => {
+            map.insert(
+                "aliases".into(),
+                array(aliases.iter().map(|alias| string(*alias))),
+            );
+            Value::Object(map)
+        }
+        other => other,
+    }
+}
+
+/// Merge project-content findings into a diagnosis and recount.
+#[must_use]
+pub fn with_project_findings(diagnosis: Value, project: &[Value]) -> Value {
+    let Value::Object(mut map) = diagnosis else {
+        return diagnosis;
+    };
+    let mut findings = map
+        .get("findings")
+        .and_then(Value::as_array)
+        .map(<[Value]>::to_vec)
+        .unwrap_or_default();
+    findings.extend(project.iter().cloned());
+    let mut confirmed = 0i64;
+    let mut suspected = 0i64;
+    let mut blocking = 0i64;
+    for item in &findings {
+        match item.get("confirmation").and_then(Value::as_str) {
+            Some("confirmed") => confirmed += 1,
+            Some("suspected") => suspected += 1,
+            _ => {}
+        }
+        if item.get("blocking").and_then(Value::as_bool) == Some(true) {
+            blocking += 1;
+        }
+    }
+    if let Some(Value::Object(counts)) = map.get_mut("counts") {
+        counts.insert("confirmed".into(), Value::Int(confirmed));
+        counts.insert("suspected".into(), Value::Int(suspected));
+        counts.insert("blocking".into(), Value::Int(blocking));
+    }
+    map.insert("findings".into(), array(findings));
+    map.insert(
+        "project_rules".into(),
+        object([
+            ("namespace", string("doctor-corpus")),
+            ("blocking_rules", array(BLOCKING_RULES.iter().map(|r| string(*r)))),
+            ("non_blocking_rules", array(NON_BLOCKING_RULES.iter().map(|r| string(*r)))),
+        ]),
+    );
+    Value::Object(map)
 }
 
 struct FindingSpec<'a> {
@@ -313,6 +379,37 @@ fn next_for_reason(reason: &str) -> &'static str {
         "config_residue_only" => "Config residue is not an installation. Leave installed=Unknown/indeterminate.",
         _ => "Collect the evidence named by the reason code; do not guess.",
     }
+}
+
+/// The one blocking judgement `ctxpect ci` and `ctxpect doctor --fail-on`
+/// share, as an exit code: 2 when a finding blocks, else 0.
+///
+/// A finding blocks when it carries `blocking: true` (a corpus-namespace rule
+/// whose precision on the frozen Doctor corpus is 1.00), or when the caller
+/// asked to fail on `confirmed` and a confirmed finding exists. Suspected and
+/// Unknown never block on their own.
+#[must_use]
+pub fn blocking_exit(diagnosis: &Value, fail_on: Option<&str>) -> i32 {
+    let findings = diagnosis
+        .get("findings")
+        .and_then(Value::as_array)
+        .unwrap_or(&[]);
+    let any_blocking = findings
+        .iter()
+        .any(|item| item.get("blocking").and_then(Value::as_bool) == Some(true));
+    if any_blocking {
+        return 2;
+    }
+    if fail_on == Some("confirmed")
+        && diagnosis
+            .pointer(&["counts", "confirmed"])
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            > 0
+    {
+        return 2;
+    }
+    0
 }
 
 /// PlacementRecommendation is deterministic and independent of Advisor text.

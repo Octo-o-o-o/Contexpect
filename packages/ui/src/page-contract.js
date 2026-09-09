@@ -140,11 +140,12 @@ export const PAGE_CONTRACTS = [
     selection: "会话 id 在 URL 路径里",
     query: [
       { method: "GET", path: "/api/v1/sessions", purpose: "列表" },
-      { method: "GET", path: "/api/v1/sessions/:id", purpose: "明细" },
+      { method: "GET", path: "/api/v1/sessions/:id", purpose: "明细：timeline（类型/seq/长度/digest）与 tail" },
+      { method: "GET", path: "/api/v1/sessions/:id/requests", purpose: "请求证据：每次请求的 header digest、消息数、来源区间、替换区间、派发证据" },
     ],
     actions: [],
-    persistence: "导入的会话存在 store；本页当前只读，导入走 API 或 CLI",
-    sensitive: "会话正文属敏感数据，本页只显示 store 返回的字段，不额外展开",
+    persistence: "导入的会话以 metadata-only 形式存在 store（正文不落盘）；本页只读，导入与删除走 API 或 CLI；删除后 requests 与 insights 一并不可读",
+    sensitive: "会话正文永不进入 store，本页只显示类型、seq、长度、digest 与区间；「人类可见历史」与「该次请求派生 surface」两个视图都不显示正文",
     applicable: [...ALWAYS, "partial"],
     notApplicable: {
       "permission-denied": R.readOnlyGet,
@@ -184,8 +185,8 @@ export const PAGE_CONTRACTS = [
       { method: "GET", path: "/api/v1/lab/:id", purpose: "单次实验结果" },
     ],
     actions: [],
-    persistence: "实验结果写入 store 且样本量锁定；本页当前只读，发起实验走 API 或 CLI",
-    sensitive: "只展示统计结果，不展示被测提示正文",
+    persistence: "实验结果写入 store 且样本量锁定；本页只读，发起实验走 API 或 CLI（需 runs 文档）；无 runs 的实验显示 executed: false 与原因，不写入",
+    sensitive: "只展示合同、逐 run 摘要（id/arm/outcome）与判定，不展示被测提示正文",
     applicable: [...ALWAYS, "partial"],
     notApplicable: {
       "permission-denied": R.readOnlyGet,

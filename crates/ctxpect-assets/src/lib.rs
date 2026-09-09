@@ -247,13 +247,9 @@ pub fn preview(root: &Root, asset: &RegisteredAsset) -> Result<CopyPlan, AssetEr
     }
 
     let target = contained_new_path(root, &asset.target_rel)?;
-    let target_before = if target.exists() {
-        sha256_hex(&fs::read(&target).map_err(|err| {
-            AssetError::new("assets.io", format!("cannot read target: {err}"))
-        })?)
-    } else {
-        String::new()
-    };
+    let target_before = probe_target(&target)?
+        .map(|bytes| sha256_hex(&bytes))
+        .unwrap_or_default();
 
     Ok(CopyPlan {
         tx_id: format!(
@@ -298,14 +294,11 @@ pub fn apply(
     }
 
     let target = contained_new_path(root, &plan.asset.target_rel)?;
-    let now_before = if target.exists() {
-        sha256_hex(
-            &fs::read(&target)
-                .map_err(|err| AssetError::new("assets.io", format!("cannot read target: {err}")))?,
-        )
-    } else {
-        String::new()
-    };
+    let current = probe_target(&target)?;
+    let now_before = current
+        .as_deref()
+        .map(sha256_hex)
+        .unwrap_or_default();
     if now_before != plan.target_before {
         return Err(AssetError::new(
             "assets.concurrent_hash",
@@ -315,38 +308,85 @@ pub fn apply(
 
     fs::create_dir_all(backup_dir)
         .map_err(|err| AssetError::new("assets.io", err.to_string()))?;
+    // The transaction directory and its parent must be real directories: a
+    // pre-placed symlink at either name would carry the backup out of the
+    // store.
+    if let Some(parent) = backup_dir.parent() {
+        ctxpect_fs::real_dir(parent).map_err(|err| AssetError::new("assets.io", err.to_string()))?;
+    }
+    ctxpect_fs::real_dir(backup_dir).map_err(|err| AssetError::new("assets.io", err.to_string()))?;
     // Only an overwrite has previous bytes to keep. Whether the copy created
     // the file is recorded in `tx.json`, so rollback removes it rather than
-    // restoring an empty one.
+    // restoring an empty one. The backup and the pending record land before
+    // the target is touched: an interruption leaves a record, not a half
+    // state.
     if plan.overwrites {
-        let previous = fs::read(&target)
-            .map_err(|err| AssetError::new("assets.io", format!("cannot read target: {err}")))?;
-        fs::write(backup_dir.join("before"), &previous)
-            .map_err(|err| AssetError::new("assets.io", err.to_string()))?;
+        let previous = current.unwrap_or_default();
+        write_atomic(&backup_dir.join("before"), &previous)?;
     }
+    let tx_path = backup_dir.join("tx.json");
+    write_atomic(
+        &tx_path,
+        ctxpect_schema::canonical_json(&tx_meta(plan, TX_PENDING)).as_bytes(),
+    )?;
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|err| AssetError::new("assets.io", err.to_string()))?;
     }
-    fs::write(&target, &bytes).map_err(|err| AssetError::new("assets.io", err.to_string()))?;
+    write_atomic(&target, &bytes)?;
 
-    let meta = object([
+    let meta = tx_meta(plan, TX_COMMITTED);
+    write_atomic(&tx_path, ctxpect_schema::canonical_json(&meta).as_bytes())?;
+    Ok(meta)
+}
+
+/// Transaction record states.
+pub const TX_PENDING: &str = "pending";
+pub const TX_COMMITTED: &str = "committed";
+pub const TX_ROLLED_BACK: &str = "rolled-back";
+
+fn tx_meta(plan: &CopyPlan, state: &str) -> Value {
+    object([
+        ("schema", string("ctxpect-assets-tx-v1")),
         ("tx_id", string(&plan.tx_id)),
         ("asset_id", string(&plan.asset.asset_id)),
         ("target_rel", string(&plan.asset.target_rel)),
         ("before_digest", string(&plan.target_before)),
         ("after_digest", string(&plan.actual_digest)),
         ("created_target", Value::Bool(!plan.overwrites)),
+        ("state", string(state)),
         ("authority", string("contexpect-assets-copy-executor")),
-    ]);
-    fs::write(
-        backup_dir.join("tx.json"),
-        ctxpect_schema::canonical_json(&meta),
-    )
-    .map_err(|err| AssetError::new("assets.io", err.to_string()))?;
-    Ok(meta)
+    ])
+}
+
+/// Write through an exclusively created sibling temp file and rename into
+/// place (see [`ctxpect_fs::write_atomic`]): a pre-placed link at the temp
+/// name or at the target is refused, never written through.
+fn write_atomic(target: &Path, bytes: &[u8]) -> Result<(), AssetError> {
+    ctxpect_fs::write_atomic(target, bytes).map_err(|err| AssetError::new("assets.io", err.to_string()))
+}
+
+/// Read the target if it is a regular file; `None` if nothing is there.
+/// A symlink, FIFO, socket or directory is refused (`assets.not_a_file`)
+/// before it is read, so nothing blocks on it or writes through it.
+fn probe_target(target: &Path) -> Result<Option<Vec<u8>>, AssetError> {
+    match fs::symlink_metadata(target) {
+        Ok(meta) if meta.file_type().is_file() => fs::read(target)
+            .map(Some)
+            .map_err(|err| AssetError::new("assets.io", format!("cannot read target: {err}"))),
+        Ok(_) => Err(AssetError::new(
+            "assets.not_a_file",
+            "target exists but is not a regular file; only a regular file can be a copy target",
+        )),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(AssetError::new("assets.io", err.to_string())),
+    }
 }
 
 /// Undo a copy: restore the previous bytes, or remove a file the copy created.
+///
+/// The target is re-hashed against the recorded `after_digest` first. A
+/// target someone edited after the copy is left alone
+/// (`assets.rollback_conflict`): rollback undoes the copy, not the user.
 pub fn rollback(root: &Root, backup_dir: &Path) -> Result<Value, AssetError> {
     let meta_text = fs::read_to_string(backup_dir.join("tx.json"))
         .map_err(|_| AssetError::new("assets.no_tx", "no copy transaction to roll back"))?;
@@ -355,29 +395,87 @@ pub fn rollback(root: &Root, backup_dir: &Path) -> Result<Value, AssetError> {
     let target_rel = meta
         .get("target_rel")
         .and_then(Value::as_str)
-        .ok_or_else(|| AssetError::new("assets.parse", "transaction has no target_rel"))?;
+        .ok_or_else(|| AssetError::new("assets.parse", "transaction has no target_rel"))?
+        .to_string();
+    let target_rel = target_rel.as_str();
+    let state = meta
+        .get("state")
+        .and_then(Value::as_str)
+        .unwrap_or(TX_COMMITTED)
+        .to_string();
+    let state = state.as_str();
+    if state == TX_ROLLED_BACK {
+        return Err(AssetError::new(
+            "assets.already_rolled_back",
+            "this copy transaction was already rolled back",
+        ));
+    }
+    let created = meta.get("created_target").and_then(Value::as_bool) == Some(true);
+    let before_digest = meta
+        .get("before_digest")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let after_digest = meta
+        .get("after_digest")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     let target = contained_new_path(root, target_rel)?;
+    let probed = probe_target(&target)?;
+    let exists_now = probed.is_some();
+    let now_digest = probed.as_deref().map(sha256_hex).unwrap_or_default();
+    let at_after = exists_now && now_digest == after_digest;
+    let at_before = if created {
+        !exists_now
+    } else {
+        exists_now && now_digest == before_digest
+    };
 
-    if meta.get("created_target").and_then(Value::as_bool) == Some(true) {
-        if target.exists() {
+    let (action, restored) = if at_after {
+        if created {
             fs::remove_file(&target)
                 .map_err(|err| AssetError::new("assets.io", err.to_string()))?;
+            ("removed-created-file", None)
+        } else {
+            let previous = fs::read(backup_dir.join("before"))
+                .map_err(|err| AssetError::new("assets.io", err.to_string()))?;
+            if sha256_hex(&previous) != before_digest {
+                return Err(AssetError::new(
+                    "assets.backup_corrupt",
+                    "backup bytes do not match the recorded before_digest",
+                ));
+            }
+            write_atomic(&target, &previous)?;
+            ("restored-previous-bytes", Some(sha256_hex(&previous)))
         }
-        return Ok(object([
-            ("rolled_back", Value::Bool(true)),
-            ("target_rel", string(target_rel)),
-            ("action", string("removed-created-file")),
-        ]));
-    }
-    let previous = fs::read(backup_dir.join("before"))
-        .map_err(|err| AssetError::new("assets.io", err.to_string()))?;
-    fs::write(&target, &previous).map_err(|err| AssetError::new("assets.io", err.to_string()))?;
-    Ok(object([
+    } else if at_before && state == TX_PENDING {
+        ("target-untouched", None)
+    } else {
+        return Err(AssetError::new(
+            "assets.rollback_conflict",
+            "target was modified after the copy; rollback refuses to discard the concurrent edit",
+        ));
+    };
+
+    let mut closed = match meta {
+        Value::Object(map) => map,
+        _ => Default::default(),
+    };
+    closed.insert("state".into(), string(TX_ROLLED_BACK));
+    write_atomic(
+        &backup_dir.join("tx.json"),
+        ctxpect_schema::canonical_json(&Value::Object(closed)).as_bytes(),
+    )?;
+    let mut out = vec![
         ("rolled_back", Value::Bool(true)),
         ("target_rel", string(target_rel)),
-        ("action", string("restored-previous-bytes")),
-        ("restored_digest", string(sha256_hex(&previous))),
-    ]))
+        ("action", string(action)),
+    ];
+    if let Some(digest) = restored {
+        out.push(("restored_digest", string(digest)));
+    }
+    Ok(object(out))
 }
 
 /// One line of the lock file: what landed, from where, under which license.
@@ -695,6 +793,35 @@ mod tests {
             Some("someone else\n"),
             "the concurrent edit must survive"
         );
+    }
+
+    #[test]
+    fn a_target_edited_after_the_copy_is_not_rolled_over() {
+        let scratch = Scratch::new("rbconflict");
+        scratch.write("vendor/skill-a.md", BODY);
+        scratch.write(".ctxpect/skills/skill-a.md", "previous\n");
+        let root = scratch.root();
+        let asset = registered(Some(&registry_json("")), "skill-a").unwrap();
+        let plan = preview(&root, &asset).unwrap();
+        let backup = scratch.path.join("store/apply/tx5");
+        let meta = apply(&root, &plan, &backup, true).unwrap();
+        assert_eq!(meta.get("state").and_then(Value::as_str), Some(TX_COMMITTED));
+
+        scratch.write(".ctxpect/skills/skill-a.md", "edited after copy\n");
+        let err = rollback(&root, &backup).expect_err("conflict");
+        assert_eq!(err.code, "assets.rollback_conflict");
+        assert_eq!(
+            scratch.read(".ctxpect/skills/skill-a.md").as_deref(),
+            Some("edited after copy\n"),
+            "the later edit must survive"
+        );
+
+        // Put the copy's bytes back; now the rollback proceeds and closes.
+        scratch.write(".ctxpect/skills/skill-a.md", BODY);
+        rollback(&root, &backup).unwrap();
+        assert_eq!(scratch.read(".ctxpect/skills/skill-a.md").as_deref(), Some("previous\n"));
+        let err = rollback(&root, &backup).expect_err("twice");
+        assert_eq!(err.code, "assets.already_rolled_back");
     }
 
     #[test]

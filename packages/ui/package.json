@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/routes.test.mjs tests/i18n.test.mjs tests/mask.test.mjs tests/page-state.test.mjs tests/settings-form.test.mjs tests/contrast.test.mjs"
+    "test:e2e": "playwright test",
+    "test": "node --test tests/routes.test.mjs tests/i18n.test.mjs tests/mask.test.mjs tests/page-state.test.mjs tests/settings-form.test.mjs tests/contrast.test.mjs tests/generation.test.mjs tests/render.test.mjs"
   },
   "dependencies": {
     "react": "18.3.1",
@@ -16,6 +17,7 @@
     "react-router-dom": "6.30.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.56.1",
     "@types/react": "18.3.18",
     "@types/react-dom": "18.3.5",
     "@vitejs/plugin-react": "4.3.4",

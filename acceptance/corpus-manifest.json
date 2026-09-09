@@ -10,6 +10,12 @@
       "live_tested": false,
       "role": "temporary native-oracle recipes from real anchor harnesses; this stage records recipes only"
     },
+    "native-synthetic": {
+      "executed_harness": false,
+      "live_tested": false,
+      "role": "synthetic session logs written by a harness's own public API at a pinned SHA, with expected values the harness computed; the Rust importer is checked against them (native_conformance gate)",
+      "widens_oracles": false
+    },
     "sealed": {
       "answers_status": "withheld-until-rc",
       "live_tested": false,
@@ -29,6 +35,7 @@
     "doctor_reachable_issue": 256,
     "doctor_total": 589,
     "families": 18,
+    "native_synthetic_sessions": 1,
     "oracle_cases_per_declared_oracle": 12,
     "required_supported_static_coordinates": 19,
     "static_cases_per_required_supported_coordinate": 60
@@ -99692,8 +99699,42 @@
     }
   ],
   "license": "Apache-2.0",
+  "native_synthetic": [
+    {
+      "corpus": "native-synthetic",
+      "files": [
+        {
+          "digest_sha256": "5add88bd1df2b874e5e9676426c1e99fa5ec57cb01957ddfe444c5be4bc47ab8",
+          "license": "Apache-2.0",
+          "path": "acceptance/corpus/development/native/deepseek-harness-cli-0.1.2-rc.1/session.jsonl"
+        },
+        {
+          "digest_sha256": "da22ed730f5990211db6b5ceb9db2aaa292eb5e7dea360999399d08325ad62ec",
+          "license": "Apache-2.0",
+          "path": "acceptance/corpus/development/native/deepseek-harness-cli-0.1.2-rc.1/expected.json"
+        },
+        {
+          "digest_sha256": "7c59d7ddbf2b4e1a795ee1465df86d9efb6f906612587334d095be3e9a0ea93f",
+          "license": "Apache-2.0",
+          "path": "acceptance/corpus/development/native/deepseek-harness-cli-0.1.2-rc.1/meta.json"
+        }
+      ],
+      "generator": "scripts/fixtures/deepseek-harness/generate.ts",
+      "harness_license": "MIT",
+      "harness_sha": "67eac41d8788681901915b9f755e9f81d2962a7b",
+      "harness_version": "0.1.2-rc.1",
+      "id": "dev:native:deepseek-harness-cli-0.1.2-rc.1",
+      "kind": "native-session",
+      "license": "Apache-2.0",
+      "live_tested": false,
+      "origin": "generated-by-harness-public-api",
+      "path": "acceptance/corpus/development/native/deepseek-harness-cli-0.1.2-rc.1/session.jsonl",
+      "sensitivity": "public-synthetic"
+    }
+  ],
   "non_claims": [
     "Generated fixtures are not live tests.",
+    "Native-synthetic sessions are synthetic; no harness was executed and no oracle was widened.",
     "Sealed answers are withheld from implementers in this repository.",
     "Live recipes were not executed in the foundation stage.",
     "Security-critical fixtures are listed separately from the 60/12 floors."

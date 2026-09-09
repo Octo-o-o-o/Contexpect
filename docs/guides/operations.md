@@ -58,4 +58,4 @@ SQLite/vault 支持完整删除、备份、迁移。backup 遵循与源数据相
 
 ## 本阶段
 
-没有 daemon unit、没有 CI action 可安装。可运行的只有文档门禁脚本。
+没有 daemon unit、没有 CI action 可安装。可运行的是 `ctxpect` CLI（含 `ctxpect ci` 的 0/2/3 出码合同与 `daemon start` 的 127.0.0.1 API）以及文档/合同门禁脚本；watcher、scheduler 与通知 adapter 尚未实施（见 [交付状态](../process/2026-09-08-delivery-status.md)）。`daemon stop` 只移除 pid 文件并如实报 `pid_file_removed_only`（不发送信号）；`daemon status` 以对 `daemon.addr` 的健康探测判断是否在运行，不以 pid 文件为据。

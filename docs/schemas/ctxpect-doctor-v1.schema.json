@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ctxpect-doctor-v1.schema.json",
+  "title": "ctxpect-doctor-v1",
+  "description": "Frozen shape of a Doctor diagnosis as produced by ctxpect_doctor::diagnose (Receipt-derived D-* findings) merged with ctxpect_doctor::with_project_findings (doctor-corpus rules). Severity is confirmed|suspected only; Unknown is a count, never a severity. `blocking` is true only for doctor-corpus rules with precision 1.00 on the frozen corpus and is the single input of the shared blocking judgement.",
+  "type": "object",
+  "required": ["schema", "engine", "advisor_is_authority", "counts", "findings"],
+  "properties": {
+    "schema": { "const": "ctxpect-doctor-v1" },
+    "engine": { "const": "deterministic-rules" },
+    "advisor_is_authority": { "const": false },
+    "counts": {
+      "type": "object",
+      "required": ["confirmed", "suspected", "unknown"],
+      "properties": {
+        "confirmed": { "type": "integer" },
+        "suspected": { "type": "integer" },
+        "unknown": { "type": "integer" },
+        "blocking": { "type": "integer" },
+        "note": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "project_rules": {
+      "type": "object",
+      "required": ["namespace", "blocking_rules", "non_blocking_rules"],
+      "properties": {
+        "namespace": { "const": "doctor-corpus" },
+        "blocking_rules": { "type": "array", "items": { "type": "string" } },
+        "non_blocking_rules": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "receipt_id": { "type": ["string", "null"], "description": "the Receipt this diagnosis rests on (API / CLI with --store)" },
+    "symptom": { "type": "string" },
+    "inspect_exit_code": { "type": "integer" },
+    "snapshot_schema": { "type": "string" },
+    "schema_version": { "type": "integer" },
+    "command": { "type": "string" },
+    "exit_code": { "type": "integer" },
+    "snapshot_digest": { "type": "string" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "required": [
+        "finding_id",
+        "rule_id",
+        "title",
+        "confirmation",
+        "severity",
+        "unknown_is_severity",
+        "affected_surfaces",
+        "evidence_state",
+        "impact",
+        "first_seen",
+        "reason_code",
+        "facet",
+        "treatment",
+        "next_evidence",
+        "placement"
+      ],
+      "properties": {
+        "finding_id": { "type": "string" },
+        "rule_id": { "type": "string" },
+        "rule_namespace": { "type": "string", "enum": ["doctor-corpus"] },
+        "aliases": { "type": "array", "items": { "type": "string" } },
+        "title": { "type": "string" },
+        "path": { "type": "string" },
+        "blocking": { "type": "boolean" },
+        "confirmation": { "type": "string", "enum": ["confirmed", "suspected"] },
+        "severity": { "type": "string", "enum": ["confirmed", "suspected"] },
+        "unknown_is_severity": { "const": false },
+        "affected_surfaces": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "evidence_state": { "type": "string", "enum": ["indeterminate", "static-resolution"] },
+        "impact": { "type": "string" },
+        "first_seen": { "type": "string" },
+        "reason_code": { "type": "string" },
+        "facet": { "type": "string" },
+        "treatment": {
+          "type": "object",
+          "required": ["locked", "lock_reason", "unlocks_via_export", "unlocks_via_advisor", "unlocks_via_user_attestation_alone"],
+          "properties": {
+            "locked": { "type": "boolean" },
+            "lock_reason": { "type": "string" },
+            "unlocks_via_export": { "const": false },
+            "unlocks_via_advisor": { "const": false },
+            "unlocks_via_user_attestation_alone": { "const": false }
+          },
+          "additionalProperties": false
+        },
+        "next_evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["action", "kind"],
+            "properties": { "action": { "type": "string" }, "kind": { "type": "string" } },
+            "additionalProperties": false
+          }
+        },
+        "placement": {
+          "type": "object",
+          "required": ["authority", "target", "loss"],
+          "properties": {
+            "authority": { "type": "string" },
+            "target": { "type": "string" },
+            "loss": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -161,14 +161,90 @@ fn lower_relaxes(existing: &[Value], incoming: &Value, layer: &str) -> bool {
     })
 }
 
+/// What a mutation is about to do. Every field takes part in the covering
+/// check: an exception approved for one project, one action and one target
+/// does not authorize another.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MutationScope {
+    /// The mutation kind, e.g. `apply`, `rollback`, `assets.copy`,
+    /// `sessions.import`, `standard.publish`.
+    pub action: String,
+    /// Digest of the project (or, without a project, the store) the mutation
+    /// touches. Never the path itself: the record is publishable.
+    pub project_digest: String,
+    /// The concrete target inside that action: a project-relative path, an
+    /// asset id, a session id, a standard id. `*` in a record covers any.
+    pub target: String,
+}
+
+impl MutationScope {
+    #[must_use]
+    pub fn new(action: &str, project_digest: &str, target: &str) -> Self {
+        Self {
+            action: action.to_string(),
+            project_digest: project_digest.to_string(),
+            target: target.to_string(),
+        }
+    }
+
+    #[must_use]
+    pub fn to_value(&self) -> Value {
+        object([
+            ("action", string(&self.action)),
+            ("project_digest", string(&self.project_digest)),
+            ("target", string(&self.target)),
+        ])
+    }
+}
+
+/// The target wildcard an exception may carry. Actions and projects have no
+/// wildcard: an exception is always for one action in one project.
+pub const ANY_TARGET: &str = "*";
+
+/// How long a policy source stays fresh without being re-read from its
+/// authority, in seconds. Beyond this an approved exception is `stale` and
+/// does not grant (`exception.offline_stale`).
+pub const POLICY_FRESHNESS_SECS: i64 = 30 * 86_400;
+
+/// Whether `record` covers `scope`. `Err` carries the reason code.
+///
+/// A record without scope fields is a pre-scope record and covers nothing:
+/// widening it to "everything" would be exactly the defect this replaces.
+pub fn exception_covers(record: &Value, scope: &MutationScope) -> Result<(), &'static str> {
+    let action = record.get("action").and_then(Value::as_str);
+    let project = record.get("project_digest").and_then(Value::as_str);
+    let target = record.get("target").and_then(Value::as_str);
+    let (Some(action), Some(project), Some(target)) = (action, project, target) else {
+        return Err("exception.scope_missing");
+    };
+    if action.is_empty() || project.is_empty() || target.is_empty() {
+        return Err("exception.scope_missing");
+    }
+    if action == ANY_TARGET || project == ANY_TARGET {
+        return Err("exception.scope_wildcard_forbidden");
+    }
+    if action != scope.action {
+        return Err("exception.action_mismatch");
+    }
+    if project != scope.project_digest {
+        return Err("exception.project_mismatch");
+    }
+    if target != ANY_TARGET && target != scope.target {
+        return Err("exception.target_mismatch");
+    }
+    Ok(())
+}
+
 /// Authorize a mutation. Missing policy, deny, detect-only, indeterminate,
 /// and Unknown are fail-closed. A `pass` evaluation still requires a live
-/// approved exception; client-attested `approved` flags are not an input.
+/// approved exception **that covers `scope`**; client-attested `approved`
+/// flags are not an input.
 pub fn authorize_mutation(
     layers: Option<&Value>,
     exceptions: &[Value],
     now: i64,
     offline_fresh: bool,
+    scope: &MutationScope,
 ) -> Result<Value, PolicyError> {
     let Some(layers) = layers else {
         return Err(PolicyError::new(
@@ -213,21 +289,47 @@ pub fn authorize_mutation(
     }
 
     let mut granted: Option<(Value, Value)> = None;
+    let mut live_but_not_covering = 0usize;
+    let mut refusals: Vec<&'static str> = Vec::new();
     for record in exceptions {
         let status = exception_status(record, now, offline_fresh)?;
-        if status.get("grants").and_then(Value::as_bool) == Some(true) {
-            granted = Some((record.clone(), status));
-            break;
+        if status.get("grants").and_then(Value::as_bool) != Some(true) {
+            continue;
+        }
+        match exception_covers(record, scope) {
+            Ok(()) => {
+                granted = Some((record.clone(), status));
+                break;
+            }
+            Err(reason) => {
+                live_but_not_covering += 1;
+                if !refusals.contains(&reason) {
+                    refusals.push(reason);
+                }
+            }
         }
     }
     let Some((record, status)) = granted else {
+        let detail = if live_but_not_covering > 0 {
+            format!(
+                "; {live_but_not_covering} live exception(s) exist but none covers action=`{}` target=`{}` in this project ({})",
+                scope.action,
+                scope.target,
+                refusals.join(", ")
+            )
+        } else {
+            String::new()
+        };
         return Err(PolicyError::new(
             "policy.approval_required",
-            "apply requires a live approved exception; Unknown/absent approval is not an allow",
+            format!(
+                "apply requires a live approved exception covering this mutation; Unknown/absent approval is not an allow{detail}"
+            ),
         ));
     };
     Ok(object([
         ("allowed", Value::Bool(true)),
+        ("scope", scope.to_value()),
         ("evaluation", evaluation),
         ("exception", record),
         ("exception_status", status),
@@ -271,13 +373,31 @@ pub fn exception_status(record: &Value, now: i64, offline_fresh: bool) -> Result
     ]))
 }
 
-pub fn new_exception(id: &str, requester: &str, scope: &str, expires_at: i64) -> Value {
+/// A requested exception, bound to one mutation scope and one expiry.
+///
+/// `expires_at` is absolute; the caller derives it from a required
+/// `--expires-in`. There is no default lifetime.
+pub fn new_exception(
+    id: &str,
+    requester: &str,
+    scope: &MutationScope,
+    expires_at: i64,
+    created_at: i64,
+    reason: Option<&str>,
+) -> Value {
     object([
         ("exception_id", string(id)),
         ("requester", string(requester)),
-        ("scope", string(scope)),
+        ("action", string(&scope.action)),
+        ("project_digest", string(&scope.project_digest)),
+        ("target", string(&scope.target)),
         ("state", string("requested")),
+        ("created_at", Value::Int(created_at)),
         ("expires_at", Value::Int(expires_at)),
+        (
+            "reason",
+            reason.map_or(Value::Null, string),
+        ),
         ("approver", Value::Null),
     ])
 }
@@ -408,7 +528,7 @@ mod tests {
 
         // It is an allow, so a mutation gated on this policy reaches the
         // approval check instead of being refused at the policy verdict.
-        let err = authorize_mutation(Some(&layers), &[], 1, true).expect_err("approval");
+        let err = authorize_mutation(Some(&layers), &[], 1, true, &scope()).expect_err("approval");
         assert_eq!(err.code, "policy.approval_required");
 
         // A required deny in the same stack still denies.
@@ -441,42 +561,106 @@ mod tests {
         );
     }
 
+    fn scope() -> MutationScope {
+        MutationScope::new("apply", "proj-a", "AGENTS.md")
+    }
+
+    fn covering(state: &str, expires_at: i64) -> Value {
+        parse(&format!(
+            r#"{{"state":"{state}","expires_at":{expires_at},"exception_id":"ex-1","action":"apply","project_digest":"proj-a","target":"AGENTS.md"}}"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn an_exception_covers_only_its_own_action_project_and_target() {
+        let pass = parse(r#"[{"layer":"organization","mode":"enforceable","rules":[]}]"#).unwrap();
+        let live = covering("approved", 99);
+        assert!(authorize_mutation(Some(&pass), std::slice::from_ref(&live), 1, true, &scope()).is_ok());
+
+        // Same record, another project: refused.
+        let other_project = MutationScope::new("apply", "proj-b", "AGENTS.md");
+        let err = authorize_mutation(Some(&pass), std::slice::from_ref(&live), 1, true, &other_project)
+            .expect_err("project");
+        assert_eq!(err.code, "policy.approval_required");
+        assert!(err.message.contains("exception.project_mismatch"), "{}", err.message);
+
+        // Same project, another action: refused.
+        let other_action = MutationScope::new("assets.copy", "proj-a", "AGENTS.md");
+        let err = authorize_mutation(Some(&pass), std::slice::from_ref(&live), 1, true, &other_action)
+            .expect_err("action");
+        assert!(err.message.contains("exception.action_mismatch"), "{}", err.message);
+
+        // Same action and project, another target: refused; `*` covers any.
+        let other_target = MutationScope::new("apply", "proj-a", "README.md");
+        let err = authorize_mutation(Some(&pass), &[live], 1, true, &other_target)
+            .expect_err("target");
+        assert!(err.message.contains("exception.target_mismatch"), "{}", err.message);
+        let any = parse(
+            r#"{"state":"approved","expires_at":99,"exception_id":"ex-2","action":"apply","project_digest":"proj-a","target":"*"}"#,
+        )
+        .unwrap();
+        assert!(authorize_mutation(Some(&pass), &[any], 1, true, &other_target).is_ok());
+
+        // A pre-scope record (no action/project/target) covers nothing, and a
+        // wildcard action or project is not a scope.
+        let legacy = parse(r#"{"state":"approved","expires_at":99,"exception_id":"ex-3"}"#).unwrap();
+        assert_eq!(exception_covers(&legacy, &scope()), Err("exception.scope_missing"));
+        let wild = parse(
+            r#"{"state":"approved","expires_at":99,"action":"*","project_digest":"proj-a","target":"*"}"#,
+        )
+        .unwrap();
+        assert_eq!(exception_covers(&wild, &scope()), Err("exception.scope_wildcard_forbidden"));
+    }
+
+    #[test]
+    fn a_requested_exception_records_its_scope_reason_and_expiry() {
+        let rec = new_exception("ex-9", "alice", &scope(), 500, 100, Some("hotfix"));
+        assert_eq!(rec.get("action").and_then(Value::as_str), Some("apply"));
+        assert_eq!(rec.get("project_digest").and_then(Value::as_str), Some("proj-a"));
+        assert_eq!(rec.get("target").and_then(Value::as_str), Some("AGENTS.md"));
+        assert_eq!(rec.get("expires_at").and_then(Value::as_i64), Some(500));
+        assert_eq!(rec.get("created_at").and_then(Value::as_i64), Some(100));
+        assert_eq!(rec.get("reason").and_then(Value::as_str), Some("hotfix"));
+        assert_eq!(rec.get("state").and_then(Value::as_str), Some("requested"));
+    }
+
     #[test]
     fn mutation_is_fail_closed_without_layers_or_live_exception() {
-        let err = authorize_mutation(None, &[], 1, true).expect_err("unknown");
+        let err = authorize_mutation(None, &[], 1, true, &scope()).expect_err("unknown");
         assert_eq!(err.code, "policy.unknown");
 
         let empty = parse("[]").unwrap();
-        let err = authorize_mutation(Some(&empty), &[], 1, true).expect_err("empty");
+        let err = authorize_mutation(Some(&empty), &[], 1, true, &scope()).expect_err("empty");
         assert_eq!(err.code, "policy.unknown");
 
         let deny = parse(
             r#"[{"layer":"organization","mode":"enforceable","rules":[{"id":"r1","required":true,"effect":"deny"}]}]"#,
         )
         .unwrap();
-        let err = authorize_mutation(Some(&deny), &[], 1, true).expect_err("deny");
+        let err = authorize_mutation(Some(&deny), &[], 1, true, &scope()).expect_err("deny");
         assert_eq!(err.code, "policy.denied");
 
         let detect = parse(
             r#"[{"layer":"organization","mode":"detect-only","rules":[{"id":"r1","required":true,"effect":"deny"}]}]"#,
         )
         .unwrap();
-        let err = authorize_mutation(Some(&detect), &[], 1, true).expect_err("detect");
+        let err = authorize_mutation(Some(&detect), &[], 1, true, &scope()).expect_err("detect");
         assert_eq!(err.code, "policy.detect_only_not_enforceable");
 
         let pass = parse(
             r#"[{"layer":"organization","mode":"enforceable","rules":[]},{"layer":"team","mode":"enforceable","rules":[]},{"layer":"project","mode":"enforceable","rules":[]},{"layer":"user","mode":"detect-only","rules":[]},{"layer":"session","mode":"detect-only","rules":[]}]"#,
         )
         .unwrap();
-        let err = authorize_mutation(Some(&pass), &[], 1, true).expect_err("approval");
+        let err = authorize_mutation(Some(&pass), &[], 1, true, &scope()).expect_err("approval");
         assert_eq!(err.code, "policy.approval_required");
 
-        let expired = parse(r#"{"state":"approved","expires_at":10}"#).unwrap();
-        let err = authorize_mutation(Some(&pass), &[expired], 11, true).expect_err("expired");
+        let expired = covering("approved", 10);
+        let err = authorize_mutation(Some(&pass), &[expired], 11, true, &scope()).expect_err("expired");
         assert_eq!(err.code, "policy.approval_required");
 
-        let live = parse(r#"{"state":"approved","expires_at":99,"exception_id":"ex-1"}"#).unwrap();
-        let ok = authorize_mutation(Some(&pass), &[live], 1, true).unwrap();
+        let live = covering("approved", 99);
+        let ok = authorize_mutation(Some(&pass), &[live], 1, true, &scope()).unwrap();
         assert_eq!(ok.get("allowed").and_then(Value::as_bool), Some(true));
     }
 
@@ -533,7 +717,10 @@ mod tests {
             _ => unreachable!(),
         };
         live.insert("expires_at".into(), Value::Int(99));
-        let ok = authorize_mutation(Some(&pass), &[Value::Object(live)], 6, true).unwrap();
+        live.insert("action".into(), string("apply"));
+        live.insert("project_digest".into(), string("proj-a"));
+        live.insert("target".into(), string("AGENTS.md"));
+        let ok = authorize_mutation(Some(&pass), &[Value::Object(live)], 6, true, &scope()).unwrap();
         assert_eq!(ok.get("allowed").and_then(Value::as_bool), Some(true));
     }
 

@@ -9,6 +9,49 @@
       "lifecycle_stage": "installed",
       "minimum_evidence": "official-spec",
       "native_field": "declared-static-path"
+    },
+    {
+      "claim_kind": "observed",
+      "coverage": "full-declared-surface",
+      "lifecycle_stage": "eligible",
+      "minimum_evidence": "native-log",
+      "native_field": "session.jsonl step/start + the latest request/header snapshot before that step's first provider output (foldRequestHeader over the prefix; a step whose header did not change logs none)",
+      "notes": "prepared: the header is appended before dispatch (agent.ts:508-517); it does not prove the request reached the model.",
+      "precision": "exact"
+    },
+    {
+      "claim_kind": "observed",
+      "coverage": "full-declared-surface",
+      "lifecycle_stage": "model-visible",
+      "minimum_evidence": "native-log",
+      "native_field": "session.jsonl assistant/chunk | assistant/message in the request's step (dispatch evidence)",
+      "notes": "The derived surface at the step/start boundary (foldSurface + deriveEventMessage) is what was dispatched; provider output in that step proves dispatch (agent.ts:364-368). Without it the claim is indeterminate (runtime_snapshot_missing).",
+      "precision": "exact"
+    },
+    {
+      "claim_kind": "observed",
+      "coverage": "partial-declared-surface",
+      "lifecycle_stage": "model-visible",
+      "minimum_evidence": "native-log",
+      "native_field": "session.jsonl assistant/message.usage",
+      "notes": "provider-reported token accounting shown as reported; cumulative input is not occupancy and request/context.contextWindow is capacity, not use.",
+      "precision": "exact"
+    },
+    {
+      "claim_kind": "observed",
+      "coverage": "unknown",
+      "lifecycle_stage": "use-evidence",
+      "minimum_evidence": "native-runtime",
+      "native_field": "not-covered:use-evidence",
+      "notes": "Unknown: the session log carries no attribution of which context shaped the answer; the importer answers indeterminate (runtime_snapshot_missing)."
+    },
+    {
+      "claim_kind": "effect",
+      "coverage": "unknown",
+      "lifecycle_stage": "outcome-affecting",
+      "minimum_evidence": "native-runtime",
+      "native_field": "not-covered:outcome-affecting",
+      "notes": "Unknown: outcome effect needs an Effect Lab contract, never a log; the importer answers indeterminate (runtime_snapshot_missing)."
     }
   ],
   "live_tested": false,

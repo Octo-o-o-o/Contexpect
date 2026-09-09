@@ -103,6 +103,6 @@ Coze 是 connector/executor，不参与隐藏 prompt parity。Aider 不得被硬
 
 Doctor 高保真稿位于 `docs/gpt-img-2-design/20260904-1200-contexpect-doctor/`。语义与文案以 Markdown spec 和本架构为准；图片负责构图。图中 adapter 4/9/5 分组是 fixture 数据。实现时 UI 必须消费 Receipt，不得自行推断 truth。
 
-## 尚未实施
+## 实施状态
 
-本文描述将要建造的系统。仓库中没有 `crates/` 运行时、没有 Tauri 窗口、没有可执行 `ctxpect`。
+本文描述目标系统。当前已有 17 个本地 crate 的阶段实现（`crates/`）、可执行 `ctxpect`（CLI 与 127.0.0.1 daemon API）、`packages/ui` 与独立 workspace 的 Tauri 桌面壳；SQLite/FTS5 引擎、E2EE、全矩阵 adapter、oracle 对账等**尚未实施**。逐项以 [交付状态](../process/2026-09-08-delivery-status.md) 与 [缺口分析](../process/2026-09-08-gap-analysis.md) 为准；存在源码不等于通过该项完整验收。

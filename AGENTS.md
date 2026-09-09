@@ -1,11 +1,11 @@
 # AGENTS.md
 
-> 状态：规范（WP-02 已授权基础切片开发中，其余产品运行时尚未实施）
+> 状态：规范（阶段实现进行中：17 个本地 crate、`ctxpect` CLI / daemon API、`packages/ui` 与 macOS 已验的 Tauri 壳已有阶段实现；SQLite/FTS5、E2EE、全矩阵 adapter、oracle 对账等尚未实施，逐项见 [交付状态](docs/process/2026-09-08-delivery-status.md)）
 > 本文件只约束本仓库的项目级命令与不变量。它不覆盖 owner 的全局工作流、模型分工或监督预算。
 
 ## 项目是什么
 
-Contexpect / `ctxpect`：local-first 的 AI coding context 核对与控制。现有 core/schema/fs/collect 已有代码与阶段合同，存在实现不代表已验收。按当前用户授权和有效阶段合同继续；未授权的 Rust/Tauri 工作包不得提前实施。不能用早期“只允许文档”的状态说明阻止已经明确授权的切片。
+Contexpect / `ctxpect`：local-first 的 AI coding context 核对与控制。现有 17 个本地 crate、CLI/daemon、UI 与桌面壳都有阶段实现与阶段合同，存在实现不代表已验收（当前状态以 [交付状态](docs/process/2026-09-08-delivery-status.md) 与 [缺口分析](docs/process/2026-09-08-gap-analysis.md) 为准）。按当前用户授权和有效阶段合同继续；未授权的 Rust/Tauri 工作包不得提前实施。不能用早期“只允许文档”的状态说明阻止已经明确授权的切片。
 
 ## 本项目接续与评审边界
 
@@ -19,7 +19,7 @@ Contexpect / `ctxpect`：local-first 的 AI coding context 核对与控制。现
 
 ## 本阶段允许的命令
 
-本阶段 required gate 共 13 条（原九条与新增四条前端检查并列）。名称 + 命令必须一起跑。
+本阶段 required gate 共 16 条（原九条、corpus-conformance、doctor-corpus、native-conformance 与四条前端检查并列）。名称 + 命令必须一起跑。
 
 | 名称 | 命令 |
 | --- | --- |
@@ -32,6 +32,9 @@ Contexpect / `ctxpect`：local-first 的 AI coding context 核对与控制。现
 | cargo-build | `cargo build --workspace` |
 | cargo-test | `cargo test --workspace` |
 | cargo-clippy | `cargo clippy --workspace --all-targets` |
+| corpus-conformance | `cargo test -p ctxpect-cli --test corpus_conformance` |
+| doctor-corpus | `cargo test -p ctxpect-cli --test doctor_corpus` |
+| native-conformance | `cargo test -p ctxpect-cli --test native_conformance` |
 
 ```bash
 python3 scripts/check_docs.py
@@ -44,11 +47,14 @@ TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'
 cargo build --workspace
 cargo test --workspace
 cargo clippy --workspace --all-targets
+cargo test -p ctxpect-cli --test corpus_conformance
+cargo test -p ctxpect-cli --test doctor_corpus
+cargo test -p ctxpect-cli --test native_conformance
 ```
 
 不要为这些命令安装 pip 依赖，不要访问网络，不要读取凭据或私人会话历史。
 
-前端/UI 四条是本阶段新增的 required gate（需要 Node 22 / pnpm 11.20.0，lockfile 尚未冻结前以实际 `pnpm` 版本为准）。失败判据：缺路由、C03 token 漂移、typecheck/build 失败。env 不强制 `CI`。
+`native-conformance` 跑合成的 DSH 原生会话语料（`acceptance/corpus/development/native/`，由 DSH 公开 API 在 pinned SHA 生成，`live_tested: false`），只核对 Rust importer 的前缀重建，不执行任何 harness、不扩大冻结 oracle。前端/UI 四条是本阶段新增的 required gate（需要 Node 22 / pnpm 11.20.0，lockfile 尚未冻结前以实际 `pnpm` 版本为准）。失败判据：缺路由、C03 token 漂移、typecheck/build 失败。env 不强制 `CI`。可选门禁 `ui-e2e`（`packages/ui` 下 `pnpm test:e2e`）用 Playwright 驱动真实 daemon，需要联网安装的 Chromium 与已构建的 `ctxpect`，不进 required 表；本机交付前实跑并记录（[ADR 0006](docs/adr/0006-third-party-dependency-policy-and-estimator.md)）。Rust workspace 仍是 0 第三方 crate；`packages/ui` 唯一新增的**直接** dev 依赖是 `@playwright/test`（lockfile 另带其传递依赖 `playwright`、`playwright-core` 与可选的 `fsevents`，见 dependency-and-provenance）。
 
 | 名称 | cwd | 命令 |
 | --- | --- | --- |
@@ -57,7 +63,7 @@ cargo clippy --workspace --all-targets
 | ui-typecheck | `packages/ui` | `pnpm typecheck` |
 | ui-build | `packages/ui` | `pnpm build` |
 
-未执行或失败时不得把这些命令报告为已通过。Tauri 桌面壳尚未创建，因此也不在 Cargo workspace 内；`cargo build --workspace` 不构建桌面壳。
+未执行或失败时不得把这些命令报告为已通过。Tauri 桌面壳位于 `apps/desktop/src-tauri`，是**独立 workspace**，不在根 `members` 内；`cargo build --workspace` 不构建桌面壳，桌面壳也没有 required gate（见 [交付状态](docs/process/2026-09-08-delivery-status.md)）。
 
 ## 不变量
 
@@ -76,6 +82,6 @@ cargo clippy --workspace --all-targets
 - Unknown 描述缺证据的 facet；Indeterminate 描述无法给出 pass/deny 的决策
 - 六个 lifecycle facet 互相不蕴含
 
-## 代码尚未存在时的路径约定
+## 路径约定
 
-未来实现按 [implementation-plan](docs/process/implementation-plan.md) 落在 `crates/`、`packages/ui`、`apps/desktop`。现在不要创建空的运行时骨架来假装进度，除非后续工作包明确要求。
+实现按 [implementation-plan](docs/process/implementation-plan.md) 落在 `crates/`、`packages/ui`、`apps/desktop`。尚未实施的部分不要创建空的运行时骨架来假装进度，除非后续工作包明确要求。

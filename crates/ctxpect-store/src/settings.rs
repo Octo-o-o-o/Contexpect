@@ -217,10 +217,28 @@ pub fn validate_settings(value: &Value) -> Result<(), StoreError> {
 /// The schema as a document, for the API and the UI editor.
 /// Fields the product stores and validates but does not act on, with the
 /// reason. Publishing this stops a setting from reading as a working knob.
-pub const UNENFORCED_FIELDS: &[(&str, &str)] = &[(
-    "resource_limits.daemon_rss_mb",
-    "this process does not bound its own resident memory; doing so portably needs cgroups or setrlimit, which this slice does not use",
-)];
+pub const UNENFORCED_FIELDS: &[(&str, &str)] = &[
+    (
+        "resource_limits.daemon_rss_mb",
+        "this process does not bound its own resident memory; doing so portably needs cgroups or setrlimit, which this slice does not use",
+    ),
+    (
+        "retention_days",
+        "no retention sweep exists in this slice; Receipts are removed only by explicit redact/delete, so this value is stored but never acted on",
+    ),
+    (
+        "copy_confirm",
+        "the UI always confirms before copying revealed text; it does not read this field, so it cannot be switched off from here",
+    ),
+    (
+        "privacy_mode",
+        "the UI's privacy mode is a session toggle in the coordinate bar and is not read from settings in this slice",
+    ),
+    (
+        "screenshot_privacy",
+        "screenshot privacy is the UI's session toggle (`privacy_mode = screenshot`); this stored flag is not read by any surface in this slice",
+    ),
+];
 
 #[must_use]
 pub fn settings_schema() -> Value {

@@ -20,6 +20,7 @@ REQUIRED_PATHS = [
     "/inspector",
     "/compare",
     "/receipts",
+    "/receipts/:id",
     "/assets",
     "/assets/:id",
     "/sessions",

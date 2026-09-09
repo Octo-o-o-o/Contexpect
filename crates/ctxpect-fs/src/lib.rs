@@ -413,6 +413,89 @@ pub fn lexical_normalize(path: &Path) -> PathBuf {
     out
 }
 
+/// Write `bytes` to `target` through an exclusively created sibling temp
+/// file, fsync it, and rename it into place.
+///
+/// The temp file is opened with `create_new`, so a pre-placed symlink or file
+/// at the temp name is an error rather than a path the bytes follow; its name
+/// carries the pid and a per-process counter, so two writers never share one.
+/// A `target` that already exists must be a regular file: a symlink (dangling
+/// or not), FIFO, socket or directory is refused instead of written through.
+/// Callers that want to write *through* a symlink to a contained regular file
+/// resolve it first (see [`Root::contain`]) and pass the resolved path.
+pub fn write_atomic(target: &Path, bytes: &[u8]) -> io::Result<()> {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    match fs::symlink_metadata(target) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{}: refusing to write through a symlink", target.display()),
+            ));
+        }
+        Ok(meta) if !meta.file_type().is_file() => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{}: not a regular file", target.display()),
+            ));
+        }
+        Ok(_) => {}
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err),
+    }
+    let parent = match target.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    let name = target
+        .file_name()
+        .map(|item| item.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "target".to_string());
+    let serial = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp = parent.join(format!(
+        ".{name}.{}.{serial}.ctxpect-tmp",
+        std::process::id()
+    ));
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)?;
+    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+    drop(file);
+    if let Err(err) = written {
+        let _ = fs::remove_file(&tmp);
+        return Err(err);
+    }
+    if let Err(err) = fs::rename(&tmp, target) {
+        let _ = fs::remove_file(&tmp);
+        return Err(err);
+    }
+    Ok(())
+}
+
+/// Confirm `dir` exists as a real directory: not a symlink, not a file.
+///
+/// Used before writing transaction records under a directory whose name an
+/// attacker could have pre-created as a link elsewhere.
+pub fn real_dir(dir: &Path) -> io::Result<()> {
+    let meta = fs::symlink_metadata(dir)?;
+    if meta.file_type().is_symlink() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{}: refusing a symlinked directory", dir.display()),
+        ));
+    }
+    if !meta.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{}: not a directory", dir.display()),
+        ));
+    }
+    Ok(())
+}
+
 /// Whether an `io::Error` means "there is nothing here".
 #[must_use]
 pub fn is_missing(error: &io::Error) -> bool {

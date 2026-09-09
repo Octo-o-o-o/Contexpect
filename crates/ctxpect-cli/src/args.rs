@@ -3,9 +3,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use ctxpect_resolve::{
-    ANCHOR_HARNESS, ANCHOR_OS_LANE, ANCHOR_SURFACE, ANCHOR_VERSION, INSTRUCTIONS,
-};
+use ctxpect_resolve::{DEFAULT_ANCHOR, INSTRUCTIONS};
 
 /// Closed lists from `docs/guides/cli-reference.md` (global box, command tree,
 /// and the command-specific flags named there). Tokens on these lists that this
@@ -17,6 +15,7 @@ const IMPLEMENTED_COMMANDS: &[&str] = &[
     "inspect", "collect", "doctor", "diff", "receipt", "inventory", "preflight", "launch",
     "import", "sessions", "daemon", "sync", "intent", "apply", "rollback", "standard",
     "exception", "assets", "advisor", "experiment", "policy", "align", "adapter", "ci",
+    "store",
 ];
 
 const LISTED_GLOBAL_FLAGS: &[&str] = &[
@@ -57,9 +56,14 @@ const LISTED_COMMANDS: &[&str] = &[
     "align",
     "adapter",
     "ci",
+    "store",
 ];
 
-const UNIMPLEMENTED_FLAGS: &[&str] = &["config", "privacy", "allow-unknown", "force"];
+/// Flags the command tree lists but this slice does not act on. They are
+/// refused (`usage.unimplemented`) rather than parsed and ignored: a flag
+/// that is accepted and does nothing reads as a feature that exists.
+/// `--locale` / `--kind` were once parsed into fields no code read.
+const UNIMPLEMENTED_FLAGS: &[&str] = &["config", "privacy", "allow-unknown", "force", "locale", "kind"];
 
 const UNIMPLEMENTED_COMMANDS: &[&str] = &[];
 
@@ -112,7 +116,6 @@ pub struct ProductArgs {
     pub right: Option<String>,
     pub preflight_id: Option<String>,
     pub from: Option<PathBuf>,
-    pub locale: Option<String>,
     pub fail_on: Option<String>,
     pub home: Option<PathBuf>,
     pub id: Option<String>,
@@ -129,13 +132,20 @@ pub struct ProductArgs {
     pub desired: Option<String>,
     pub authority: Option<String>,
     pub export: Option<PathBuf>,
-    pub kind: Option<String>,
     pub profile: Option<String>,
     pub adapter: Option<String>,
     pub n: Option<i64>,
     pub execute: bool,
     pub oneshot: bool,
     pub text: Option<String>,
+    /// Mutation action an exception is requested for / a policy query is about.
+    pub action: Option<String>,
+    /// Exception lifetime in seconds; required by `exception request`.
+    pub expires_in: Option<i64>,
+    /// A persisted preview transaction id; required by `apply`.
+    pub tx: Option<String>,
+    /// A `ctxpect-effect-runs-v1` document for `experiment`.
+    pub runs: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -186,7 +196,6 @@ where
     let mut right = None;
     let mut preflight_id = None;
     let mut from = None;
-    let mut locale = None;
     let mut fail_on = None;
     let mut home = None;
     let mut id = None;
@@ -201,13 +210,16 @@ where
     let mut desired = None;
     let mut authority = None;
     let mut export = None;
-    let mut kind = None;
     let mut profile = None;
     let mut adapter = None;
     let mut n = None;
     let mut execute = false;
     let mut oneshot = false;
     let mut text = None;
+    let mut action = None;
+    let mut expires_in = None;
+    let mut tx = None;
+    let mut runs = None;
     let mut command = None;
     let mut subcommand = None;
 
@@ -315,11 +327,17 @@ where
                 "from" => {
                     from = Some(need_value("from", inline, &mut iter, command.as_deref())?);
                 }
-                "locale" => {
-                    locale = Some(need_value("locale", inline, &mut iter, command.as_deref())?);
-                }
                 "fail-on" => {
-                    fail_on = Some(need_value("fail-on", inline, &mut iter, command.as_deref())?);
+                    let value = need_value("fail-on", inline, &mut iter, command.as_deref())?;
+                    // The only threshold the Doctor implements. A misspelling
+                    // must not read as "no threshold" and turn a gate green.
+                    if value != "confirmed" {
+                        return Err(invalid(
+                            format!("`--fail-on` accepts only `confirmed`, not `{value}`"),
+                            command.clone(),
+                        ));
+                    }
+                    fail_on = Some(value);
                 }
                 "home" => {
                     home = Some(need_value("home", inline, &mut iter, command.as_deref())?);
@@ -361,9 +379,6 @@ where
                 "export" => {
                     export = Some(need_value("export", inline, &mut iter, command.as_deref())?);
                 }
-                "kind" => {
-                    kind = Some(need_value("kind", inline, &mut iter, command.as_deref())?);
-                }
                 "profile" => {
                     profile = Some(need_value("profile", inline, &mut iter, command.as_deref())?);
                 }
@@ -378,6 +393,27 @@ where
                 }
                 "text" => {
                     text = Some(need_value("text", inline, &mut iter, command.as_deref())?);
+                }
+                "action" => {
+                    let value = need_value("action", inline, &mut iter, command.as_deref())?;
+                    validate_action(&value, command.as_deref())?;
+                    action = Some(value);
+                }
+                "expires-in" => {
+                    let value = need_value("expires-in", inline, &mut iter, command.as_deref())?;
+                    let parsed = value.parse::<i64>().ok().filter(|n| *n >= 1);
+                    expires_in = Some(parsed.ok_or_else(|| {
+                        invalid(
+                            "`--expires-in` must be a positive number of seconds".to_string(),
+                            command.clone(),
+                        )
+                    })?);
+                }
+                "tx" => {
+                    tx = Some(need_value("tx", inline, &mut iter, command.as_deref())?);
+                }
+                "runs" => {
+                    runs = Some(need_value("runs", inline, &mut iter, command.as_deref())?);
                 }
                 "execute" => {
                     reject_inline(name, inline, command.as_deref())?;
@@ -463,13 +499,13 @@ where
             offline,
             project,
             cwd: cwd.map(PathBuf::from),
-            harness: harness.unwrap_or_else(|| ANCHOR_HARNESS.to_string()),
-            surface: surface.unwrap_or_else(|| ANCHOR_SURFACE.to_string()),
-            version: version.unwrap_or_else(|| ANCHOR_VERSION.to_string()),
+            harness: harness.unwrap_or_else(|| DEFAULT_ANCHOR.harness.to_string()),
+            surface: surface.unwrap_or_else(|| DEFAULT_ANCHOR.surface.to_string()),
+            version: version.unwrap_or_else(|| DEFAULT_ANCHOR.version.to_string()),
             version_explicit,
             codex_home: codex_home.map(PathBuf::from),
             require: required,
-            os_lane: os_lane.unwrap_or_else(|| ANCHOR_OS_LANE.to_string()),
+            os_lane: os_lane.unwrap_or_else(|| DEFAULT_ANCHOR.os_lane.to_string()),
             store: store.map(PathBuf::from),
         }));
     }
@@ -506,13 +542,13 @@ where
             offline,
             project: project.filter(|p| !p.is_empty()).map(PathBuf::from),
             cwd: cwd.map(PathBuf::from),
-            harness: harness.unwrap_or_else(|| ANCHOR_HARNESS.to_string()),
-            surface: surface.unwrap_or_else(|| ANCHOR_SURFACE.to_string()),
-            version: version.unwrap_or_else(|| ANCHOR_VERSION.to_string()),
+            harness: harness.unwrap_or_else(|| DEFAULT_ANCHOR.harness.to_string()),
+            surface: surface.unwrap_or_else(|| DEFAULT_ANCHOR.surface.to_string()),
+            version: version.unwrap_or_else(|| DEFAULT_ANCHOR.version.to_string()),
             version_explicit,
             codex_home: codex_home.map(PathBuf::from),
             require: required,
-            os_lane: os_lane.unwrap_or_else(|| ANCHOR_OS_LANE.to_string()),
+            os_lane: os_lane.unwrap_or_else(|| DEFAULT_ANCHOR.os_lane.to_string()),
             store: store.map(PathBuf::from),
             listen,
             ui_root: ui_root.map(PathBuf::from),
@@ -523,7 +559,6 @@ where
             right,
             preflight_id,
             from: from.map(PathBuf::from),
-            locale,
             fail_on,
             home: home.map(PathBuf::from),
             id,
@@ -538,13 +573,16 @@ where
             desired,
             authority,
             export: export.map(PathBuf::from),
-            kind,
             profile,
             adapter,
             n,
             execute,
             oneshot,
             text,
+            action,
+            expires_in,
+            tx,
+            runs: runs.map(PathBuf::from),
         })));
     }
 
@@ -579,7 +617,9 @@ where
 /// `ctxpect assets` on its own is the catalog overview and was valid before
 /// the copy executor existed; adding subcommands must not retire it.
 fn subcommand_optional(command: &str) -> bool {
-    command == "assets"
+    // `apply --tx <id>` is the apply itself; `apply status` is the read-only
+    // judgement of pending transactions.
+    command == "assets" || command == "apply"
 }
 
 fn listed_subcommands(command: &str) -> &'static [&'static str] {
@@ -597,6 +637,8 @@ fn listed_subcommands(command: &str) -> &'static [&'static str] {
         "align" => &["status", "diff"],
         "adapter" => &["test", "list"],
         "assets" => &["status", "list", "preview", "copy", "rollback", "sbom"],
+        "apply" => &["status"],
+        "store" => &["status", "repair"],
         _ => &[],
     }
 }
@@ -759,6 +801,24 @@ fn validate_ident(name: &str, value: &str, command: Option<&str>) -> Result<(), 
             format!(
                 "`--{name}` must match a closed identifier (lowercase letter followed by lowercase letters, digits or hyphen; max 32 characters)"
             ),
+            command.map(str::to_string),
+        ))
+    }
+}
+
+/// Mutation actions are dotted lowercase identifiers (`apply`, `assets.copy`).
+fn validate_action(value: &str, command: Option<&str>) -> Result<(), UsageError> {
+    let ok = !value.is_empty()
+        && value.len() <= 40
+        && value
+            .split('.')
+            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_lowercase() || b == b'-'));
+    if ok {
+        Ok(())
+    } else {
+        Err(invalid(
+            "`--action` must be a dotted lowercase identifier such as `apply` or `assets.copy`"
+                .to_string(),
             command.map(str::to_string),
         ))
     }
