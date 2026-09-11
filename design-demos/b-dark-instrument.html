@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案 B · 暗夜观测台 — Contexpect Doctor</title>
+<style>
+  :root {
+    --bg: #0A0D13;
+    --panel: #10151D;
+    --panel-2: #151B25;
+    --line: #1E2632;
+    --line-2: #2A3444;
+    --ink: #E8ECF2;
+    --ink-2: #A7B1C2;
+    --muted: #6B7789;
+    --faint: #48535F;
+    --teal: #2DD4BF;
+    --teal-dim: rgba(45,212,191,.12);
+    --amber: #F5B83D;
+    --amber-dim: rgba(245,184,61,.12);
+    --coral: #F67367;
+    --coral-dim: rgba(246,115,103,.12);
+    --violet: #A78BFA;
+    --violet-dim: rgba(167,139,250,.13);
+    --blue: #5EA8E0;
+    --blue-dim: rgba(94,168,224,.12);
+    --font-ui: "SF Pro Text", "Inter", "PingFang SC", sans-serif;
+    --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--font-ui); font-size: 13px; line-height: 1.55;
+    background: var(--bg); color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { display: grid; grid-template-columns: 60px 1fr; height: 100vh; overflow: hidden; }
+
+  /* icon rail */
+  .iconrail {
+    background: var(--panel); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 14px 0; gap: 4px;
+  }
+  .logo {
+    width: 34px; height: 34px; border-radius: 10px; margin-bottom: 14px;
+    background: linear-gradient(135deg, #2DD4BF, #0E9488);
+    display: grid; place-items: center; color: #06231F; font-weight: 800; font-size: 14px;
+  }
+  .ir-btn {
+    width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center;
+    color: var(--muted); cursor: pointer; font-size: 15px; position: relative;
+    transition: all .12s;
+  }
+  .ir-btn:hover { color: var(--ink); background: var(--panel-2); }
+  .ir-btn.active { color: var(--teal); background: var(--teal-dim); }
+  .ir-btn.active::before {
+    content: ""; position: absolute; left: -11px; top: 9px; bottom: 9px;
+    width: 2.5px; border-radius: 3px; background: var(--teal);
+  }
+  .ir-sep { width: 22px; height: 1px; background: var(--line); margin: 8px 0; }
+  .ir-bottom { margin-top: auto; }
+
+  .main { display: flex; flex-direction: column; overflow: hidden; }
+
+  /* command bar */
+  .topbar {
+    height: 52px; flex: none; display: flex; align-items: center; gap: 14px;
+    padding: 0 18px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  .crumbs { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
+  .crumbs b { color: var(--ink-2); font-weight: 600; }
+  .crumbs .sep { color: var(--faint); }
+  .stale {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .5px;
+    color: var(--amber); background: var(--amber-dim);
+    border: 1px solid rgba(245,184,61,.35); border-radius: 5px; padding: 2px 7px;
+  }
+  .cmdbar {
+    margin-left: auto; width: 320px;
+    display: flex; align-items: center; gap: 9px;
+    background: var(--panel-2); border: 1px solid var(--line-2);
+    border-radius: 9px; padding: 7px 12px; color: var(--faint); font-size: 12px;
+  }
+  .cmdbar .grow { flex: 1; }
+  .cmdbar kbd {
+    font-family: var(--font-mono); font-size: 10px; color: var(--muted);
+    border: 1px solid var(--line-2); border-radius: 4px; padding: 1px 5px; background: var(--bg);
+  }
+
+  .workspace { display: grid; grid-template-columns: 1fr 400px; flex: 1; overflow: hidden; }
+  .content { overflow-y: auto; padding: 20px 22px 60px; }
+
+  .head-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .title-block h1 { font-size: 19px; font-weight: 700; letter-spacing: -.3px; display: flex; align-items: center; gap: 10px; }
+  .title-block h1 .scope { font-family: var(--font-mono); font-size: 11px; color: var(--muted); border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 8px; font-weight: 500; }
+  .title-block .sub { color: var(--muted); font-size: 12px; margin-top: 3px; font-family: var(--font-mono); }
+  .title-block .sub em { color: var(--amber); font-style: normal; }
+
+  /* symptom console */
+  .console {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 4px; display: flex; gap: 4px; margin-bottom: 18px;
+  }
+  .console .prefix { padding: 9px 4px 9px 13px; color: var(--teal); font-family: var(--font-mono); font-size: 12.5px; }
+  .console input {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: var(--ink); font-family: var(--font-mono); font-size: 12.5px; padding: 9px 0;
+  }
+  .cbtn {
+    border-radius: 9px; padding: 8px 16px; font-size: 12.5px; font-weight: 650; cursor: pointer; border: none;
+  }
+  .cbtn.go { background: var(--teal); color: #06231F; }
+  .cbtn.ghost { background: transparent; color: var(--ink-2); border: 1px solid var(--line-2); }
+
+  /* telemetry band */
+  .telemetry { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+  .gauge {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 13px 15px; position: relative; overflow: hidden;
+  }
+  .gauge .g-lab { font-family: var(--font-mono); font-size: 10px; letter-spacing: 1.4px; color: var(--muted); text-transform: uppercase; display: flex; justify-content: space-between; }
+  .gauge .g-num { font-family: var(--font-mono); font-size: 30px; font-weight: 700; margin: 6px 0 3px; line-height: 1; }
+  .gauge .g-cap { font-size: 10.5px; color: var(--faint); }
+  .gauge.coral .g-num { color: var(--coral); text-shadow: 0 0 18px rgba(246,115,103,.4); }
+  .gauge.amber .g-num { color: var(--amber); text-shadow: 0 0 18px rgba(245,184,61,.4); }
+  .gauge.violet .g-num { color: var(--violet); text-shadow: 0 0 18px rgba(167,139,250,.4); }
+  .gauge .glow { position: absolute; right: -22px; top: -22px; width: 80px; height: 80px; border-radius: 50%; filter: blur(28px); opacity: .25; }
+  .gauge.coral .glow { background: var(--coral); } .gauge.amber .glow { background: var(--amber); } .gauge.violet .glow { background: var(--violet); }
+  .gauge.cov .g-num { color: var(--ink); font-size: 15px; margin: 8px 0 6px; display: flex; gap: 4px; align-items: baseline; }
+  .gauge.cov .g-num b { font-size: 24px; }
+  .seg { display: flex; height: 5px; border-radius: 3px; overflow: hidden; gap: 2px; margin-bottom: 7px; }
+  .seg i { border-radius: 2px; }
+  .seg .n { background: var(--teal); width: 22%; } .seg .s { background: var(--blue); width: 50%; } .seg .c { background: #2E3A47; width: 28%; }
+  .cov-cap { display: flex; gap: 10px; font-family: var(--font-mono); font-size: 9.5px; color: var(--muted); }
+  .cov-cap i { width: 6px; height: 6px; border-radius: 2px; display: inline-block; margin-right: 3px; }
+
+  /* findings table */
+  .tbl-head, .row {
+    display: grid; grid-template-columns: 30px 116px 1fr 150px 108px 92px;
+    gap: 12px; align-items: center; padding: 0 14px;
+  }
+  .tbl-head { font-family: var(--font-mono); font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--faint); padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .row {
+    padding-top: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line);
+    cursor: pointer; transition: background .1s; position: relative;
+  }
+  .row:hover { background: var(--panel); }
+  .row.sel { background: var(--panel-2); }
+  .row.sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2.5px; background: var(--teal); }
+  .sig { font-family: var(--font-mono); font-size: 11px; text-align: center; }
+  .badge {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: .6px;
+    padding: 3px 8px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid;
+  }
+  .badge.confirmed { color: var(--coral); background: var(--coral-dim); border-color: rgba(246,115,103,.3); }
+  .badge.suspected { color: var(--amber); background: var(--amber-dim); border-color: rgba(245,184,61,.3); }
+  .badge.indeterminate { color: var(--violet); background: var(--violet-dim); border-color: rgba(167,139,250,.35); border-style: dashed; }
+  .r-title { font-size: 13px; font-weight: 600; }
+  .r-sub { font-size: 11px; color: var(--muted); font-family: var(--font-mono); margin-top: 2px; }
+  .ev { font-family: var(--font-mono); font-size: 10.5px; display: inline-flex; align-items: center; gap: 5px; }
+  .ev.native { color: var(--teal); } .ev.static { color: var(--blue); }
+  .ev.attested { color: var(--ink-2); } .ev.unknown { color: var(--violet); }
+  .agents { display: flex; gap: 4px; }
+  .achip { font-family: var(--font-mono); font-size: 9.5px; border: 1px solid var(--line-2); color: var(--ink-2); border-radius: 4px; padding: 1.5px 6px; background: var(--panel); }
+  .fid { font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); text-align: right; }
+
+  /* rail */
+  .rail { border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 18px 18px 40px; }
+  .r-eyebrow { font-family: var(--font-mono); font-size: 10px; letter-spacing: 1.4px; color: var(--faint); text-transform: uppercase; display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .r-eyebrow .live { color: var(--teal); }
+  .r-title { font-size: 15px; font-weight: 700; margin-bottom: 14px; letter-spacing: -.2px; }
+
+  .verdict {
+    border: 1px dashed rgba(167,139,250,.5); background: var(--violet-dim);
+    border-radius: 10px; padding: 12px 14px; margin-bottom: 16px;
+  }
+  .verdict .v-lab { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 1.4px; color: var(--violet); text-transform: uppercase; }
+  .verdict .v-val { font-family: var(--font-mono); font-size: 17px; font-weight: 700; color: var(--violet); margin: 3px 0; }
+  .verdict .v-why { font-size: 11.5px; color: var(--ink-2); }
+
+  .sec-t { font-family: var(--font-mono); font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); margin: 16px 0 8px; display: flex; justify-content: space-between; }
+  .sec-t a { color: var(--blue); text-decoration: none; letter-spacing: 0; text-transform: none; font-size: 10.5px; }
+
+  .pipe { font-family: var(--font-mono); font-size: 11.5px; }
+  .pnode { display: flex; gap: 10px; align-items: center; padding: 7px 11px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; }
+  .pnode .st { width: 14px; text-align: center; }
+  .pnode.ok .st { color: var(--teal); }
+  .pnode.broken { border-style: dashed; border-color: rgba(167,139,250,.45); background: var(--violet-dim); color: var(--violet); }
+  .plink { margin-left: 17px; width: 1px; height: 9px; background: var(--line-2); }
+  .plink.broken { background: repeating-linear-gradient(var(--violet) 0 2px, transparent 2px 5px); }
+
+  .facetgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .fc { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+  .fc .fl { font-size: 9.5px; font-family: var(--font-mono); letter-spacing: .8px; color: var(--muted); text-transform: uppercase; }
+  .fc .fv { font-family: var(--font-mono); font-size: 11.5px; font-weight: 650; margin-top: 2px; }
+  .fv.p { color: var(--teal); } .fv.a { color: var(--coral); } .fv.i { color: var(--violet); } .fv.n { color: var(--faint); }
+
+  .lockbox { border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); padding: 11px 13px; font-size: 11.5px; color: var(--ink-2); display: flex; gap: 9px; }
+  .lockbox .li { color: var(--violet); }
+
+  .actions { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+  .abtn { border-radius: 9px; padding: 10px; font-size: 12.5px; font-weight: 650; border: none; cursor: pointer; width: 100%; }
+  .abtn.primary { background: var(--teal); color: #06231F; }
+  .abtn.disabled { background: var(--panel-2); color: var(--faint); border: 1px solid var(--line); cursor: not-allowed; }
+  .r-note { font-family: var(--font-mono); font-size: 9.5px; color: var(--faint); border-top: 1px solid var(--line); margin-top: 14px; padding-top: 10px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="iconrail">
+    <div class="logo">Cx</div>
+    <div class="ir-btn active" title="Doctor">⚕</div>
+    <div class="ir-btn" title="Checkup">◎</div>
+    <div class="ir-btn" title="Inspector">◫</div>
+    <div class="ir-btn" title="Compare">⇄</div>
+    <div class="ir-sep"></div>
+    <div class="ir-btn" title="Receipts">▤</div>
+    <div class="ir-btn" title="Sessions">⌗</div>
+    <div class="ir-btn" title="Monitor">◔</div>
+    <div class="ir-btn" title="Assets">⬡</div>
+    <div class="ir-sep"></div>
+    <div class="ir-btn" title="Lab">⚗</div>
+    <div class="ir-btn" title="Sync">⟳</div>
+    <div class="ir-btn ir-bottom" title="Settings">⚙</div>
+  </nav>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="crumbs">
+        <b>macbook-pro</b><span class="sep">/</span><b>ContextView</b><span class="sep">/</span>
+        <b style="color:var(--teal)">R-2417</b>
+        <span class="stale">STALE 3H</span>
+      </div>
+      <div class="cmdbar">
+        <span>⌕</span><span class="grow">输入命令或跳转…</span><kbd>⌘K</kbd>
+      </div>
+    </div>
+
+    <div class="workspace">
+      <div class="content">
+        <div class="head-row">
+          <div class="title-block">
+            <h1>Doctor <span class="scope">receipt:R-2417</span></h1>
+            <div class="sub">observed 2026-09-10 08:41 · <em>snapshot expired — conclusions may no longer hold</em></div>
+          </div>
+        </div>
+
+        <div class="console">
+          <span class="prefix">symptom ›</span>
+          <input value="我的 Cursor User Rules 好像没有生效" spellcheck="false">
+          <button class="cbtn ghost">重新扫描</button>
+          <button class="cbtn go">诊断 ⏎</button>
+        </div>
+
+        <div class="telemetry">
+          <div class="gauge coral">
+            <div class="glow"></div>
+            <div class="g-lab">Confirmed <span>evidenced</span></div>
+            <div class="g-num">02</div>
+            <div class="g-cap">有直接证据的问题</div>
+          </div>
+          <div class="gauge amber">
+            <div class="glow"></div>
+            <div class="g-lab">Suspected <span>partial</span></div>
+            <div class="g-num">01</div>
+            <div class="g-cap">证据未闭环</div>
+          </div>
+          <div class="gauge violet">
+            <div class="glow"></div>
+            <div class="g-lab">Unknown <span>≠ severity</span></div>
+            <div class="g-num">01</div>
+            <div class="g-cap">缺少证据 · 知识状态</div>
+          </div>
+          <div class="gauge cov">
+            <div class="g-lab">Adapter cov. <span>fixture</span></div>
+            <div class="g-num"><b>4</b><span>/</span><b>9</b><span>/</span><b>5</b></div>
+            <div class="seg"><i class="n"></i><i class="s"></i><i class="c"></i></div>
+            <div class="cov-cap">
+              <span><i style="background:var(--teal)"></i>native</span>
+              <span><i style="background:var(--blue)"></i>static</span>
+              <span><i style="background:#2E3A47"></i>connector</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="tbl-head">
+          <span></span><span>Severity</span><span>Finding</span><span>Evidence</span><span>Agents</span><span style="text-align:right">ID</span>
+        </div>
+
+        <div class="row sel">
+          <span class="sig" style="color:var(--violet)">◌</span>
+          <span><span class="badge indeterminate">INDETERM.</span></span>
+          <span>
+            <div class="r-title">Cursor User Rules 的模型可见性无法判定</div>
+            <div class="r-sub">first_seen 09-08 14:22 · treatment.locked</div>
+          </span>
+          <span class="ev unknown">? unknown-evid</span>
+          <span class="agents"><span class="achip">cursor</span></span>
+          <span class="fid">F-1013</span>
+        </div>
+
+        <div class="row">
+          <span class="sig" style="color:var(--coral)">■</span>
+          <span><span class="badge confirmed">CONFIRMED</span></span>
+          <span>
+            <div class="r-title">CLAUDE.md 超出注入预算，尾部 1.2k tokens 被截断</div>
+            <div class="r-sub">first_seen 09-09 21:03 · care-plan available</div>
+          </span>
+          <span class="ev native">✓ native-evid</span>
+          <span class="agents"><span class="achip">claude-code</span></span>
+          <span class="fid">F-1014</span>
+        </div>
+
+        <div class="row">
+          <span class="sig" style="color:var(--coral)">■</span>
+          <span><span class="badge confirmed">CONFIRMED</span></span>
+          <span>
+            <div class="r-title">AGENTS.md 与 .cursorrules 内容漂移 37 行</div>
+            <div class="r-sub">first_seen 09-07 10:48 · care-plan available</div>
+          </span>
+          <span class="ev static">▤ static-resol</span>
+          <span class="agents"><span class="achip">cursor</span><span class="achip">codex</span></span>
+          <span class="fid">F-1015</span>
+        </div>
+
+        <div class="row">
+          <span class="sig" style="color:var(--amber)">▲</span>
+          <span><span class="badge suspected">SUSPECTED</span></span>
+          <span>
+            <div class="r-title">MCP server「ctxpect」工具描述疑似未进入模型可见层</div>
+            <div class="r-sub">first_seen 09-09 18:30 · needs evidence</div>
+          </span>
+          <span class="ev attested">✎ user-attested</span>
+          <span class="agents"><span class="achip">claude-code</span></span>
+          <span class="fid">F-1016</span>
+        </div>
+      </div>
+
+      <aside class="rail">
+        <div class="r-eyebrow"><span>finding / F-1013</span><span class="live">● tracing</span></div>
+        <div class="r-title">Cursor User Rules 的模型可见性无法判定</div>
+
+        <div class="verdict">
+          <div class="v-lab">Decision</div>
+          <div class="v-val">INDETERMINATE</div>
+          <div class="v-why">model-visible facet 无 native 证据，无法给出 pass / deny。</div>
+        </div>
+
+        <div class="sec-t">证据链 <a href="#">how-do-you-know ↗</a></div>
+        <div class="pipe">
+          <div class="pnode ok"><span class="st">✓</span>source · ~/.cursor/rules</div>
+          <div class="plink"></div>
+          <div class="pnode ok"><span class="st">✓</span>resolver · 静态解析 ×4</div>
+          <div class="plink broken"></div>
+          <div class="pnode broken"><span class="st">✕</span>native-observation · 断点</div>
+        </div>
+
+        <div class="sec-t">六 facet <a href="#">why-is-this-here ↗</a></div>
+        <div class="facetgrid">
+          <div class="fc"><div class="fl">installed</div><div class="fv p">● present</div></div>
+          <div class="fc"><div class="fl">discoverable</div><div class="fv p">● present</div></div>
+          <div class="fc"><div class="fl">eligible</div><div class="fv p">● present</div></div>
+          <div class="fc"><div class="fl">model-visible</div><div class="fv i">◌ indeterminate</div></div>
+          <div class="fc"><div class="fl">use-evidence</div><div class="fv n">— n/a</div></div>
+          <div class="fc"><div class="fl">outcome-aff.</div><div class="fv n">— n/a</div></div>
+        </div>
+
+        <div class="sec-t">Treatment</div>
+        <div class="lockbox">
+          <span class="li">⚿</span>
+          <span>处置锁定 —— Indeterminate 下不允许 preview / apply。下一步：收集证据，而不是修改配置。</span>
+        </div>
+
+        <div class="actions">
+          <button class="abtn primary">收集下一条证据 · cursor inspect ⏎</button>
+          <button class="abtn disabled" disabled>preview 处置（不可用）</button>
+        </div>
+
+        <div class="r-note">
+          static-resolution ≠ observed。计数来自 R-2417；4/9/5 为 fixture，live 由 receipt 复算。<br>
+          unknown 是知识状态，不是严重程度。
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+<script>
+  document.querySelectorAll('.row').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.row').forEach(x => x.classList.remove('sel'));
+      el.classList.add('sel');
+    });
+  });
+  document.querySelectorAll('.ir-btn').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.ir-btn').forEach(x => x.classList.remove('active'));
+      el.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

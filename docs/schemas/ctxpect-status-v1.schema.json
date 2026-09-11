@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ctxpect-status-v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "project",
+    "coordinate",
+    "generation",
+    "daemon",
+    "selection",
+    "selected_receipt",
+    "doctor_counts",
+    "diagnosis_basis",
+    "staleness",
+    "snapshot_digest"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ctxpect-status-v1"
+    },
+    "project": {
+      "enum": [
+        "<project>",
+        "unset"
+      ]
+    },
+    "coordinate": {
+      "type": "object",
+      "required": [
+        "harness",
+        "version",
+        "surface",
+        "os_lane"
+      ],
+      "properties": {
+        "harness": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "surface": {
+          "type": "string"
+        },
+        "os_lane": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "generation": {
+      "type": "integer"
+    },
+    "daemon": {
+      "type": "object",
+      "required": [
+        "version",
+        "listen"
+      ],
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "listen": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "selection": {
+      "enum": [
+        "none",
+        "session-current",
+        "latest-matching"
+      ]
+    },
+    "selected_receipt": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "receipt_id",
+        "receipt_kind",
+        "created_at",
+        "digest"
+      ],
+      "properties": {
+        "receipt_id": {
+          "type": "string"
+        },
+        "receipt_kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "doctor_counts": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "confirmed",
+        "suspected",
+        "unknown"
+      ],
+      "properties": {
+        "confirmed": {
+          "type": "integer"
+        },
+        "suspected": {
+          "type": "integer"
+        },
+        "unknown": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": true
+    },
+    "diagnosis_basis": {
+      "const": "receipt-and-current-project-scan"
+    },
+    "staleness": {
+      "type": "object",
+      "required": [
+        "status",
+        "reason_code"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "current",
+            "stale",
+            "unknown"
+          ]
+        },
+        "reason_code": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "snapshot_digest": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

@@ -65,7 +65,7 @@ fn every_doctor_corpus_row_is_scored_and_blocking_rules_have_no_false_positive()
         .filter(|line| !line.trim().is_empty())
         .map(|line| parse(line).expect("row"))
         .collect();
-    assert_eq!(rows.len(), 589, "the Doctor corpus has 589 rows");
+    assert_eq!(rows.len(), 707, "the Doctor corpus has 707 rows");
 
     let mut stats: BTreeMap<String, RuleStats> = BTreeMap::new();
     for rule in BLOCKING_RULES.iter().chain(NON_BLOCKING_RULES.iter()) {

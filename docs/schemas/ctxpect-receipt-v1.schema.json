@@ -76,7 +76,8 @@
         "project": { "type": "string", "description": "always the placeholder <project>; never a host path" },
         "cwd": { "type": "string" },
         "task": { "type": ["string", "null"] },
-        "snapshot": { "type": "string" }
+        "snapshot": { "type": "string" },
+        "project_digest": { "type": "string", "description": "sha256 of the canonical project path (the scope exceptions and previews bind to), or unknown; never a host path" }
       },
       "additionalProperties": false
     },
@@ -123,7 +124,7 @@
       "required": ["kind", "org_identity", "value"],
       "properties": {
         "kind": { "const": "local-continuity" },
-        "algorithm": { "const": "hmac-sha256" },
+        "algorithm": { "enum": ["hmac-sha256", "hmac-sha256/ctxpect-receipt-v2"], "description": "selects the MAC rule; inside manifest.digest, so it cannot be rewritten. v1: digest\\ncreated_at\\nsigned_at; v2: canonical {domain: ctxpect/receipt/v2, digest, created_at, signed_at}" },
         "key_id": { "type": ["string", "null"] },
         "org_identity": { "const": false },
         "signed_at": { "type": "string", "description": "display-only local signing time; covered by the MAC, not by manifest.digest; absent on Receipts signed before this rule (verify answers receipt.signature_legacy)" },

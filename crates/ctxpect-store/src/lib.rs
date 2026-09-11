@@ -30,6 +30,18 @@ pub const STORE_STATUS_SCHEMA: &str = "ctxpect-store-status-v1";
 const LOCK_FILE: &str = "lock";
 /// Schema of the audit chain-tail anchor (`audit/head.json`).
 pub const AUDIT_HEAD_SCHEMA: &str = "ctxpect-audit-head-v1";
+/// Audit entry MAC rule v2: the entry body carries `v: 2` (inside the MAC)
+/// and the MAC input is prefixed with this domain, so a MAC minted for a
+/// Receipt or a standard document with the same key cannot be presented as
+/// an audit entry. Entries without `v` keep verifying under the v1 rule.
+pub const AUDIT_MAC_DOMAIN_V2: &str = "ctxpect/audit/v2";
+
+fn audit_mac_input(body: &Value) -> String {
+    match body.get("v").and_then(Value::as_i64) {
+        Some(2) => format!("{AUDIT_MAC_DOMAIN_V2}\n{}", canonical_json(body)),
+        _ => canonical_json(body),
+    }
+}
 
 fn audit_head_input(seq: i64, mac: &str) -> String {
     format!("{AUDIT_HEAD_SCHEMA}\n{seq}\n{mac}")
@@ -37,33 +49,36 @@ fn audit_head_input(seq: i64, mac: &str) -> String {
 
 /// Held while one process mutates the store. See [`Store::lock_mutation`].
 ///
-/// Dropping the guard releases the OS advisory lock. A reentrant acquisition
-/// (the same process already holds the lock) yields a guard that owns
-/// nothing and releases nothing on drop.
+/// The OS lock lives in a process-wide table keyed by the lock file's path,
+/// with a depth counter: a reentrant acquisition (the same process already
+/// holds the lock) bumps the depth and shares the same open file, so the
+/// lock is released only when the **last** guard drops, whatever order the
+/// guards are dropped in.
 #[must_use = "the lock is released when this guard is dropped"]
 #[derive(Debug)]
 pub struct MutationLock {
-    key: Option<PathBuf>,
-    file: Option<fs::File>,
+    key: PathBuf,
 }
 
 impl Drop for MutationLock {
     fn drop(&mut self) {
-        if let Some(key) = self.key.take() {
-            if let Ok(mut held) = HELD_LOCKS.lock() {
-                held.remove(&key);
-            }
-            if let Some(file) = self.file.take() {
+        if let Ok(mut held) = HELD_LOCKS.lock()
+            && let Some(entry) = held.get_mut(&self.key)
+        {
+            entry.1 -= 1;
+            if entry.1 == 0
+                && let Some((file, _)) = held.remove(&self.key)
+            {
                 let _ = file.unlock();
             }
         }
     }
 }
 
-/// Lock keys this process currently holds, so a mutation nested inside
-/// another (a post-Receipt inside an apply) is reentrant instead of busy.
-static HELD_LOCKS: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
-    std::sync::Mutex::new(std::collections::BTreeSet::new());
+/// Locks this process currently holds: the open file carrying the OS lock
+/// and how many guards share it.
+static HELD_LOCKS: std::sync::Mutex<std::collections::BTreeMap<PathBuf, (fs::File, usize)>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
 
 /// A ledger rooted at an authorized directory.
 pub struct Store {
@@ -570,8 +585,11 @@ impl Store {
     /// Reentrant within one process.
     pub fn lock_mutation(&self) -> Result<MutationLock, StoreError> {
         let key = self.lock_key();
-        if HELD_LOCKS.lock().is_ok_and(|held| held.contains(&key)) {
-            return Ok(MutationLock { key: None, file: None });
+        if let Ok(mut held) = HELD_LOCKS.lock()
+            && let Some(entry) = held.get_mut(&key)
+        {
+            entry.1 += 1;
+            return Ok(MutationLock { key });
         }
         let path = self.root.join(LOCK_FILE);
         let mut file = fs::OpenOptions::new()
@@ -603,13 +621,15 @@ impl Store {
         ]);
         file.set_len(0)?;
         file.write_all(canonical_json(&body).as_bytes())?;
-        if let Ok(mut held) = HELD_LOCKS.lock() {
-            held.insert(key.clone());
+        match HELD_LOCKS.lock() {
+            Ok(mut held) => {
+                held.insert(key.clone(), (file, 1));
+            }
+            Err(_) => {
+                return Err(StoreError::new("store.io", "lock table poisoned"));
+            }
         }
-        Ok(MutationLock {
-            key: Some(key),
-            file: Some(file),
-        })
+        Ok(MutationLock { key })
     }
 
     fn lock_key(&self) -> PathBuf {
@@ -627,7 +647,7 @@ impl Store {
             .ok()
             .and_then(|text| parse(&text).ok())
             .unwrap_or(Value::Null);
-        let holder = if HELD_LOCKS.lock().is_ok_and(|held| held.contains(&self.lock_key())) {
+        let holder = if HELD_LOCKS.lock().is_ok_and(|held| held.contains_key(&self.lock_key())) {
             "this-process"
         } else {
             match fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&path) {
@@ -951,8 +971,9 @@ impl Store {
             ),
             ("seq", Value::Int(seq)),
             ("prev", string(&prev_mac)),
+            ("v", Value::Int(2)),
         ]);
-        let mac = hmac_sha256_hex(&key.secret, canonical_json(&body).as_bytes());
+        let mac = hmac_sha256_hex(&key.secret, audit_mac_input(&body).as_bytes());
         let entry = match body {
             Value::Object(mut map) => {
                 map.insert("mac".to_string(), string(&mac));
@@ -1181,7 +1202,7 @@ impl Store {
             };
             let mut body = map.clone();
             body.remove("mac");
-            let recomputed = hmac_sha256_hex(&key.secret, canonical_json(&Value::Object(body)).as_bytes());
+            let recomputed = hmac_sha256_hex(&key.secret, audit_mac_input(&Value::Object(body)).as_bytes());
             if recomputed != mac {
                 broken.get_or_insert("audit.mac_mismatch");
             } else if entry.get("prev").and_then(Value::as_str).unwrap_or("") != expected_prev {
@@ -1272,17 +1293,28 @@ fn validate_id(id: &str) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// The last two path segments (`folder/file.json`): enough to name a store
+/// document in an error without echoing the store's absolute location into
+/// API responses.
+fn relative_name(path: &Path) -> String {
+    let mut parts: Vec<String> = path
+        .components()
+        .rev()
+        .take(2)
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    parts.reverse();
+    parts.join("/")
+}
+
 fn read_json(path: &Path) -> Result<Value, StoreError> {
     let text = fs::read_to_string(path).map_err(|_| {
-        StoreError::new("store.missing", format!("{}", path.display()))
+        StoreError::new("store.missing", relative_name(path))
     })?;
     parse(&text).map_err(|err| {
         StoreError::new(
             "store.parse",
-            format!(
-                "{}: {err}",
-                path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
-            ),
+            format!("{}: {err}", relative_name(path)),
         )
     })
 }
@@ -1757,6 +1789,48 @@ mod tests {
         let err = store.audit("later", "z", None).expect_err("cut log");
         assert_eq!(err.code, "store.audit_truncated");
         assert_eq!(store.audit_chain().unwrap().get("reason_code").and_then(Value::as_str), Some("audit.truncated"));
+    }
+
+    #[test]
+    fn a_v1_audit_entry_still_verifies_and_the_domain_prefix_binds_v2() {
+        let (_dir, store) = scratch();
+        let key = store.continuity_key().unwrap();
+        // A v1 entry: no `v`, MAC over the bare canonical body.
+        let body = object([
+            ("at", string("1.0Z")),
+            ("action", string("old.action")),
+            ("target", string("t")),
+            ("detail", Value::Null),
+            ("seq", Value::Int(0)),
+            ("prev", string("")),
+        ]);
+        let mac = hmac_sha256_hex(&key.secret, canonical_json(&body).as_bytes());
+        let mut entry = match body { Value::Object(m) => m, _ => unreachable!() };
+        entry.insert("mac".into(), string(&mac));
+        fs::write(store.root().join("audit/events.jsonl"), format!("{}\n", canonical_json(&Value::Object(entry)))).unwrap();
+        store.write_audit_head(0, &mac, &key).unwrap();
+        // v2 entries continue the chain from it.
+        store.audit("new.action", "t2", None).unwrap();
+        let chain = store.audit_chain().unwrap();
+        assert_eq!(chain.get("verified"), Some(&Value::Bool(true)), "{chain:?}");
+        assert_eq!(chain.get("count").and_then(Value::as_i64), Some(2));
+        // Stripping `v` from a v2 entry moves it to the v1 rule: its MAC no longer verifies.
+        let path = store.root().join("audit/events.jsonl");
+        let text = fs::read_to_string(&path).unwrap();
+        let downgraded = text.replace(",\"v\":2", "");
+        assert_ne!(text, downgraded);
+        fs::write(&path, downgraded).unwrap();
+        assert_eq!(store.audit_chain().unwrap().get("reason_code").and_then(Value::as_str), Some("audit.mac_mismatch"));
+        fs::write(&path, &text).unwrap();
+        // A v1-computed MAC over a v2-shaped body does not verify under v2.
+        let last = text.lines().last().unwrap();
+        let mut entry = match parse(last).unwrap() { Value::Object(m) => m, _ => unreachable!() };
+        entry.remove("mac");
+        let bare = hmac_sha256_hex(&key.secret, canonical_json(&Value::Object(entry.clone())).as_bytes());
+        entry.insert("mac".into(), string(&bare));
+        let forged = format!("{}\n{}\n", text.lines().next().unwrap(), canonical_json(&Value::Object(entry)));
+        fs::write(&path, forged).unwrap();
+        assert_eq!(store.audit_chain().unwrap().get("reason_code").and_then(Value::as_str), Some("audit.mac_mismatch"));
     }
 
     #[test]

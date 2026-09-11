@@ -157,7 +157,7 @@ function backendRoutes() {
   const start = httpSource.indexOf("pub const ROUTE_TABLE");
   const end = httpSource.indexOf("];", start);
   const block = httpSource.slice(start, end);
-  return [...block.matchAll(/\("(GET|POST|PUT|DELETE)",\s*"(\/api\/v1[^"]*)"\)/g)].map((m) => ({
+  return [...block.matchAll(/\(\s*"(GET|POST|PUT|DELETE)"\s*,\s*"(\/api\/v1[^"]*)"\s*\)/g)].map((m) => ({
     method: m[1],
     path: m[2].replace(/:[A-Za-z]+/g, ":x"),
   }));
@@ -170,7 +170,9 @@ function routedByBackend(declared) {
 
 test("the routing table is parsed and routes by method as well as path", () => {
   const routes = backendRoutes();
-  assert.ok(routes.length >= 40, `parsed only ${routes.length} routes`);
+  // Exact: a route rustfmt wrapped onto two lines, or one added without
+  // updating this count, would otherwise disappear from the contract check.
+  assert.equal(routes.length, 45, `parsed ${routes.length} routes`);
   assert.ok(routedByBackend({ method: "POST", path: "/api/v1/receipts/:id/verify" }));
   assert.ok(routedByBackend({ method: "GET", path: "/api/v1/care-plan/:findingId" }));
   // A path the daemon knows under another method is not routed: the method

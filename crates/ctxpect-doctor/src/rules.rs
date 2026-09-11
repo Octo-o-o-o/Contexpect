@@ -109,13 +109,91 @@ fn text_of(file: &ScannedFile) -> Option<std::borrow::Cow<'_, str>> {
     file.bytes.as_deref().map(String::from_utf8_lossy)
 }
 
-fn json_file(files: &[ScannedFile], name: &str) -> Option<Value> {
-    files
-        .iter()
-        .find(|file| file.path == name)
-        .and_then(text_of)
-        .and_then(|text| parse(&text).ok())
-        .filter(|value| value.as_object().is_some())
+/// The `schema` a root-level declaration file must carry to be read as one:
+/// `ctxpect-<name>-v1` for `<name>.json`. A same-named file without it is
+/// somebody else's file (a project's own `plan.json`), not a declaration.
+fn declaration_schema(name: &str) -> String {
+    format!("ctxpect-{}-v1", name.trim_end_matches(".json"))
+}
+
+/// Path of the namespaced form of a declaration: `.ctxpect/<name>`.
+fn namespaced(name: &str) -> String {
+    format!(".ctxpect/{name}")
+}
+
+/// Every readable declaration named `name`, with the path it was read from.
+///
+/// Two spellings are declarations: `.ctxpect/<name>` (the namespace is the
+/// claim), and root `<name>` only when its top-level `schema` is
+/// `ctxpect-<name>-v1`. Both may exist; both are evaluated — a clean root
+/// file never hides a violating namespaced one or the other way round. A
+/// namespaced file that does not parse, is not an object or carries another
+/// schema is reported by [`declaration_problems`], not silently absent.
+fn declarations(files: &[ScannedFile], name: &str) -> Vec<(String, Value)> {
+    let schema = declaration_schema(name);
+    let mut out = Vec::new();
+    for file in files {
+        let namespaced_path = file.path == namespaced(name);
+        if !(file.path == name || namespaced_path) {
+            continue;
+        }
+        let Some(text) = text_of(file) else { continue };
+        let Ok(value) = parse(&text) else { continue };
+        if value.as_object().is_none() {
+            continue;
+        }
+        let declared = value.get("schema").and_then(Value::as_str);
+        let accepted = match declared {
+            Some(s) => s == schema,
+            None => namespaced_path,
+        };
+        if accepted {
+            out.push((file.path.clone(), value));
+        }
+    }
+    out
+}
+
+/// The declaration file names this crate reads.
+const DECLARATION_NAMES: &[&str] = &[
+    "layout.json",
+    "inventory.json",
+    "plan.json",
+    "archive-manifest.json",
+    "hooks.json",
+    "budget.json",
+    "device-lock.json",
+    "provenance.json",
+    "adapter-version.json",
+    "placement.json",
+];
+
+/// `.ctxpect/<name>` files that cannot be read as the declaration their
+/// name claims: not JSON, not an object, or another `schema`. Reported as
+/// `declaration_unreadable` (non-blocking, outside the corpus rule set) so
+/// a broken declaration is never mistaken for "no declaration".
+fn declaration_problems(files: &[ScannedFile]) -> Vec<ProjectFinding> {
+    let mut out = Vec::new();
+    for name in DECLARATION_NAMES {
+        let path = namespaced(name);
+        let Some(file) = files.iter().find(|file| file.path == path) else { continue };
+        let Some(text) = text_of(file) else {
+            out.push(ProjectFinding::new("declaration_unreadable", &path, "namespaced declaration could not be read"));
+            continue;
+        };
+        let problem = match parse(&text) {
+            Err(_) => Some("namespaced declaration is not valid JSON"),
+            Ok(value) if value.as_object().is_none() => Some("namespaced declaration is not a JSON object"),
+            Ok(value) => match value.get("schema").and_then(Value::as_str) {
+                Some(s) if s != declaration_schema(name) => Some("namespaced declaration carries another schema"),
+                _ => None,
+            },
+        };
+        if let Some(problem) = problem {
+            out.push(ProjectFinding::new("declaration_unreadable", &path, problem));
+        }
+    }
+    out
 }
 
 fn has_file(files: &[ScannedFile], path: &str) -> bool {
@@ -311,9 +389,38 @@ fn str_list(value: Option<&Value>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Evaluate every project rule.
+/// Evaluate every project rule without knowing the project's absolute
+/// location: an absolute symlink target is then always read as leaving the
+/// workspace. Callers that know the root use [`project_findings_in`].
 #[must_use]
 pub fn project_findings(files: &[ScannedFile]) -> Vec<ProjectFinding> {
+    project_findings_in(files, None)
+}
+
+/// Evaluate every project rule. With `root`, an absolute symlink target that
+/// lies inside the root (`ln -s "$(pwd)/x" y`) is not an escape.
+#[must_use]
+pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>) -> Vec<ProjectFinding> {
+    let inside_root = |target: &str| {
+        root.is_some_and(|root| {
+            let target = std::path::Path::new(target);
+            if !target.is_absolute() {
+                return false;
+            }
+            // Lexical: `..` segments are resolved without touching the disk.
+            let mut normalized = std::path::PathBuf::new();
+            for component in target.components() {
+                match component {
+                    std::path::Component::ParentDir => {
+                        normalized.pop();
+                    }
+                    std::path::Component::CurDir => {}
+                    other => normalized.push(other.as_os_str()),
+                }
+            }
+            normalized.starts_with(root)
+        })
+    };
     let mut out: Vec<ProjectFinding> = Vec::new();
     let mut seen: Vec<(&'static str, String)> = Vec::new();
     let mut add = |finding: ProjectFinding| {
@@ -348,8 +455,16 @@ pub fn project_findings(files: &[ScannedFile]) -> Vec<ProjectFinding> {
             ));
         }
         for line in text.lines() {
+            // `read:` in any case, optionally as a list item (`- read: …`).
             let trimmed = line.trim_start();
-            if let Some(rest) = trimmed.strip_prefix("read:") {
+            let trimmed = ["- ", "* ", "+ "]
+                .iter()
+                .find_map(|marker| trimmed.strip_prefix(marker))
+                .map_or(trimmed, str::trim_start);
+            let lowered = trimmed.get(..5).map(str::to_ascii_lowercase);
+            if lowered.as_deref() == Some("read:")
+                && let Some(rest) = trimmed.get(5..)
+            {
                 let target = rest.split_whitespace().next().unwrap_or("");
                 if !target.is_empty() && escapes_lexically(parent_dir(&file.path), target) {
                     add(ProjectFinding::new(
@@ -367,6 +482,7 @@ pub fn project_findings(files: &[ScannedFile]) -> Vec<ProjectFinding> {
         if file.is_symlink
             && let Some(target) = &file.link_target
             && escapes_lexically(parent_dir(&file.path), target)
+            && !inside_root(target)
         {
             add(ProjectFinding::new(
                 "symlink_escape",
@@ -375,15 +491,15 @@ pub fn project_findings(files: &[ScannedFile]) -> Vec<ProjectFinding> {
             ));
         }
     }
-    if let Some(layout) = json_file(files, "layout.json") {
+    for (decl_path, layout) in declarations(files, "layout.json") {
         if let Some(links) = layout.get("symlinks").and_then(Value::as_array) {
             for link in links {
                 let from = link.get("from").and_then(Value::as_str).unwrap_or("");
                 let to = link.get("to").and_then(Value::as_str).unwrap_or("");
-                if !to.is_empty() && escapes_lexically(parent_dir(from), to) {
+                if !to.is_empty() && escapes_lexically(parent_dir(from), to) && !inside_root(to) {
                     add(ProjectFinding::new(
                         "symlink_escape",
-                        "layout.json",
+                        &decl_path,
                         "declared symlink target leaves the workspace",
                     ));
                 }
@@ -395,16 +511,19 @@ pub fn project_findings(files: &[ScannedFile]) -> Vec<ProjectFinding> {
                 if path.starts_with("..") || path.starts_with('/') {
                     add(ProjectFinding::new(
                         "undiscoverable_path",
-                        "layout.json",
+                        &decl_path,
                         "declared instruction path is outside the discoverable tree",
                     ));
                 }
             }
         }
     }
+    for problem in declaration_problems(files) {
+        add(problem);
+    }
 
     // --- lazy declaration rules ---
-    if let Some(inventory) = json_file(files, "inventory.json") {
+    for (decl_path, inventory) in declarations(files, "inventory.json") {
         let required = str_list(inventory.get("required"));
         let present = str_list(inventory.get("present"));
         let missing = required
@@ -413,43 +532,44 @@ pub fn project_findings(files: &[ScannedFile]) -> Vec<ProjectFinding> {
         if missing {
             add(ProjectFinding::new(
                 "required_asset_missing",
-                "inventory.json",
+                &decl_path,
                 "a declared required asset is neither present nor on disk",
             ));
         }
     }
-    if let Some(plan) = json_file(files, "plan.json") {
+    for (decl_path, plan) in declarations(files, "plan.json") {
         let drops = str_list(plan.get("drops"));
         let approved = plan.get("approved").and_then(Value::as_bool) == Some(true);
         if !drops.is_empty() && !approved {
             add(ProjectFinding::new(
                 "unapproved_lossy_projection",
-                "plan.json",
+                &decl_path,
                 "a projection plan drops semantics without a recorded approval",
             ));
         }
     }
-    if let Some(archive) = json_file(files, "archive-manifest.json") {
+    for (decl_path, archive) in declarations(files, "archive-manifest.json") {
         for entry in str_list(archive.get("entries")) {
             if has_parent_segment(&entry) || entry.starts_with('/') {
                 add(ProjectFinding::new(
                     "archive_traversal",
-                    "archive-manifest.json",
+                    &decl_path,
                     "a declared archive entry escapes its destination",
                 ));
             }
         }
     }
-    if let Some(hooks) = json_file(files, "hooks.json")
-        && str_list(hooks.get("on_scan"))
+    for (decl_path, hooks) in declarations(files, "hooks.json") {
+        if str_list(hooks.get("on_scan"))
             .iter()
             .any(|cmd| !cmd.trim().is_empty())
-    {
-        add(ProjectFinding::new(
-            "passive_scan_exec",
-            "hooks.json",
-            "a scan hook is declared; passive scanning executes nothing",
-        ));
+        {
+            add(ProjectFinding::new(
+                "passive_scan_exec",
+                &decl_path,
+                "a scan hook is declared; passive scanning executes nothing",
+            ));
+        }
     }
 
     // --- duplicate: identical instruction bodies ---
@@ -531,7 +651,7 @@ pub fn project_findings(files: &[ScannedFile]) -> Vec<ProjectFinding> {
     }
 
     // --- budget.json: cap_truncation / oversized_resident ---
-    if let Some(budget) = json_file(files, "budget.json") {
+    for (decl_path, budget) in declarations(files, "budget.json") {
         let path = budget.get("path").and_then(Value::as_str).unwrap_or("").to_string();
         let max_bytes = budget.get("max_bytes").and_then(Value::as_i64);
         let truncated = budget.get("truncated").and_then(Value::as_bool) == Some(true);
@@ -546,13 +666,13 @@ pub fn project_findings(files: &[ScannedFile]) -> Vec<ProjectFinding> {
                 if truncated {
                     add(ProjectFinding::new(
                         "cap_truncation",
-                        if path.is_empty() { "budget.json".to_string() } else { path.clone() },
+                        if path.is_empty() { decl_path.clone() } else { path.clone() },
                         "instruction bytes exceed the declared cap and are truncated",
                     ));
                 } else {
                     add(ProjectFinding::new(
                         "oversized_resident",
-                        if path.is_empty() { "budget.json".to_string() } else { path.clone() },
+                        if path.is_empty() { decl_path.clone() } else { path.clone() },
                         "resident asset exceeds its declared byte cap",
                     ));
                 }
@@ -593,7 +713,7 @@ pub fn project_findings(files: &[ScannedFile]) -> Vec<ProjectFinding> {
     }
 
     // --- device / provenance / adapter version / placement declarations ---
-    if let Some(lock) = json_file(files, "device-lock.json") {
+    for (decl_path, lock) in declarations(files, "device-lock.json") {
         let single = lock.get("sync").and_then(Value::as_bool) == Some(false)
             && lock
                 .get("device_id")
@@ -602,12 +722,12 @@ pub fn project_findings(files: &[ScannedFile]) -> Vec<ProjectFinding> {
         if single {
             add(ProjectFinding::new(
                 "single_device_only",
-                "device-lock.json",
+                &decl_path,
                 "asset is locked to one device and excluded from sync",
             ));
         }
     }
-    if let Some(provenance) = json_file(files, "provenance.json") {
+    for (_, provenance) in declarations(files, "provenance.json") {
         let source_missing = provenance
             .get("source")
             .is_none_or(|source| source.as_str().is_none_or(str::is_empty));
@@ -624,16 +744,16 @@ pub fn project_findings(files: &[ScannedFile]) -> Vec<ProjectFinding> {
             ));
         }
     }
-    if let Some(adapter) = json_file(files, "adapter-version.json")
-        && adapter.get("required") != adapter.get("actual")
-    {
-        add(ProjectFinding::new(
-            "version_incompatible",
-            "adapter-version.json",
-            "declared adapter version does not match the required one",
-        ));
+    for (decl_path, adapter) in declarations(files, "adapter-version.json") {
+        if adapter.get("required") != adapter.get("actual") {
+            add(ProjectFinding::new(
+                "version_incompatible",
+                &decl_path,
+                "declared adapter version does not match the required one",
+            ));
+        }
     }
-    if let Some(placement) = json_file(files, "placement.json") {
+    for (_, placement) in declarations(files, "placement.json") {
         let path = placement.get("path").and_then(Value::as_str).unwrap_or("");
         let recommended = placement.get("recommended").and_then(Value::as_str).unwrap_or("");
         if !path.is_empty() && !recommended.is_empty() && path != recommended && has_file(files, path) {
@@ -663,7 +783,10 @@ pub fn render_project_findings(findings: &[ProjectFinding]) -> Vec<Value> {
             object([
                 ("finding_id", string(id)),
                 ("rule_id", string(item.rule_id)),
-                ("rule_namespace", string("doctor-corpus")),
+                (
+                    "rule_namespace",
+                    string(if item.rule_id == "declaration_unreadable" { "doctor-declarations" } else { "doctor-corpus" }),
+                ),
                 ("title", string(&item.message)),
                 ("path", string(&item.path)),
                 ("blocking", Value::Bool(blocking)),
@@ -755,6 +878,29 @@ mod tests {
     }
 
     #[test]
+    fn a_declaration_is_read_from_its_namespace_or_from_a_root_file_that_names_its_schema() {
+        // Root file without the schema: somebody else's plan.json, not ours.
+        assert!(rules(&[file("plan.json", r#"{"drops":["scoped-rule"]}"#)]).is_empty());
+        // The namespaced form needs no schema field.
+        assert_eq!(
+            rules(&[file(".ctxpect/plan.json", r#"{"drops":["scoped-rule"]}"#)]),
+            vec![("unapproved_lossy_projection", ".ctxpect/plan.json".to_string())]
+        );
+        // Both present: both are judged; a clean root file hides nothing.
+        let both = rules(&[
+            file("hooks.json", r#"{"schema":"ctxpect-hooks-v1","on_scan":[]}"#),
+            file(".ctxpect/hooks.json", r#"{"on_scan":["curl http://example.invalid"]}"#),
+        ]);
+        assert_eq!(both, vec![("passive_scan_exec", ".ctxpect/hooks.json".to_string())]);
+        // A broken namespaced declaration is reported, never treated as absent.
+        for (body, why) in [("{not json", "json"), ("[]", "object"), (r#"{"schema":"ctxpect-plan-v2"}"#, "schema")] {
+            let found = rules(&[file(".ctxpect/plan.json", body)]);
+            assert_eq!(found, vec![("declaration_unreadable", ".ctxpect/plan.json".to_string())], "{why}");
+        }
+        assert!(!is_blocking_rule("declaration_unreadable"));
+    }
+
+    #[test]
     fn lexical_escape_is_about_depth_not_the_presence_of_dots() {
         assert!(escapes_lexically("", "../x"));
         assert!(!escapes_lexically("a/b", "../x"));
@@ -787,12 +933,12 @@ mod tests {
         };
         assert_eq!(rules(&[link]), vec![("symlink_escape", "escape.md".to_string())]);
         assert_eq!(
-            rules(&[file("hooks.json", r#"{"on_scan":["curl http://example.invalid"]}"#)]),
+            rules(&[file("hooks.json", r#"{"schema":"ctxpect-hooks-v1","on_scan":["curl http://example.invalid"]}"#)]),
             vec![("passive_scan_exec", "hooks.json".to_string())]
         );
-        assert!(rules(&[file("hooks.json", r#"{"on_scan":[]}"#)]).is_empty());
+        assert!(rules(&[file("hooks.json", r#"{"schema":"ctxpect-hooks-v1","on_scan":[]}"#)]).is_empty());
         assert_eq!(
-            rules(&[file("plan.json", r#"{"drops":["scoped-rule"]}"#)]),
+            rules(&[file("plan.json", r#"{"schema":"ctxpect-plan-v1","drops":["scoped-rule"]}"#)]),
             vec![("unapproved_lossy_projection", "plan.json".to_string())],
             "a missing approval is not an approval"
         );

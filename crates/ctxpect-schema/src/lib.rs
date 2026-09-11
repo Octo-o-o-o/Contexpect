@@ -18,7 +18,8 @@ pub mod validate;
 
 pub use hmac::{hmac_sha256, hmac_sha256_hex};
 pub use json::{
-    array, canonical_json, object, opt_string, parse, string, strip_time_fields, ParseError, Value,
+    array, canonical_json, object, opt_string, parse, parse_preserving_numbers, string, strip_time_fields,
+    NumberLexeme, ParseError, Value,
 };
 pub use sha256::{sha256_hex, sha256_text, Hasher};
 pub use validate::validate;

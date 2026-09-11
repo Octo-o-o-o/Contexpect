@@ -199,6 +199,11 @@ pub fn migrate_dev_inspect_v0(
                 ),
                 ("task", Value::Null),
                 ("snapshot", string(receipt_id)),
+                // The project scope this observation was made in: the same
+                // path digest exceptions and previews are bound to, never a
+                // host path. `unknown` for a snapshot persisted without a
+                // project, so a consumer cannot mistake it for the daemon's.
+                ("project_digest", unknown_or(scope.get("project_digest"))),
             ]),
         ),
         (
@@ -281,7 +286,7 @@ pub fn migrate_dev_inspect_v0(
             "signature",
             object([
                 ("kind", string(LOCAL_CONTINUITY)),
-                ("algorithm", string("hmac-sha256")),
+                ("algorithm", string(SIGNATURE_ALGORITHM_V2)),
                 ("key_id", opt_string(continuity.map(|k| k.key_id.as_str()))),
                 ("org_identity", Value::Bool(false)),
                 ("signed_at", string(signed_at)),
@@ -298,7 +303,7 @@ pub fn migrate_dev_inspect_v0(
         );
     }
     if let Some(key) = continuity {
-        let mac = hmac_sha256_hex(&key.secret, mac_input(&manifest_digest, created_at, signed_at).as_bytes());
+        let mac = hmac_sha256_hex(&key.secret, mac_input_v2(&manifest_digest, created_at, signed_at).as_bytes());
         if let Some(Value::Object(sig)) = match &mut body {
             Value::Object(map) => map.get_mut("signature"),
             _ => None,
@@ -371,7 +376,20 @@ pub fn verify_local_continuity(receipt: &Value, key: &ContinuityKey) -> Result<(
             "manifest.digest does not match the canonical body",
         ));
     }
-    let mac = hmac_sha256_hex(&key.secret, mac_input(expected_digest.as_str(), created_at, signed_at).as_bytes());
+    // The algorithm tag sits inside the digested body, so it cannot be
+    // rewritten to select a different rule; an unknown tag is refused, never
+    // tried against the other rule.
+    let input = match receipt.pointer(&["signature", "algorithm"]).and_then(Value::as_str) {
+        Some(SIGNATURE_ALGORITHM_V1) => mac_input(expected_digest.as_str(), created_at, signed_at),
+        Some(SIGNATURE_ALGORITHM_V2) => mac_input_v2(expected_digest.as_str(), created_at, signed_at),
+        other => {
+            return Err(ReceiptError::new(
+                "receipt.signature_algorithm_unknown",
+                format!("signature.algorithm `{}` is not a rule this verifier knows", other.unwrap_or("<missing>")),
+            ));
+        }
+    };
+    let mac = hmac_sha256_hex(&key.secret, input.as_bytes());
     let got = receipt
         .pointer(&["signature", "value"])
         .and_then(Value::as_str)
@@ -395,10 +413,13 @@ pub fn tombstone(receipt: &Value, deleted_at: &str, reason: &str) -> Result<Valu
         .pointer(&["manifest", "digest"])
         .and_then(Value::as_str)
         .unwrap_or("");
+    // A Receipt without a kind keeps "no kind" on its tombstone: the store
+    // index row was built with the same empty default, so a rebuilt index
+    // stays byte-identical, and a tombstone never invents `one-shot`.
     let kind = receipt
         .get("receipt_kind")
         .and_then(Value::as_str)
-        .unwrap_or("one-shot");
+        .unwrap_or("");
     Ok(object([
         ("schema", string(RECEIPT_SCHEMA)),
         ("schema_version", Value::Int(1)),
@@ -473,10 +494,29 @@ pub fn reject_relabeled_snapshot(value: &Value) -> Result<(), ReceiptError> {
     Ok(())
 }
 
-/// The bytes the local-continuity MAC is computed over: the content digest
-/// plus both display-only times, newline-separated.
+/// Signature rules, selected by `signature.algorithm`. v1 concatenated the
+/// digest and both times with newlines and shared the store key with the
+/// audit chain and standard documents without any domain label; v2 signs a
+/// canonical JSON object that names its domain, so a MAC minted for one use
+/// cannot be presented as another. Receipts already signed under v1 keep
+/// verifying under v1 — the tag is inside the digest, so it cannot be moved.
+pub const SIGNATURE_ALGORITHM_V1: &str = "hmac-sha256";
+pub const SIGNATURE_ALGORITHM_V2: &str = "hmac-sha256/ctxpect-receipt-v2";
+pub const RECEIPT_MAC_DOMAIN_V2: &str = "ctxpect/receipt/v2";
+
+/// v1: the content digest plus both display-only times, newline-separated.
 fn mac_input(manifest_digest: &str, created_at: &str, signed_at: &str) -> String {
     format!("{manifest_digest}\n{created_at}\n{signed_at}")
+}
+
+/// v2: a domain-labelled canonical object.
+fn mac_input_v2(manifest_digest: &str, created_at: &str, signed_at: &str) -> String {
+    canonical_json(&object([
+        ("created_at", string(created_at)),
+        ("digest", string(manifest_digest)),
+        ("domain", string(RECEIPT_MAC_DOMAIN_V2)),
+        ("signed_at", string(signed_at)),
+    ]))
 }
 
 /// Remove one `/`-separated path from an object tree, if present.
@@ -684,6 +724,46 @@ mod tests {
             }
             other => other,
         }
+    }
+
+    #[test]
+    fn a_v1_receipt_verifies_under_v1_and_the_algorithm_tag_selects_exactly_one_rule() {
+        let key = ContinuityKey::from_secret(b"test-key".to_vec());
+        let v2 = migrate_dev_inspect_v0(&snapshot(), "one-shot", Some(&key), "1.0Z", "1.0Z", "r_t").expect("migrate");
+        assert_eq!(v2.pointer(&["signature", "algorithm"]).and_then(Value::as_str), Some(SIGNATURE_ALGORITHM_V2));
+        verify_local_continuity(&v2, &key).expect("v2 valid");
+
+        // A Receipt exactly as v1 wrote it: v1 tag, v1 MAC input, digest recomputed.
+        let mut sig = match v2.get("signature").cloned().unwrap() { Value::Object(m) => m, _ => unreachable!() };
+        sig.insert("algorithm".into(), string(SIGNATURE_ALGORITHM_V1));
+        sig.insert("value".into(), Value::Null);
+        let mut v1 = with_field(&v2, "signature", Value::Object(sig.clone()));
+        let digest = digest_body(&v1);
+        v1 = with_field(&v1, "manifest", object([("digest", string(&digest))]));
+        sig.insert("value".into(), string(hmac_sha256_hex(&key.secret, mac_input(&digest, "1.0Z", "1.0Z").as_bytes())));
+        let v1 = with_field(&v1, "signature", Value::Object(sig.clone()));
+        verify_local_continuity(&v1, &key).expect("v1 still verifies under v1");
+
+        // Relabelling a v1 Receipt as v2 (or back) moves the tag out of the
+        // digest's view: manifest mismatch, never a second rule tried.
+        let mut relabelled = sig.clone();
+        relabelled.insert("algorithm".into(), string(SIGNATURE_ALGORITHM_V2));
+        let err = verify_local_continuity(&with_field(&v1, "signature", Value::Object(relabelled)), &key).expect_err("relabel");
+        assert_eq!(err.code, "receipt.manifest_mismatch");
+        // A v1 MAC presented on a v2-tagged, re-digested Receipt fails the MAC.
+        let mut cross = match v2.get("signature").cloned().unwrap() { Value::Object(m) => m, _ => unreachable!() };
+        let v2_digest = v2.pointer(&["manifest", "digest"]).and_then(Value::as_str).unwrap().to_string();
+        cross.insert("value".into(), string(hmac_sha256_hex(&key.secret, mac_input(&v2_digest, "1.0Z", "1.0Z").as_bytes())));
+        let err = verify_local_continuity(&with_field(&v2, "signature", Value::Object(cross)), &key).expect_err("cross-rule");
+        assert_eq!(err.code, "receipt.signature_mismatch");
+        // An unknown algorithm is refused, not tried against either rule.
+        let mut unknown = match v2.get("signature").cloned().unwrap() { Value::Object(m) => m, _ => unreachable!() };
+        unknown.insert("algorithm".into(), string("hmac-sha256/v3"));
+        let mut odd = with_field(&v2, "signature", Value::Object(unknown.clone()));
+        let digest = digest_body(&odd);
+        odd = with_field(&odd, "manifest", object([("digest", string(&digest))]));
+        let err = verify_local_continuity(&odd, &key).expect_err("unknown");
+        assert_eq!(err.code, "receipt.signature_algorithm_unknown");
     }
 
     #[test]

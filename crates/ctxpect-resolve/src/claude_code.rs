@@ -37,6 +37,11 @@ const DOT_CLAUDE_NAME: &str = ".claude/CLAUDE.md";
 const LOCAL_NAME: &str = "CLAUDE.local.md";
 const IGNORE_NAME: &str = ".ctxpect-ignore";
 const BUDGET_NAME: &str = "budget.json";
+/// The namespaced spelling of the budget declaration (no `schema` needed).
+const BUDGET_NAMESPACED: &str = ".ctxpect/budget.json";
+/// The `schema` a root `budget.json` must carry to be a declaration at all
+/// (the Doctor reads declarations by the same rule).
+const BUDGET_SCHEMA: &str = "ctxpect-budget-v1";
 const GLOBAL_LAYER: &str = "global";
 
 /// Candidate names per layer, in adoption order, with their rule ids.
@@ -47,18 +52,42 @@ const CANDIDATES: &[(&str, &str)] = &[
 ];
 
 struct BudgetDeclaration {
+    /// Where the declaration was read from (`budget.json` or its namespaced form).
+    source: String,
     path: String,
     max_bytes: u64,
     digest: String,
 }
 
+/// The budget declaration, if any: `.ctxpect/budget.json`, or a root
+/// `budget.json` whose `schema` is `ctxpect-budget-v1`. A root file without
+/// the schema is not a declaration (the Doctor reads it the same way), so
+/// resolver and Doctor never disagree about the same file. The namespaced
+/// form wins when both exist.
 fn load_budget(project: &Root) -> Result<Option<BudgetDeclaration>, ResolveError> {
-    match candidate_kind(project, BUDGET_NAME)? {
+    for source in [BUDGET_NAMESPACED, BUDGET_NAME] {
+        if let Some(found) = load_budget_from(project, source)? {
+            return Ok(Some(found));
+        }
+    }
+    Ok(None)
+}
+
+fn load_budget_from(project: &Root, source: &str) -> Result<Option<BudgetDeclaration>, ResolveError> {
+    match candidate_kind(project, source)? {
         Some(EntryKind::File) => {
-            let content = read_contained(project, Path::new(BUDGET_NAME))?;
+            let content = read_contained(project, Path::new(source))?;
             let Ok(doc) = parse(&String::from_utf8_lossy(&content.bytes)) else {
                 return Ok(None);
             };
+            let declared = doc.get("schema").and_then(Value::as_str);
+            let accepted = match declared {
+                Some(schema) => schema == BUDGET_SCHEMA,
+                None => source == BUDGET_NAMESPACED,
+            };
+            if !accepted {
+                return Ok(None);
+            }
             let path = doc.get("path").and_then(Value::as_str).unwrap_or("").to_string();
             let max_bytes = doc
                 .get("max_bytes")
@@ -66,6 +95,7 @@ fn load_budget(project: &Root) -> Result<Option<BudgetDeclaration>, ResolveError
                 .and_then(|n| u64::try_from(n).ok());
             match max_bytes {
                 Some(max_bytes) if !path.is_empty() => Ok(Some(BudgetDeclaration {
+                    source: source.to_string(),
                     path,
                     max_bytes,
                     digest: content.whole_digest,
@@ -258,17 +288,17 @@ pub(crate) fn resolve_claude_code(request: &ResolveRequest<'_>) -> Result<Resolu
     if let Some(budget) = load_budget(request.project)?
         && let Some(file) = adopted_files.iter().find(|file| file.path == budget.path)
     {
-        push_unique(&mut native_paths, BUDGET_NAME.to_string());
+        push_unique(&mut native_paths, budget.source.clone());
         evidence.push(Evidence {
             root_kind: RootKind::Project,
-            path: BUDGET_NAME.to_string(),
+            path: budget.source.clone(),
             content_digest: Some(budget.digest.clone()),
         });
         cap_assumption = Assumption {
             key: "byte_cap".to_string(),
             value: format!(
-                "contexpect budget.json declaration: {} capped at {} bytes (not a Claude Code native cap)",
-                budget.path, budget.max_bytes
+                "contexpect {} declaration: {} capped at {} bytes (not a Claude Code native cap)",
+                budget.source, budget.path, budget.max_bytes
             ),
             provenance: "official-spec",
         };
@@ -280,7 +310,7 @@ pub(crate) fn resolve_claude_code(request: &ResolveRequest<'_>) -> Result<Resolu
                 "CL6",
                 file.path.clone(),
                 RootKind::Project,
-                Some(BUDGET_NAME.to_string()),
+                Some(budget.source.clone()),
                 Some(budget.max_bytes),
                 Some(budget.max_bytes),
                 None,

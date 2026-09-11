@@ -60,6 +60,8 @@ from contexpect_contract import (  # noqa: E402
 )
 from contexpect_fixtures import (  # noqa: E402
     build_doctor_files,
+    doctor_variant_count,
+    DECLARATION_RULES,
     build_oracle_files,
     build_static_files,
     expected_claim_from_parse,
@@ -357,7 +359,7 @@ def field_mapping_docs() -> dict[str, dict]:
                     "minimum_evidence": "official-spec",
                 },
                 {
-                    "native_field": "session.jsonl request/header (foldRequestHeader over the log prefix)",
+                    "native_field": "session.jsonl step/start + the latest request/header snapshot before that step's first provider output (foldRequestHeader over the prefix; a step whose header did not change logs none)",
                     "lifecycle_stage": "eligible",
                     "claim_kind": "observed",
                     "coverage": "full-declared-surface",
@@ -366,13 +368,13 @@ def field_mapping_docs() -> dict[str, dict]:
                     "notes": "prepared: the header is appended before dispatch (agent.ts:508-517); it does not prove the request reached the model.",
                 },
                 {
-                    "native_field": "session.jsonl assistant/chunk | assistant/message in the header's turn/step (dispatch evidence)",
+                    "native_field": "session.jsonl assistant/chunk | assistant/message in the request's step (dispatch evidence)",
                     "lifecycle_stage": "model-visible",
                     "claim_kind": "observed",
                     "coverage": "full-declared-surface",
                     "minimum_evidence": "native-log",
                     "precision": "exact",
-                    "notes": "The derived surface at the header seq (foldSurface + deriveEventMessage) is what was dispatched; provider output proves dispatch (agent.ts:364-368). Without it the claim is indeterminate (runtime_snapshot_missing).",
+                    "notes": "The derived surface at the step/start boundary (foldSurface + deriveEventMessage) is what was dispatched; provider output in that step proves dispatch (agent.ts:364-368). Without it the claim is indeterminate (runtime_snapshot_missing).",
                 },
                 {
                     "native_field": "session.jsonl assistant/message.usage",
@@ -877,6 +879,63 @@ def doctor_cases(root: Path) -> list[dict]:
                     files,
                     findings,
                 )
+
+    # Contract revision 2026-09-09: declarations are read only from
+    # `.ctxpect/<name>` or from a root file tagged `schema: ctxpect-<name>-v1`.
+    # Rows: the same root file without the tag (nothing fires), the
+    # namespaced spelling (fires), and a clean root file beside a violating
+    # namespaced one (fires on the namespaced path).
+    for rule, name in DECLARATION_RULES.items():
+        blocking = rule in DOCTOR_BLOCKING_RULES
+        variants = [("noschema", "negative", 0, "clean-lookalike"), ("dotctxpect", "positive", 2 if blocking else 0, "reachable-issue")]
+        if blocking:
+            variants.append(("conflict", "positive", 2, "reachable-issue"))
+        for variant, polarity, expected_exit, klass in variants:
+            files, findings = build_doctor_files(rule, polarity, variant, 0)
+            payload = {
+                "id": f"dev:doctor:{rule}:{polarity}:{variant}:00",
+                "corpus": "development",
+                "kind": "doctor",
+                "class": klass,
+                "rule_id": rule,
+                "blocking": blocking,
+                "polarity": polarity,
+                "expected_exit": expected_exit,
+                "license": LICENSE_ID,
+                "origin": "generated-fixture",
+                "sensitivity": "public-synthetic",
+                "live_tested": False,
+                "declaration_file": name,
+            }
+            if not blocking:
+                payload["warning_only"] = True
+            emit(payload, files, findings)
+
+    # Contract revision 2026-09-09: every rule gets content variants that
+    # differ in the judged condition (the frozen rows repeat one content).
+    for rule in list(DOCTOR_BLOCKING_RULES) + list(DOCTOR_NONBLOCKING_RULES):
+        blocking = rule in DOCTOR_BLOCKING_RULES
+        for polarity, klass in (("positive", "reachable-issue"), ("negative", "clean-lookalike")):
+            for variant in range(1, doctor_variant_count(rule, polarity)):
+                files, findings = build_doctor_files(rule, polarity, klass, 0, variant)
+                payload = {
+                    "id": f"dev:doctor:{rule}:{polarity}:variant:{variant:02d}",
+                    "corpus": "development",
+                    "kind": "doctor",
+                    "class": klass,
+                    "rule_id": rule,
+                    "blocking": blocking,
+                    "polarity": polarity,
+                    "expected_exit": 2 if blocking and polarity == "positive" else 0,
+                    "license": LICENSE_ID,
+                    "origin": "generated-fixture",
+                    "sensitivity": "public-synthetic",
+                    "live_tested": False,
+                    "content_variant": variant,
+                }
+                if not blocking:
+                    payload["warning_only"] = True
+                emit(payload, files, findings)
 
     for rule in DOCTOR_NONBLOCKING_RULES:
         for polarity, expected_exit, klass in (

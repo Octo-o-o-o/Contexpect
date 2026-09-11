@@ -5,8 +5,8 @@
   "dsh_license": "MIT",
   "node_version": "v22.23.1",
   "script": "scripts/fixtures/deepseek-harness/generate.ts",
-  "script_sha256": "efa8406f6590263767e791db5fabfd1c2f82e2e483c15f4b709eddcf15c39d8b",
-  "generated_at": "2026-09-09T01:49:18.596Z",
+  "script_sha256": "c8a49afed6e4b019c9f9676e13236fd105bb9fb6905faff148385c0766a32352",
+  "generated_at": "2026-09-09T05:54:14.483Z",
   "live_tested": false,
   "synthetic": true,
   "license": "Apache-2.0",
@@ -14,5 +14,5 @@
     "compression": "none",
     "packed_chunks": false
   },
-  "session_jsonl_sha256": "5add88bd1df2b874e5e9676426c1e99fa5ec57cb01957ddfe444c5be4bc47ab8"
+  "session_jsonl_sha256": "334ea6a340b12373032165a5823b01e29781970ff1eb2758236d5f31c76da86e"
 }

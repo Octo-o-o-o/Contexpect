@@ -16,10 +16,110 @@ pub enum Value {
     Null,
     Bool(bool),
     Int(i64),
+    /// A non-integer JSON number kept as the exact lexeme it was read with.
+    /// Only [`parse_preserving_numbers`] produces it — the strict [`parse`]
+    /// still refuses floats, so product documents never carry one — and it
+    /// is written back verbatim. It is a *representation*, not a value: no
+    /// arithmetic, `as_i64` is `None`, and digest equality with another
+    /// implementation holds only when that implementation wrote the same
+    /// text (see [`NumberLexeme::is_js_shortest_form`]).
+    Number(NumberLexeme),
     Str(String),
     Array(Vec<Value>),
     /// `BTreeMap` keeps keys in code-point order, matching `sort_keys=True`.
     Object(BTreeMap<String, Value>),
+}
+
+/// The text of a JSON number that is not an integer, validated against the
+/// JSON number grammar (RFC 8259 §6) when constructed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NumberLexeme(String);
+
+impl NumberLexeme {
+    /// Accept `text` if it is exactly one JSON number.
+    pub fn new(text: &str) -> Option<NumberLexeme> {
+        let bytes = text.as_bytes();
+        let mut i = 0;
+        if bytes.first() == Some(&b'-') {
+            i += 1;
+        }
+        let int_start = i;
+        while bytes.get(i).is_some_and(u8::is_ascii_digit) {
+            i += 1;
+        }
+        if i == int_start || (bytes[int_start] == b'0' && i - int_start > 1) {
+            return None;
+        }
+        if bytes.get(i) == Some(&b'.') {
+            i += 1;
+            let frac = i;
+            while bytes.get(i).is_some_and(u8::is_ascii_digit) {
+                i += 1;
+            }
+            if i == frac {
+                return None;
+            }
+        }
+        if matches!(bytes.get(i), Some(b'e' | b'E')) {
+            i += 1;
+            if matches!(bytes.get(i), Some(b'+' | b'-')) {
+                i += 1;
+            }
+            let exp = i;
+            while bytes.get(i).is_some_and(u8::is_ascii_digit) {
+                i += 1;
+            }
+            if i == exp {
+                return None;
+            }
+        }
+        if i != bytes.len() {
+            return None;
+        }
+        Some(NumberLexeme(text.to_string()))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Whether the lexeme has the shape `JSON.stringify` gives a double:
+    /// no `+` sign, no leading zeros, no trailing zeros in the fraction, a
+    /// lowercase `e` with a signed exponent and no leading zeros in it, and
+    /// exponent form only where JS would use it (magnitude ≥ 1e21 or
+    /// < 1e-6). A lexeme with this shape is what a JS writer would have
+    /// emitted, so re-emitting it verbatim reproduces that writer's bytes;
+    /// a lexeme without it (`1.0`, `1e-07`, `1.2300`) would be written
+    /// differently by JS and must not be presented as JS-canonical.
+    #[must_use]
+    pub fn is_js_shortest_form(&self) -> bool {
+        let text = self.0.as_str();
+        let unsigned = text.strip_prefix('-').unwrap_or(text);
+        let (mantissa, exponent) = match unsigned.split_once('e') {
+            Some((m, e)) => (m, Some(e)),
+            None => (unsigned, None),
+        };
+        if unsigned.contains('E') || mantissa.ends_with('0') && mantissa.contains('.') {
+            return false;
+        }
+        let Some(exponent) = exponent else {
+            return true;
+        };
+        let (sign, digits) = match exponent.as_bytes().first() {
+            Some(b'+') => (1i32, &exponent[1..]),
+            Some(b'-') => (-1i32, &exponent[1..]),
+            _ => return false,
+        };
+        if digits.is_empty() || digits.starts_with('0') || mantissa.contains('.') && mantissa.ends_with('0') {
+            return false;
+        }
+        let Ok(magnitude) = digits.parse::<i32>() else {
+            return false;
+        };
+        // JS uses exponent form for |x| >= 1e21 and 0 < |x| < 1e-6 only.
+        (sign > 0 && magnitude >= 21) || (sign < 0 && magnitude >= 7)
+    }
 }
 
 impl Value {
@@ -122,6 +222,7 @@ fn write_value(out: &mut String, value: &Value) {
         Value::Int(n) => {
             let _ = write!(out, "{n}");
         }
+        Value::Number(lexeme) => out.push_str(lexeme.as_str()),
         Value::Str(s) => escape_into(out, s),
         Value::Array(items) => {
             out.push('[');
@@ -232,6 +333,8 @@ impl std::error::Error for ParseError {}
 struct Parser<'a> {
     bytes: &'a [u8],
     pos: usize,
+    /// Keep non-integer numbers as [`Value::Number`] instead of refusing them.
+    preserve_numbers: bool,
     /// Current nesting of arrays and objects. Recursion is bounded by
     /// [`MAX_DEPTH`]: a document of ten thousand `[` would otherwise
     /// overflow the stack and abort the process, which no error path can
@@ -399,14 +502,46 @@ impl<'a> Parser<'a> {
         }
         // Floats are not supported: see the crate docs. Reject them rather than
         // emit a value whose canonical form would differ from the generator's.
+        // The number-preserving parser scans the fraction and exponent and
+        // keeps the exact lexeme instead.
         if matches!(self.peek(), Some(b'.' | b'e' | b'E')) {
-            return self.err("floating-point numbers are not supported");
+            if !self.preserve_numbers {
+                return self.err("floating-point numbers are not supported");
+            }
+            if self.peek() == Some(b'.') {
+                self.pos += 1;
+                let frac = self.pos;
+                while matches!(self.peek(), Some(b'0'..=b'9')) {
+                    self.pos += 1;
+                }
+                if self.pos == frac {
+                    return self.err("expected a digit after the decimal point");
+                }
+            }
+            if matches!(self.peek(), Some(b'e' | b'E')) {
+                self.pos += 1;
+                if matches!(self.peek(), Some(b'+' | b'-')) {
+                    self.pos += 1;
+                }
+                let exp = self.pos;
+                while matches!(self.peek(), Some(b'0'..=b'9')) {
+                    self.pos += 1;
+                }
+                if self.pos == exp {
+                    return self.err("expected a digit in the exponent");
+                }
+            }
         }
         let Ok(text) = std::str::from_utf8(&self.bytes[start..self.pos]) else {
             return self.err("invalid number");
         };
         match text.parse::<i64>() {
             Ok(n) => Ok(Value::Int(n)),
+            Err(_) if self.preserve_numbers && (text.contains('.') || text.contains(['e', 'E'])) => {
+                NumberLexeme::new(text)
+                    .map(Value::Number)
+                    .ok_or_else(|| ParseError { message: "invalid number".into(), offset: start })
+            }
             Err(_) => self.err("integer out of range"),
         }
     }
@@ -488,10 +623,23 @@ impl<'a> Parser<'a> {
 
 /// Parse a complete JSON document. Trailing content is an error.
 pub fn parse(text: &str) -> Result<Value, ParseError> {
+    parse_with(text, false)
+}
+
+/// [`parse`], but a non-integer number becomes [`Value::Number`] holding its
+/// exact lexeme instead of an error. For readers of *foreign* documents (a
+/// harness's session log) whose digests must reproduce the foreign writer's
+/// bytes; product documents keep the strict parser.
+pub fn parse_preserving_numbers(text: &str) -> Result<Value, ParseError> {
+    parse_with(text, true)
+}
+
+fn parse_with(text: &str, preserve_numbers: bool) -> Result<Value, ParseError> {
     let mut parser = Parser {
         bytes: text.as_bytes(),
         pos: 0,
         depth: 0,
+        preserve_numbers,
     };
     let value = parser.parse_value()?;
     parser.skip_ws();

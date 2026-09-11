@@ -7,7 +7,7 @@
       "schema_id": "compatibility-matrix"
     },
     {
-      "digest_sha256": "501b9a515873d5ddb6157a5d748162c51cca4f83a1fc82f196cef5f01a55d9e6",
+      "digest_sha256": "6a7064aa342e2ee40a29b79c4b9b0152c772092207d6e31a53fdc0ad0a5b570b",
       "path": "acceptance/corpus-manifest.json",
       "schema_id": "corpus-manifest"
     },

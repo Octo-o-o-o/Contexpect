@@ -1,0 +1,2 @@
+## always
+read: ../../etc/passwd

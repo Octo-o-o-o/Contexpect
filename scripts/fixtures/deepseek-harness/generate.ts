@@ -67,7 +67,9 @@ async function main(): Promise<void> {
   } = sessionModule
   const { toHeaderLine, eventLines } = formatModule
 
-  const model = { provider: 'deepseek', model: 'deepseek-chat' }
+  // A non-integer in the header config: the importer must keep the lexeme
+  // JSON.stringify wrote so `header_digest` matches DSH's own hash.
+  const model = { provider: 'deepseek', model: 'deepseek-chat', config: { temperature: 0.5, top_p: 0.95, maxTokens: 4096 } }
   const tools = [{ name: 'bash', description: 'Run a shell command', parameters: { type: 'object', properties: { cmd: { type: 'string' } }, required: ['cmd'] } }]
   const msg = (n: number) => `m-${String(n).padStart(4, '0')}`
   let seq = 0

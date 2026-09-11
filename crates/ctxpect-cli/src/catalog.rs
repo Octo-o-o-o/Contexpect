@@ -41,6 +41,20 @@ pub fn integrations_json(active_harness: &str, inspect_supported: bool) -> Value
             // (`ctxpect_resolve::ANCHORS`), not by name.
             let supported = inspect_supported
                 && !ctxpect_resolve::implemented_capabilities(family.id).is_empty();
+            // The only two declared, repeatable native oracles in this freeze.
+            let has_native_oracle = matches!(family.id, "codex" | "grok-build");
+            // A grouping label for display, not a truth value: it summarizes
+            // the declared catalog tier (not a live observation) so callers
+            // do not have to re-derive it from `reason_code`/`native_oracle`.
+            let evidence_capability = if has_native_oracle {
+                "native"
+            } else if supported {
+                "static-only"
+            } else if family.cohort == "connector" {
+                "connector-required"
+            } else {
+                "unsupported"
+            };
             let (install, auth, connector, version, surface, reason) = if supported {
                 (
                     "unknown-not-claimed-from-config",
@@ -88,13 +102,16 @@ pub fn integrations_json(active_harness: &str, inspect_supported: bool) -> Value
                 ("version", object([("declared", string(version)), ("status", string("user-attested-or-unknown"))])),
                 ("surface", object([("declared", string(surface))])),
                 ("reason_code", string(reason)),
+                ("evidence_capability", string(evidence_capability)),
                 ("active_coordinate", Value::Bool(family.id == active_harness)),
                 (
                     "native_oracle",
-                    if family.id == "codex" {
-                        string("debug prompt-input")
-                    } else if family.id == "grok-build" {
-                        string("inspect --json")
+                    if has_native_oracle {
+                        string(if family.id == "codex" {
+                            "debug prompt-input"
+                        } else {
+                            "inspect --json"
+                        })
                     } else {
                         string("none-declared-repeatable")
                     },
@@ -107,7 +124,7 @@ pub fn integrations_json(active_harness: &str, inspect_supported: bool) -> Value
         ("families", array(items)),
         (
             "fixture_note",
-            string("Doctor visual fixture 4/9/5 is not live coverage. Live counts are computed from this catalog plus inspect."),
+            string("Doctor visual fixture 4/9/5 is not live coverage. Counts describe declared catalog tiers, not installation or collected native evidence."),
         ),
     ])
 }
@@ -124,4 +141,46 @@ pub fn family_entry(id: &str, active_harness: &str, inspect_supported: bool) -> 
                 .find(|item| item.get("family_id").and_then(Value::as_str) == Some(id))
                 .cloned()
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn capability(catalog: &Value, id: &str) -> String {
+        catalog
+            .get("families")
+            .and_then(Value::as_array)
+            .and_then(|items| {
+                items.iter().find(|item| {
+                    item.get("family_id").and_then(Value::as_str) == Some(id)
+                })
+            })
+            .and_then(|item| item.get("evidence_capability"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned()
+    }
+
+    #[test]
+    fn evidence_capability_matches_resolver_and_oracle_facts() {
+        let catalog = integrations_json("codex", true);
+        // Declared, repeatable native oracles.
+        assert_eq!(capability(&catalog, "codex"), "native");
+        assert_eq!(capability(&catalog, "grok-build"), "native");
+        assert!(!ctxpect_resolve::implemented_capabilities("codex").is_empty());
+        assert!(!ctxpect_resolve::implemented_capabilities("claude-code").is_empty());
+        assert!(ctxpect_resolve::implemented_capabilities("grok-build").is_empty());
+        // A resolver grammar exists but no native oracle is declared.
+        assert_eq!(capability(&catalog, "claude-code"), "static-only");
+        // Neither resolver grammar nor native oracle.
+        assert_eq!(capability(&catalog, "deepseek-harness"), "unsupported");
+        // The connector cohort never claims more than "needs connector".
+        assert_eq!(capability(&catalog, "coze"), "connector-required");
+        // Native oracles do not depend on resolver support.
+        let cold = integrations_json("codex", false);
+        assert_eq!(capability(&cold, "codex"), "native");
+        // Without inspect support nothing resolves statically either.
+        assert_eq!(capability(&cold, "claude-code"), "unsupported");
+    }
 }

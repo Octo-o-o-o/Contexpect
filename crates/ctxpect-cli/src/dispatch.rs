@@ -437,6 +437,19 @@ fn standard_unsigned(doc: &Value) -> Value {
     ])
 }
 
+/// Standard-document MAC rule v2: a domain-labelled canonical object, so a
+/// Receipt or audit MAC minted with the same store key cannot be presented
+/// as a standard signature. Documents published under v1 (no `algorithm`
+/// tag, MAC over the bare digest) keep verifying under v1.
+pub(crate) const STANDARD_SIGNATURE_ALGORITHM_V2: &str = "hmac-sha256/ctxpect-standard-v2";
+
+fn standard_mac_input_v2(digest: &str) -> String {
+    canonical_json(&object([
+        ("digest", string(digest)),
+        ("domain", string("ctxpect/standard/v2")),
+    ]))
+}
+
 /// Recompute the local-continuity MAC from the persisted record. `signed`
 /// is the result of that comparison, not a literal written at publish time.
 pub(crate) fn verify_standard_document(
@@ -457,7 +470,24 @@ pub(crate) fn verify_standard_document(
         ));
     }
     let digest = digest_value(&standard_unsigned(doc));
-    let expected = hmac_sha256_hex(&key.secret, digest.as_bytes());
+    // Rule selection by the persisted algorithm tag. The tag is NOT part of
+    // the signed input: `standard_unsigned` keeps only `standard_id`,
+    // `payload_digest`, `signature_kind` and `org_identity`, so the tag
+    // itself is not covered by the MAC. A cross-rule presentation (a v1 MAC
+    // offered as v2, or the reverse) still fails because the two rules MAC
+    // different inputs: v1 MACs the bare digest, v2 MACs a domain-labelled
+    // canonical object, so the expected values cannot coincide.
+    let input = match doc.pointer(&["signature", "algorithm"]).and_then(Value::as_str) {
+        None | Some("hmac-sha256") => digest.clone(),
+        Some(STANDARD_SIGNATURE_ALGORITHM_V2) => standard_mac_input_v2(&digest),
+        Some(other) => {
+            return Err(fail(
+                "standard.signature_algorithm_unknown",
+                format!("signature.algorithm `{other}` is not a rule this verifier knows"),
+            ));
+        }
+    };
+    let expected = hmac_sha256_hex(&key.secret, input.as_bytes());
     if sig != expected {
         return Err(fail(
             "standard.signature_mismatch",
@@ -500,6 +530,25 @@ fn inspect_args(args: &ProductArgs) -> Result<InspectArgs, InspectFailure> {
         os_lane: args.os_lane.clone(),
         store: args.store.clone(),
     })
+}
+
+/// Importing under an id that already holds a *different* session record
+/// is refused (`store.session_exists`): the same artifact again is
+/// idempotent, a different one is not a silent replacement.
+pub(crate) fn refuse_replacing_a_different_session(
+    store: &Store,
+    session_id: &str,
+    session: &Value,
+) -> Result<(), InspectFailure> {
+    if let Ok(existing) = store.get_named("sessions", session_id)
+        && canonical_json(&existing) != canonical_json(session)
+    {
+        return Err(fail(
+            "store.session_exists",
+            format!("session `{session_id}` already holds a different record; delete it first or import under another id"),
+        ));
+    }
+    Ok(())
 }
 
 /// The one `receipt verify` answer, for the CLI and the API alike (R04).
@@ -562,6 +611,37 @@ pub(crate) fn verify_receipt_report(store: &Store, id: &str) -> Result<(i32, Val
             ("covers", array([string("manifest.digest"), string("created_at"), string("signed_at")])),
         ]),
     ))
+}
+
+/// Persist a snapshot as a Receipt bound to the project it was observed in:
+/// `scope.project_digest` (the same path digest exceptions and previews
+/// bind to) travels into `coordinate.project_digest`, so a consumer — the
+/// daemon's Doctor, Monitor, care plan — can tell whether a Receipt belongs
+/// to the root it is about to rescan. Without a project the digest stays
+/// `unknown`; it is never guessed from the store.
+pub(crate) fn persist_inspect_in(
+    store: &Store,
+    snapshot: &Value,
+    kind: &str,
+    project: Option<&Path>,
+) -> Result<Value, InspectFailure> {
+    let stamped = match project {
+        Some(project) => stamp_project_scope(snapshot, &project_digest(store, Some(project))),
+        None => snapshot.clone(),
+    };
+    persist_inspect(store, &stamped, kind)
+}
+
+/// The snapshot with `scope.project_digest` set (a copy; the input is not
+/// changed).
+pub(crate) fn stamp_project_scope(snapshot: &Value, digest: &str) -> Value {
+    let mut out = snapshot.clone();
+    if let Value::Object(map) = &mut out
+        && let Some(Value::Object(scope)) = map.get_mut("scope")
+    {
+        scope.insert("project_digest".into(), string(digest));
+    }
+    out
 }
 
 pub fn persist_inspect(
@@ -643,15 +723,62 @@ pub fn scan_project_for_doctor(root: &Root) -> Result<Vec<ScannedFile>, InspectF
 /// Doctor content findings for a project, rendered.
 pub fn project_doctor_findings(root: &Root) -> Result<Vec<Value>, InspectFailure> {
     let files = scan_project_for_doctor(root)?;
-    Ok(render_project_findings(&ctxpect_doctor::project_findings(&files)))
+    Ok(render_project_findings(&ctxpect_doctor::project_findings_in(&files, Some(root.path()))))
+}
+
+/// Receipt-derived findings plus project-content findings, with the
+/// project's suppressions applied: the one diagnosis `doctor`, `ci` and the
+/// API report (R04).
+pub(crate) fn diagnosis_for_root(base: Value, root: &Root) -> Result<Value, InspectFailure> {
+    let files = scan_project_for_doctor(root)?;
+    let project_findings =
+        render_project_findings(&ctxpect_doctor::project_findings_in(&files, Some(root.path())));
+    let merged = with_project_findings(base, &project_findings);
+    // Evidence digests bind a suppression to the reviewed bytes.
+    let mut evidence = std::collections::BTreeMap::new();
+    for file in &files {
+        if let Some(bytes) = &file.bytes {
+            evidence.insert(file.path.clone(), ctxpect_schema::sha256_hex(bytes));
+        } else if let Some(target) = &file.link_target {
+            evidence.insert(file.path.clone(), sha256_text(target));
+        }
+    }
+    let suppressions_path = root.path().join(ctxpect_doctor::SUPPRESSIONS_PATH);
+    let (document, file_error, file_digest) = if suppressions_path.exists() {
+        match ctxpect_fs::read_contained(root, &suppressions_path) {
+            Ok(content) => match parse(&String::from_utf8_lossy(&content.bytes)) {
+                Ok(doc) => (Some(doc), None, Some(ctxpect_schema::sha256_hex(&content.bytes))),
+                Err(err) => (None, Some(format!("does not parse: {err}")), Some(ctxpect_schema::sha256_hex(&content.bytes))),
+            },
+            Err(err) => (None, Some(format!("cannot be read within the project: {err}")), None),
+        }
+    } else {
+        (None, None, None)
+    };
+    let now_secs = i64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    )
+    .unwrap_or(0);
+    Ok(ctxpect_doctor::apply_suppressions(
+        merged,
+        &ctxpect_doctor::SuppressionInput {
+            document: document.as_ref(),
+            file_error,
+            file_digest,
+            evidence: &evidence,
+            now_secs,
+        },
+    ))
 }
 
 /// Receipt-derived findings plus project-content findings, the diagnosis
 /// both `doctor` and `ci` (and the API) report.
 pub(crate) fn full_diagnosis(snapshot: &Value, project: &Path) -> Result<Value, InspectFailure> {
     let root = Root::new(project).map_err(|err| fail("io.missing", err.to_string()))?;
-    let project_findings = project_doctor_findings(&root)?;
-    Ok(with_project_findings(diagnose(snapshot), &project_findings))
+    diagnosis_for_root(diagnose(snapshot), &root)
 }
 
 fn collect_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
@@ -769,7 +896,7 @@ fn collect_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
                     },
                 ),
             ]);
-            let receipt = persist_inspect(&store, &snapshot, "device-baseline")?;
+            let receipt = persist_inspect_in(&store, &snapshot, "device-baseline", args.project.as_deref())?;
             Some(
                 receipt
                     .get("receipt_id")
@@ -847,7 +974,7 @@ fn doctor_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
     }
     if let Some(store_path) = &args.store {
         let store = Store::open(store_path).map_err(|err| fail(err.code, err.message))?;
-        let receipt = persist_inspect(&store, &report.envelope, "one-shot")?;
+        let receipt = persist_inspect_in(&store, &report.envelope, "one-shot", args.project.as_deref())?;
         if let Value::Object(map) = &mut body {
             map.insert(
                 "receipt_id".into(),
@@ -954,7 +1081,7 @@ fn preflight_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
     let inspect_args = inspect_args(args)?;
     let report = inspect(inspect_args)?;
     let store = open_store(args)?;
-    let receipt = persist_inspect(&store, &report.envelope, "preflight")?;
+    let receipt = persist_inspect_in(&store, &report.envelope, "preflight", args.project.as_deref())?;
     let id = receipt
         .get("receipt_id")
         .and_then(Value::as_str)
@@ -1038,6 +1165,7 @@ fn sessions_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
         // The store is metadata-only: no body preview is kept (see importer).
         let session = import_session_bytes(&bytes, mapping, &session_id)
             .map_err(|err| fail(err.code, err.message))?;
+        refuse_replacing_a_different_session(&store, &session_id, &session)?;
         store
             .put_named("sessions", &session_id, &session)
             .map_err(|err| fail(err.code, err.message))?;
@@ -1055,9 +1183,14 @@ fn sessions_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
         {
             let _auth =
                 authorize_store_apply(&store, args.project.as_deref(), "sessions.delete", session_id)?;
-            store
+            let existed = store
                 .delete_named("sessions", session_id)
                 .map_err(|err| fail(err.code, err.message))?;
+            if !existed {
+                // Reporting a deletion that removed nothing reads as a
+                // destructive action that never happened.
+                return Err(fail("store.missing", format!("sessions/{session_id}.json")));
+            }
             store
                 .delete_named("insights", session_id)
                 .map_err(|err| fail(err.code, err.message))?;
@@ -1476,6 +1609,12 @@ fn projection_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
             "apply",
             &previewed.target_rel,
         )?;
+        let backup = ctxpect_projection::backup_dir(store.root(), &previewed.tx_id);
+        let result = proj_apply(&root, &previewed, &backup, true)
+            .map_err(|err| fail(err.code, err.message))?;
+        // The CanonicalIntent record lands after the apply succeeded: an
+        // apply refused for a moved target leaves no record of an intent
+        // that was never realised.
         let intent = Intent {
             intent_id: previewed.intent_id.clone(),
             authority: previewed.authority.clone(),
@@ -1484,9 +1623,6 @@ fn projection_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
         };
         store
             .put_named("intents", &intent.intent_id, &intent.to_value())
-            .map_err(|err| fail(err.code, err.message))?;
-        let backup = ctxpect_projection::backup_dir(store.root(), &previewed.tx_id);
-        let result = proj_apply(&root, &previewed, &backup, true)
             .map_err(|err| fail(err.code, err.message))?;
         // The preview is consumed by its apply.
         mark_preview(&store, &previewed.tx_id, PREVIEW_APPLIED)?;
@@ -1606,7 +1742,7 @@ fn new_adoption(id: &str, state: &str, source_digest: &str, pinned: Option<&str>
 fn post_receipt(args: &ProductArgs, store: &Store) -> Result<String, InspectFailure> {
     let inspect_args = inspect_args(args)?;
     let report = inspect(inspect_args)?;
-    let receipt = persist_inspect(store, &report.envelope, "one-shot")?;
+    let receipt = persist_inspect_in(store, &report.envelope, "one-shot", args.project.as_deref())?;
     Ok(receipt
         .get("receipt_id")
         .and_then(Value::as_str)
@@ -1693,13 +1829,14 @@ fn standard_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
             let key = store
                 .continuity_key()
                 .map_err(|err| fail(err.code, err.message))?;
-            let mac = hmac_sha256_hex(&key.secret, digest.as_bytes());
+            let mac = hmac_sha256_hex(&key.secret, standard_mac_input_v2(&digest).as_bytes());
             let doc = object([
                 ("standard_id", string(&id)),
                 ("payload_digest", string(sha256_text(&payload))),
                 ("signature_kind", string("local-continuity")),
                 ("signature", object([
                     ("kind", string("local-continuity")),
+                    ("algorithm", string(STANDARD_SIGNATURE_ALGORITHM_V2)),
                     ("value", string(&mac)),
                     ("key_id", string(&key.key_id)),
                     ("org_identity", Value::Bool(false)),
@@ -2396,7 +2533,7 @@ fn ci_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
     // creates no store.
     let receipt_id = match store.as_ref() {
         Some(store) => Some(
-            persist_inspect(store, &report.envelope, "ci")?
+            persist_inspect_in(store, &report.envelope, "ci", args.project.as_deref())?
                 .get("receipt_id")
                 .and_then(Value::as_str)
                 .unwrap_or("")

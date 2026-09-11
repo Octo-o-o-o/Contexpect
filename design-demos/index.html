@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contexpect 前端重构 · 方案选型</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "SF Pro Text", "Inter", "PingFang SC", sans-serif;
+    background: #14171C; color: #E8EAEE; min-height: 100vh;
+    padding: 64px 48px; -webkit-font-smoothing: antialiased;
+  }
+  .eyebrow { font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: 3px; color: #6B7484; text-transform: uppercase; }
+  h1 { font-size: 34px; font-weight: 700; letter-spacing: -.5px; margin: 12px 0 8px; }
+  .sub { color: #98A0AE; font-size: 14.5px; max-width: 720px; line-height: 1.7; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 44px; max-width: 1200px; }
+  .card {
+    background: #1B1F27; border: 1px solid #2A303C; border-radius: 16px;
+    padding: 26px; text-decoration: none; color: inherit; display: block;
+    transition: transform .15s, border-color .15s;
+  }
+  .card:hover { transform: translateY(-3px); border-color: #465062; }
+  .tag { display: inline-block; font-family: ui-monospace, monospace; font-size: 10.5px; letter-spacing: 1.5px; padding: 4px 10px; border-radius: 999px; border: 1px solid #3A4250; color: #98A0AE; }
+  .card h2 { font-size: 21px; font-weight: 700; margin: 16px 0 6px; }
+  .card .cn { font-size: 14px; color: #7C8594; margin-bottom: 14px; }
+  .card p { font-size: 13px; color: #AEB5C2; line-height: 1.75; }
+  .swatches { display: flex; gap: 6px; margin-top: 18px; }
+  .swatches i { width: 26px; height: 26px; border-radius: 7px; border: 1px solid rgba(255,255,255,.12); }
+  .foot { margin-top: 40px; color: #5C6470; font-size: 12px; line-height: 1.8; max-width: 760px; }
+  .foot b { color: #98A0AE; }
+  code { font-family: ui-monospace, monospace; background: #232833; padding: 1px 6px; border-radius: 5px; font-size: 11.5px; }
+</style>
+</head>
+<body>
+  <div class="eyebrow">Contexpect · 前端重构提案 · 2026-09-10</div>
+  <h1>三套设计方向，请挑一套</h1>
+  <div class="sub">
+    三个 demo 均为自包含单文件 HTML，使用同一份 fixture 数据、同一个 canonical 页面（Doctor 首屏），仅视觉语言与交互密度不同。点击卡片在新页打开。
+  </div>
+
+  <div class="grid">
+    <a class="card" href="./a-refined-clinical.html" target="_blank">
+      <span class="tag">方案 A</span>
+      <h2>Refined Clinical</h2>
+      <div class="cn">精密仪器 · 浅色进化版</div>
+      <p>在现有设计系统上演进到顶级工具质感：暖纸画布 + 墨蓝导航，分组信息架构，状态带与证据链更克制精确。改动最小、落地最快、语义继承最完整。</p>
+      <div class="swatches">
+        <i style="background:#F4F2EB"></i><i style="background:#101722"></i>
+        <i style="background:#167C70"></i><i style="background:#9C6A1D"></i>
+        <i style="background:#C54C42"></i><i style="background:#6F62B5"></i>
+      </div>
+    </a>
+    <a class="card" href="./b-dark-instrument.html" target="_blank">
+      <span class="tag">方案 B</span>
+      <h2>Dark Instrument</h2>
+      <div class="cn">暗夜观测台 · 开发者控制台</div>
+      <p>深色优先的观测仪器：发光语义色、等宽字体数据、⌘K 命令栏、图标轨道导航。密度最高、最「酷」，适合重度开发者心智；但实现成本与可读性权衡最大。</p>
+      <div class="swatches">
+        <i style="background:#0A0D13"></i><i style="background:#151B25"></i>
+        <i style="background:#2DD4BF"></i><i style="background:#F5B83D"></i>
+        <i style="background:#F67367"></i><i style="background:#A78BFA"></i>
+      </div>
+    </a>
+    <a class="card" href="./c-audit-ledger.html" target="_blank">
+      <span class="tag">方案 C</span>
+      <h2>Audit Ledger</h2>
+      <div class="cn">审计账簿 · 编辑文档风</div>
+      <p>把每个 Receipt 当作一份「诊断纪要」：衬线标题、发丝线、编号条目 + 右侧批注栏。最优雅、最差异化，与「凭据/核对」的产品语义天然契合；信息密度最低。</p>
+      <div class="swatches">
+        <i style="background:#FAF8F3"></i><i style="background:#1C2027"></i>
+        <i style="background:#1D7A6C"></i><i style="background:#9A6614"></i>
+        <i style="background:#B84A3E"></i><i style="background:#6D5FC7"></i>
+      </div>
+    </a>
+  </div>
+
+  <div class="foot">
+    <b>三套方案共同守住的红线（来自项目冻结合同）：</b>Unknown ≠ severity（紫色独立通道）· 无统一健康分 ·
+    六 facet 不合并 · Static resolution 永不标 Verified · Indeterminate 时 Treatment 锁定 ·
+    状态三通道（文字+图标+颜色）· 4/9/5 coverage 明确标注为 fixture。<br>
+    也可以混搭：例如 <code>A 的信息架构 + C 的排版</code> 或 <code>B 的深色 + A 的组件密度</code>。
+  </div>
+</body>
+</html>

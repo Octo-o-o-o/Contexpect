@@ -1,0 +1,76 @@
+# Required gates (AGENTS.md「本阶段允许的命令」), run on every push and pull
+# request. This file is a template committed from a macOS-only machine: the
+# other lanes are verified only once this workflow has actually run green on
+# them — until then a lane is "template committed", not "verified".
+name: gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  offline-gates:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: docs-structure
+        run: python3 scripts/check_docs.py
+      - name: acceptance-validation
+        run: python3 scripts/check_acceptance.py --structure
+      - name: traceability-validation
+        run: python3 scripts/check_acceptance.py --traceability
+      - name: corpus-validation
+        run: python3 scripts/check_acceptance.py --corpus
+      - name: semantic-team-validation
+        run: python3 scripts/check_semantic_team.py
+      - name: validator-negative-tests
+        run: TMPDIR=/tmp python3 -m unittest discover -s tests/acceptance -p 'test_*.py'
+      - name: cargo-build
+        run: cargo build --workspace
+      - name: cargo-test
+        run: cargo test --workspace
+      - name: cargo-clippy
+        run: cargo clippy --workspace --all-targets
+      - name: corpus-conformance
+        run: cargo test -p ctxpect-cli --test corpus_conformance
+      - name: doctor-corpus
+        run: cargo test -p ctxpect-cli --test doctor_corpus
+      - name: native-conformance
+        run: cargo test -p ctxpect-cli --test native_conformance
+      - name: no-registry-dependencies
+        run: '! grep -q "source = \"registry" Cargo.lock'
+
+  ui-gates:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: install
+        run: pnpm install --frozen-lockfile
+      - name: ui-routes
+        run: python3 scripts/check_ui_routes.py
+      - name: ui-unit
+        run: pnpm --dir packages/ui test
+      - name: ui-typecheck
+        run: pnpm --dir packages/ui typecheck
+      - name: ui-build
+        run: pnpm --dir packages/ui build

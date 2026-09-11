@@ -2046,6 +2046,128 @@ fn ci_and_doctor_block_on_the_same_project_rule() {
     assert_eq!(code, 2);
 }
 
+/// D2: a suppression is an owned, time-boxed, evidence-bound acceptance of
+/// a finding. The finding stays reported; only the active counts and the
+/// exit change; one changed byte revives it; CLI, ci and API answer alike.
+#[test]
+fn a_suppression_keeps_the_finding_visible_and_is_bound_to_the_reviewed_bytes() {
+    let scratch = Scratch::new("suppress");
+    scratch.write("AGENTS.md", "hello\n");
+    scratch.write("NOTES.md", "token=ghp_fixture_not_a_real_secret_77\n");
+    let project = scratch.path.to_str().unwrap();
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    fs::create_dir_all(store.join("policies")).unwrap();
+    fs::write(store.join("policies/active.json"), PASS_LAYERS).unwrap();
+
+    let (code, _, _) = run(&["doctor", "--json", "--project", project]);
+    assert_eq!(code, 2);
+
+    let digest = ctxpect_schema::sha256_hex(b"token=ghp_fixture_not_a_real_secret_77\n");
+    let suppressions = format!(
+        r#"{{"schema":"ctxpect-doctor-suppressions-v1","suppressions":[{{"rule_id":"secret_literal","path":"NOTES.md","owner":"alice","reason":"documentation fixture token","expires_at":"2099-01-01T00:00:00Z","evidence_digest":"{digest}"}}]}}"#
+    );
+    scratch.write(".ctxpect/doctor-suppressions.json", &suppressions);
+    let (code, json, out) = run(&["doctor", "--json", "--project", project]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    let findings = json.get("findings").and_then(Value::as_array).unwrap();
+    let secret = findings
+        .iter()
+        .find(|f| f.get("rule_id").and_then(Value::as_str) == Some("secret_literal"))
+        .expect("the finding is still reported");
+    assert_eq!(secret.get("suppressed"), Some(&Value::Bool(true)));
+    assert_eq!(secret.get("confirmation").and_then(Value::as_str), Some("confirmed"));
+    assert_eq!(secret.pointer(&["suppression", "owner"]).and_then(Value::as_str), Some("alice"));
+    assert_eq!(json.pointer(&["counts", "blocking"]).and_then(Value::as_i64), Some(1));
+    assert_eq!(json.pointer(&["counts", "active_blocking"]).and_then(Value::as_i64), Some(0));
+    assert_eq!(json.pointer(&["suppressions", "applied"]).and_then(Value::as_i64), Some(1));
+    assert_eq!(json.pointer(&["suppressions", "file_digest"]).and_then(Value::as_str).map(str::len), Some(64));
+    // ci judges the same active counts.
+    let (code, json, out) = run(&["ci", "--json", "--project", project, "--store", store_s]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("doctor_exit_code").and_then(Value::as_i64), Some(0));
+
+    // The API gives the same answer (R04).
+    let (mut child, listen) = start_daemon(&scratch, &store);
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/inspect", &format!(r#"{{"project":"{project}"}}"#));
+    assert_eq!(status, 200, "{raw}");
+    let (status, diag) = get_json(&listen, "/api/v1/doctor");
+    assert_eq!(status, 200, "{diag:?}");
+    assert_eq!(diag.pointer(&["counts", "active_blocking"]).and_then(Value::as_i64), Some(0));
+    assert_eq!(diag.pointer(&["suppressions", "applied"]).and_then(Value::as_i64), Some(1));
+    let _ = child.child().kill();
+
+    // One changed byte: the acceptance no longer covers the bytes on disk.
+    scratch.write("NOTES.md", "token=ghp_fixture_not_a_real_secret_78\n");
+    let (code, json, out) = run(&["doctor", "--json", "--project", project]);
+    assert_eq!(code, 2, "{out} {json:?}");
+    let findings = json.get("findings").and_then(Value::as_array).unwrap();
+    assert!(findings.iter().any(|f| {
+        f.get("rule_id").and_then(Value::as_str) == Some("doctor.suppression_invalid")
+            && f.get("blocking") == Some(&Value::Bool(false))
+    }), "{findings:?}");
+    assert_eq!(json.pointer(&["counts", "active_blocking"]).and_then(Value::as_i64), Some(1));
+    // An expired suppression is invalid the same way.
+    scratch.write("NOTES.md", "token=ghp_fixture_not_a_real_secret_77\n");
+    scratch.write(".ctxpect/doctor-suppressions.json", suppressions.replace("2099-01-01", "2001-01-01"));
+    let (code, json, _) = run(&["doctor", "--json", "--project", project]);
+    assert_eq!(code, 2);
+    assert_eq!(json.pointer(&["suppressions", "invalid"]).and_then(Value::as_i64), Some(1));
+}
+
+/// D4: the daemon observes only the root it was started for; Receipts are
+/// bound to the root they were observed in and an explicit `receipt_id` is
+/// never quietly replaced by the current one.
+#[test]
+fn the_daemon_scans_only_its_root_and_reads_receipts_only_from_it() {
+    let scratch = Scratch::new("scope");
+    scratch.write("AGENTS.md", "hello\n");
+    scratch.write("sub/AGENTS.md", "inner\n");
+    let store = scratch.path.join("store");
+    let (mut child, listen) = start_daemon(&scratch, &store);
+    let project = scratch.path.to_str().unwrap().to_string();
+
+    // Inside the root: fine. Outside: refused, nothing observed.
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/inspect", &format!(r#"{{"project":"{project}/sub"}}"#));
+    assert_eq!(status, 200, "{raw}");
+    let receipts_before = fs::read_dir(store.join("receipts")).unwrap().count();
+    for outside in [std::env::temp_dir().to_str().unwrap().to_string(), format!("{project}/../"), "/".to_string()] {
+        let (status, raw) = http_call(&listen, "POST", "/api/v1/inspect", &format!(r#"{{"project":"{outside}"}}"#));
+        assert_eq!(status, 400, "{outside}: {raw}");
+        assert!(raw.contains("api.project_scope"), "{raw}");
+    }
+    // A symlink inside the root pointing outside is still outside.
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(std::env::temp_dir(), scratch.path.join("out-link")).unwrap();
+        let (status, raw) = http_call(&listen, "POST", "/api/v1/inspect", &format!(r#"{{"project":"{project}/out-link"}}"#));
+        assert_eq!(status, 400, "{raw}");
+    }
+    // A codex_home the daemon was not started with is refused too.
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/inspect", &format!(r#"{{"project":"{project}","codex_home":"{project}/sub"}}"#));
+    assert_eq!(status, 400, "{raw}");
+    assert!(raw.contains("api.project_scope"), "{raw}");
+    assert_eq!(fs::read_dir(store.join("receipts")).unwrap().count(), receipts_before, "refused requests observe nothing");
+
+    // A Receipt observed in another project (same store) is not rescanned
+    // against this root; an unknown id is an error, not the current one.
+    let other = Scratch::new("scope-other");
+    other.write("AGENTS.md", "elsewhere\n");
+    let (code, json, out) = run(&["inspect", "--json", "--project", other.path.to_str().unwrap(), "--store", store.to_str().unwrap()]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    let foreign = json.get("formal_receipt_id").and_then(Value::as_str).unwrap().to_string();
+    let (status, raw) = http_call(&listen, "GET", &format!("/api/v1/doctor?receipt_id={foreign}"), "");
+    assert_eq!(status, 400, "{raw}");
+    assert!(raw.contains("api.receipt_scope"), "{raw}");
+    let (status, monitor) = get_json(&listen, &format!("/api/v1/monitor?receipt_id={foreign}"));
+    assert_eq!(status, 200);
+    assert_eq!(monitor.pointer(&["staleness", "reason_code"]).and_then(Value::as_str), Some("api.receipt_scope"));
+    let (status, raw) = http_call(&listen, "GET", "/api/v1/care-plan/f_x?receipt_id=r_nope", "");
+    assert_eq!(status, 400, "{raw}");
+    assert!(raw.contains("store.missing"), "{raw}");
+    let _ = child.child().kill();
+}
+
 struct ChildGuard {
     child: Option<std::process::Child>,
 }
@@ -3436,4 +3558,94 @@ fn daemon_health_and_inspect_via_localhost() {
 #[allow(dead_code)]
 fn _project(p: &Path) -> &Path {
     p
+}
+
+
+#[test]
+fn frontend_bootstrap_is_scoped_read_only_and_preserves_unknown() {
+    let scratch = Scratch::new("frontend-bootstrap");
+    scratch.write("AGENTS.md", "hello bootstrap\n");
+    let store = scratch.path.join("store");
+    let (child, listen) = start_daemon(&scratch, &store);
+    let (code, empty) = get_json(&listen, "/api/v1/status");
+    assert_eq!(code, 200, "{empty:?}");
+    let schema = parse(include_str!("../../../docs/schemas/ctxpect-status-v1.schema.json")).unwrap();
+    ctxpect_schema::validate(&schema, &empty).unwrap();
+    assert_eq!(empty.get("selected_receipt"), Some(&Value::Null));
+    assert_eq!(empty.get("doctor_counts"), Some(&Value::Null));
+    assert_eq!(empty.pointer(&["staleness", "status"]).and_then(Value::as_str), Some("unknown"));
+    assert_eq!(empty.pointer(&["daemon", "listen"]).and_then(Value::as_str), Some(listen.as_str()));
+    assert!(!canonical_json(&empty).contains(scratch.path.to_str().unwrap()));
+    assert_eq!(get_json(&listen, "/api/v1/receipts").1.get("receipts").and_then(Value::as_array).unwrap().len(), 0);
+
+    let (code, raw) = http_call(&listen, "POST", "/api/v1/inspect", "{}");
+    assert_eq!(code, 200, "{raw}");
+    let receipt = http_json(&raw).get("receipt").unwrap().clone();
+    let id = receipt.get("receipt_id").and_then(Value::as_str).unwrap();
+    let (code, status) = get_json(&listen, "/api/v1/status");
+    assert_eq!(code, 200, "{status:?}");
+    ctxpect_schema::validate(&schema, &status).unwrap();
+    let mut invalid = status.clone();
+    if let Value::Object(map) = &mut invalid {
+        map.insert("staleness".into(), parse(r#"{"status":"fresh","reason_code":"fake"}"#).unwrap());
+    }
+    assert!(ctxpect_schema::validate(&schema, &invalid).is_err());
+    assert_eq!(status.get("selection").and_then(Value::as_str), Some("session-current"));
+    assert_eq!(status.pointer(&["selected_receipt", "receipt_id"]).and_then(Value::as_str), Some(id));
+    assert_eq!(status.pointer(&["staleness", "status"]).and_then(Value::as_str), Some("current"));
+    assert_eq!(status.get("doctor_counts"), get_json(&listen, &format!("/api/v1/doctor?receipt_id={id}")).1.get("counts"));
+    scratch.write("AGENTS.md", "changed bootstrap\n");
+    assert_eq!(get_json(&listen, "/api/v1/status").1.pointer(&["staleness", "status"]).and_then(Value::as_str), Some("stale"));
+    fs::remove_file(scratch.path.join("AGENTS.md")).unwrap();
+    assert_eq!(get_json(&listen, "/api/v1/status").1.pointer(&["staleness", "status"]).and_then(Value::as_str), Some("unknown"));
+    scratch.write("AGENTS.md", "hello bootstrap\n");
+    // A newer Receipt from another harness must not win after a restart.
+    let (code, raw) = http_call(&listen, "POST", "/api/v1/inspect", r#"{"harness":"claude-code","version":"2.1.259"}"#);
+    assert_eq!(code, 200, "{raw}");
+    drop(child);
+    let _ = fs::remove_file(store.join("daemon.addr"));
+    let (child, listen) = start_daemon(&scratch, &store);
+    let status = get_json(&listen, "/api/v1/status").1;
+    assert_eq!(status.get("selection").and_then(Value::as_str), Some("latest-matching"), "{status:?}");
+    assert_eq!(status.pointer(&["selected_receipt", "receipt_id"]).and_then(Value::as_str), Some(id));
+    // Selecting history for the browser does not mutate the daemon session.
+    assert_eq!(get_json(&listen, "/api/v1/doctor").1.pointer(&["error", "code"]).and_then(Value::as_str), Some("api.no_current_receipt"));
+    drop(child);
+    let _ = fs::remove_file(store.join("daemon.addr"));
+    let foreign = Scratch::new("frontend-foreign");
+    foreign.write("AGENTS.md", "other project\n");
+    let (child, listen) = start_daemon(&foreign, &store);
+    assert_eq!(get_json(&listen, "/api/v1/status").1.get("selected_receipt"), Some(&Value::Null));
+    drop(child);
+    let _ = fs::remove_file(store.join("daemon.addr"));
+    let store_handle = Store::open(&store).unwrap();
+    store_handle.delete_receipt(id, "test").unwrap();
+    let (_child, listen) = start_daemon(&scratch, &store);
+    assert_eq!(get_json(&listen, "/api/v1/status").1.get("selected_receipt"), Some(&Value::Null));
+    fs::write(store.join("index.json"), "broken").unwrap();
+    assert_eq!(get_json(&listen, "/api/v1/status").1.pointer(&["error", "code"]).and_then(Value::as_str), Some("store.index_corrupt"));
+}
+
+#[test]
+fn frontend_sessions_metadata_is_additive_and_has_no_bodies() {
+    let scratch = Scratch::new("frontend-sessions");
+    let store = scratch.path.join("store");
+    let store_handle = Store::open(&store).unwrap();
+    let record = ctxpect_importer::import_session_bytes(
+        br#"{"events":[{"type":"user","text":"PRIVATE_SENTINEL"}]}"#,
+        "codex-cli", "s-meta",
+    ).unwrap();
+    store_handle.put_named("sessions", "s-meta", &record).unwrap();
+    let (_child, listen) = start_daemon(&scratch, &store);
+    let (code, data) = get_json(&listen, "/api/v1/sessions");
+    assert_eq!(code, 200, "{data:?}");
+    assert_eq!(data.get("sessions").and_then(Value::as_array).unwrap()[0].as_str(), Some("s-meta"));
+    let summary = &data.get("session_summaries").and_then(Value::as_array).unwrap()[0];
+    assert_eq!(summary.get("mapping_id").and_then(Value::as_str), Some("codex-cli"));
+    assert_eq!(summary.get("event_count").and_then(Value::as_i64), Some(1));
+    assert_eq!(summary.get("bodies_stored"), Some(&Value::Bool(false)));
+    assert_eq!(summary.get("partial"), Some(&Value::Bool(true)));
+    assert_eq!(summary.as_object().unwrap().len(), 5);
+    assert!(!canonical_json(&data).contains("PRIVATE_SENTINEL"));
+    assert!(!canonical_json(&data).contains("timeline"));
 }

@@ -33,6 +33,9 @@ export const PAGE_CONTRACTS = [
     back: "/doctor",
     selection: "无：本页不把选择写进 URL，观测对象是顶栏当前项目",
     query: [
+      { method: "GET", path: "/api/v1/status", purpose: "同项目同坐标的只读启动选择与新鲜度" },
+      { method: "GET", path: "/api/v1/receipts/:id", purpose: "恢复明确选中的 Receipt" },
+      { method: "GET", path: "/api/v1/monitor", purpose: "显式绑定该 Receipt 的新鲜度" },
       { method: "POST", path: "/api/v1/inspect", purpose: "产生当前 Receipt" },
       { method: "GET", path: "/api/v1/doctor", purpose: "取该 Receipt 的诊断" },
     ],
@@ -49,6 +52,9 @@ export const PAGE_CONTRACTS = [
     back: "/doctor",
     selection: "无：facet 展开状态是会话内的，不进 URL",
     query: [
+      { method: "GET", path: "/api/v1/status", purpose: "同项目同坐标的只读启动选择与新鲜度" },
+      { method: "GET", path: "/api/v1/receipts/:id", purpose: "恢复明确选中的 Receipt" },
+      { method: "GET", path: "/api/v1/monitor", purpose: "显式绑定该 Receipt 的新鲜度" },
       { method: "POST", path: "/api/v1/inspect", purpose: "产生当前 Receipt" },
       { method: "GET", path: "/api/v1/doctor", purpose: "取该 Receipt 的诊断" },
     ],
@@ -229,6 +235,9 @@ export const PAGE_CONTRACTS = [
     back: "/doctor",
     selection: "选中的 finding 在组件状态里；本切片未写进 URL",
     query: [
+      { method: "GET", path: "/api/v1/status", purpose: "同项目同坐标的只读启动选择与新鲜度" },
+      { method: "GET", path: "/api/v1/receipts/:id", purpose: "恢复明确选中的 Receipt" },
+      { method: "GET", path: "/api/v1/monitor", purpose: "显式绑定该 Receipt 的新鲜度" },
       { method: "POST", path: "/api/v1/inspect", purpose: "产生当前 Receipt" },
       { method: "GET", path: "/api/v1/doctor", purpose: "诊断" },
       { method: "POST", path: "/api/v1/collect", purpose: "收集下一条证据" },

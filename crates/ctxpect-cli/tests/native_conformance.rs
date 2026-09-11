@@ -325,6 +325,48 @@ fn every_precise_partial_answer_has_a_red_negative() {
     assert_eq!(closer(&session, 0).get("error_code").and_then(Value::as_str), Some("TOOL_NOT_STARTED"));
     assert_eq!(closer(&session, 0).get("call_seq"), Some(&Value::Null));
 
+    // A header logged but no provider output in that step: prepared, not
+    // dispatched — model-visible is indeterminate with its reason, and the
+    // usage / dispatch fields stay null.
+    let prepared_only: String = jsonl.lines().take(27).collect::<Vec<_>>().join("\n") + "\n";
+    let session = import(prepared_only.as_bytes());
+    let listed = session.get("requests").and_then(Value::as_array).unwrap();
+    assert_eq!(listed.len(), 4);
+    assert_eq!(listed[3].get("header_seq").and_then(Value::as_i64), Some(25));
+    assert_eq!(listed[3].get("dispatch_evidence"), Some(&Value::Null));
+    let visible = session
+        .get("claims")
+        .and_then(Value::as_array)
+        .unwrap()
+        .iter()
+        .find(|c| c.get("request_seq").and_then(Value::as_i64) == Some(24) && c.get("lifecycle_stage").and_then(Value::as_str) == Some("model-visible"))
+        .expect("model-visible claim for the prepared-only request");
+    assert_eq!(visible.get("truth_state").and_then(Value::as_str), Some("indeterminate"));
+    assert_eq!(visible.get("unknown_reason_code").and_then(Value::as_str), Some("runtime_snapshot_missing"));
+    let effect = session
+        .get("claims")
+        .and_then(Value::as_array)
+        .unwrap()
+        .iter()
+        .find(|c| c.get("lifecycle_stage").and_then(Value::as_str) == Some("outcome-affecting"))
+        .unwrap();
+    assert_eq!(effect.get("claim_kind").and_then(Value::as_str), Some("effect"), "field-to-claim: outcome-affecting is an effect claim");
+
+    // Torn tail / blank line / malformed replace op: refused, not skipped.
+    let torn = jsonl.trim_end_matches('\n').to_string();
+    let session = import(torn.as_bytes());
+    assert!(reasons(&session).contains(&"import_parse_failed".to_string()));
+    assert_eq!(session.get("event_count").and_then(Value::as_i64), Some(27), "the torn last line is not an event");
+    let blank = edit_line(&jsonl, 10, |line| format!("\n{line}"));
+    let session = import(blank.as_bytes());
+    assert_eq!(session.pointer(&["reconstruction", "stopped_at_seq"]).and_then(Value::as_i64), Some(10));
+    let bogus_op = edit_line(&jsonl, 21, |line| line.replacen("\"op\":\"replace\"", "\"op\":\"bogus\"", 1));
+    let session = import(bogus_op.as_bytes());
+    assert!(reasons(&session).contains(&"provenance_incomplete".to_string()), "{:?}", reasons(&session));
+    let dup = edit_line(&jsonl, 21, |line| line.replacen("\"sourceEventSeqs\":[1,2,9,11]", "\"sourceEventSeqs\":[1,2,9,11,11]", 1));
+    let session = import(dup.as_bytes());
+    assert!(reasons(&session).contains(&"provenance_incomplete".to_string()), "{:?}", reasons(&session));
+
     // A balanced log has no closers.
     let balanced: String = jsonl.lines().take(22).collect::<Vec<_>>().join("\n") + "\n";
     let session = import(balanced.as_bytes());

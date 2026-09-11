@@ -4,12 +4,18 @@ use ctxpect_schema::{array, object, sha256_text, string, Value};
 
 pub mod rules;
 pub mod secrets;
+pub mod suppressions;
 
 pub use rules::{
-    is_blocking_rule, project_findings, render_project_findings, ProjectFinding, ScannedFile,
+    is_blocking_rule, project_findings, project_findings_in, render_project_findings, ProjectFinding,
+    ScannedFile,
     BLOCKING_RULES, NON_BLOCKING_RULES,
 };
 pub use secrets::{contains_secret, secret_literal, SecretClass};
+pub use suppressions::{
+    apply_suppressions, SuppressionInput, SUPPRESSIONS_PATH, SUPPRESSIONS_SCHEMA,
+    SUPPRESSION_INVALID_RULE,
+};
 
 /// Confirmation state of a finding. Distinct from severity and from Unknown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -394,19 +400,21 @@ pub fn blocking_exit(diagnosis: &Value, fail_on: Option<&str>) -> i32 {
         .get("findings")
         .and_then(Value::as_array)
         .unwrap_or(&[]);
-    let any_blocking = findings
-        .iter()
-        .any(|item| item.get("blocking").and_then(Value::as_bool) == Some(true));
+    // A suppressed finding (see `suppressions`) is still reported and
+    // counted, but it does not block; the *active* counts decide.
+    let any_blocking = findings.iter().any(|item| {
+        item.get("blocking").and_then(Value::as_bool) == Some(true)
+            && item.get("suppressed").and_then(Value::as_bool) != Some(true)
+    });
     if any_blocking {
         return 2;
     }
-    if fail_on == Some("confirmed")
-        && diagnosis
-            .pointer(&["counts", "confirmed"])
-            .and_then(Value::as_i64)
-            .unwrap_or(0)
-            > 0
-    {
+    let confirmed = diagnosis
+        .pointer(&["counts", "active_confirmed"])
+        .or_else(|| diagnosis.pointer(&["counts", "confirmed"]))
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    if fail_on == Some("confirmed") && confirmed > 0 {
         return 2;
     }
     0

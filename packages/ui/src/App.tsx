@@ -1,5 +1,5 @@
-import { NavLink, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from "react";
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createGeneration } from "./generation";
 import { NAV, navKeyForPath } from "./routes";
 import { t, type Locale } from "./i18n";
@@ -24,12 +24,30 @@ const FACETS = [
   "outcome-affecting",
 ] as const;
 
+/** Sidebar grouping of NAV; every NAV entry appears in exactly one group. */
+const NAV_GROUPS: { key: string; items: string[] }[] = [
+  { key: "navGroupDiagnose", items: ["doctor", "checkup", "inspector", "compare"] },
+  { key: "navGroupRecords", items: ["receipts", "sessions", "monitor", "assets"] },
+  { key: "navGroupActions", items: ["lab", "sync", "integrations"] },
+  { key: "navGroupGovernance", items: ["policy", "standards", "exceptions", "team", "settings"] },
+];
+
+/** truth_state → the CSS class that colours it; unlisted values keep the default text colour. */
+function truthClass(truth: string): string {
+  if (truth === "present") return "t-present";
+  if (truth === "absent") return "t-absent";
+  if (truth === "indeterminate") return "t-indeterminate";
+  if (truth === "not-applicable") return "t-na";
+  return "";
+}
+
 export function App() {
   const [locale, setLocale] = useState<Locale>("zh-CN");
   const [privacy, setPrivacy] = useState<"default" | "screenshot">("default");
   const [project, setProject] = useState("");
   const [receipt, setReceipt] = useState<Json>({});
   const [doctor, setDoctor] = useState<Json>({});
+  const [bootstrap, setBootstrap] = useState<Json>({});
   const [status, setStatus] = useState<"idle" | "loading" | "error" | "stale">("idle");
   const [error, setError] = useState("");
   // The C04 verdict for the shared inspect/doctor request, so Checkup,
@@ -38,8 +56,21 @@ export function App() {
   const [verdict, setVerdict] = useState<StateVerdict | null>(null);
   const [lastSymptom, setLastSymptom] = useState<string | undefined>(undefined);
   const [hold, setHold] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const paletteButtonRef = useRef<HTMLButtonElement | null>(null);
   const narrow = useNarrowViewport();
   const loc = useLocation();
+
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     // Route changes are page changes here. Leaving the title fixed makes
@@ -71,8 +102,58 @@ export function App() {
   const inspectGeneration = useRef(createGeneration());
   const inspectAbort = useRef<AbortController | null>(null);
 
+  useEffect(() => {
+    const ctrl = new AbortController();
+    inspectAbort.current = ctrl;
+    const generation = inspectGeneration.current.next();
+    const current = () => !ctrl.signal.aborted && inspectGeneration.current.isCurrent(generation);
+    void (async () => {
+      setStatus("loading");
+      const result = await requestJson("/api/v1/status", { signal: ctrl.signal });
+      if (!current()) return;
+      if (!result.ok) {
+        setStatus("error");
+        setError(result.code);
+        setVerdict(classifyFailure(result.kind, result.code));
+        return;
+      }
+      const data = asObj(result.data);
+      setBootstrap(data);
+      const id = asObj(data.selected_receipt).receipt_id;
+      if (typeof id !== "string") {
+        setStatus("idle");
+        setVerdict({ state: "empty", reasonCode: "api.no_matching_receipt", retryable: true });
+        return;
+      }
+      const [saved, diagnosed] = await Promise.all([
+        requestJson(`/api/v1/receipts/${encodeURIComponent(id)}`, { signal: ctrl.signal }),
+        requestJson(`/api/v1/doctor?receipt_id=${encodeURIComponent(id)}`, { signal: ctrl.signal }),
+      ]);
+      if (!current()) return;
+      const failure = !saved.ok ? saved : !diagnosed.ok ? diagnosed : null;
+      if (failure) {
+        setStatus("error");
+        setError(failure.code);
+        setVerdict(classifyFailure(failure.kind, failure.code));
+      } else if (saved.ok && diagnosed.ok) {
+        const doc = asObj(diagnosed.data);
+        if (asObj(saved.data).receipt_id !== id || doc.receipt_id !== id) {
+          setStatus("error");
+          setError("api.receipt_mismatch");
+          setVerdict({ state: "error", reasonCode: "api.receipt_mismatch", retryable: true });
+          return;
+        }
+        setReceipt(asObj(saved.data));
+        setDoctor(doc);
+        setStatus(asObj(data.staleness).status === "stale" ? "stale" : "idle");
+        setVerdict(classifyPayload({ ...doc, staleness: data.staleness }));
+      }
+    })();
+    return () => ctrl.abort();
+  }, []);
+
   async function runInspect(symptom?: string) {
-    if (!project) {
+    if (!project && bootstrap.project !== "<project>") {
       setError(t(locale, "projectRequired"));
       setStatus("error");
       setVerdict({ state: "error", reasonCode: "ui.project_required", retryable: false });
@@ -84,13 +165,14 @@ export function App() {
     const generation = inspectGeneration.current.next();
     const current = () => inspectGeneration.current.isCurrent(generation);
     setStatus("loading");
+    setBootstrap((previous) => ({ ...previous, staleness: { status: "unknown", reason_code: "ui.inspect_in_progress" } }));
     setError("");
     setVerdict(null);
     setLastSymptom(symptom);
 
     const inspected = await requestJson("/api/v1/inspect", {
       method: "POST",
-      body: JSON.stringify({ project, harness: "codex", symptom: symptom ?? "" }),
+      body: JSON.stringify({ ...(project ? { project } : {}), symptom: symptom ?? "" }),
       signal: ctrl.signal,
     });
     if (!current()) return;
@@ -105,6 +187,7 @@ export function App() {
     const out = asObj(inspected.data);
     const receiptObj = asObj(out.receipt);
     setReceipt(receiptObj);
+    setDoctor({});
     setStatus(out.stale === true ? "stale" : "idle");
 
     // The diagnosis is asked for *this* Receipt by id. Without the id the
@@ -125,10 +208,24 @@ export function App() {
       return;
     }
     const doc = asObj(diagnosed.data);
+    if (doc.receipt_id !== receiptId) {
+      setStatus("error");
+      setError("api.receipt_mismatch");
+      setVerdict({ state: "error", reasonCode: "api.receipt_mismatch", retryable: true });
+      return;
+    }
+    const monitored = await requestJson(`/api/v1/monitor?receipt_id=${encodeURIComponent(receiptId)}`, { signal: ctrl.signal });
+    if (!current()) return;
+    const staleness = out.stale === true
+      ? { status: "stale", reason_code: "ui.receipt_superseded" }
+      : monitored.ok ? asObj(asObj(monitored.data).staleness)
+        : { status: "unknown", reason_code: monitored.code };
+    setBootstrap((previous) => ({ ...previous, selected_receipt: receiptObj, selection: "session-current", staleness }));
+    setStatus(staleness.status === "stale" ? "stale" : "idle");
     setDoctor(doc);
     // Classify the diagnosis itself: Unknown cells make it partial, and a
     // stale Receipt stays stale.
-    const payload = classifyPayload(out.stale === true ? { ...doc, stale: true } : doc);
+    const payload = classifyPayload({ ...doc, staleness });
     setVerdict({ ...payload, state: payload.state });
   }
 
@@ -143,6 +240,9 @@ export function App() {
     const list = doctor.findings;
     return Array.isArray(list) ? (list as Json[]) : [];
   }, [doctor]);
+
+  const receiptQuery = typeof receipt.receipt_id === "string"
+    ? `?receipt_id=${encodeURIComponent(receipt.receipt_id)}` : "";
 
   if (narrow) {
     // C06: below 768px the product is a read-only Receipt/notification
@@ -166,20 +266,39 @@ export function App() {
         {t(locale, "skipToContent")}
       </a>
       <nav className="nav" aria-label="primary">
-        <div className="brand">Contexpect</div>
-        {NAV.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={({ isActive }) => (isActive ? "active" : "")}
-            // Below 1024px the label is collapsed visually. An explicit name
-            // keeps the link identifiable to assistive tech regardless of how
-            // a given AT treats visually-hidden text (WCAG 2.2 SC 2.4.4, 4.1.2).
-            aria-label={t(locale, item.key)}
-          >
-            <span>{t(locale, item.key)}</span>
-          </NavLink>
+        <div className="brand">
+          <div className="brand-mark" aria-hidden="true">Cx</div>
+          <div>
+            <div className="brand-name">Contexpect</div>
+            <div className="brand-sub">{t(locale, "brandSub")}</div>
+          </div>
+        </div>
+        {NAV_GROUPS.map((group) => (
+          <div className="nav-group" key={group.key}>
+            <div className="nav-group-label">{t(locale, group.key)}</div>
+            {NAV.filter((item) => group.items.includes(item.key)).map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) => (isActive ? "active" : "")}
+                // Below 1024px the label is collapsed visually. An explicit name
+                // keeps the link identifiable to assistive tech regardless of how
+                // a given AT treats visually-hidden text (WCAG 2.2 SC 2.4.4, 4.1.2).
+                aria-label={t(locale, item.key)}
+                title={t(locale, item.key)}
+              >
+                <span className="nav-dot" aria-hidden="true" />
+                <span>{t(locale, item.key)}</span>
+              </NavLink>
+            ))}
+          </div>
         ))}
+        <div className="shell-foot">
+          <div className="daemon">
+            {String(asObj(bootstrap.daemon).listen ?? "—")}
+          </div>
+          <div>{t(locale, "daemonAddress")}</div>
+        </div>
       </nav>
       {/* A real `main` landmark, so assistive tech can jump to the content
           rather than only walking the document. `tabIndex={-1}` lets the skip
@@ -206,36 +325,63 @@ export function App() {
           <button className="primary" onClick={() => void runInspect()}>
             {t(locale, "inspect")}
           </button>
-          <span className="pill">{status === "loading" ? t(locale, "loading") : status}</span>
-          <label>
-            {t(locale, "privacy")}
-            <select
-              value={privacy}
-              onChange={(e) => setPrivacy(e.target.value as "default" | "screenshot")}
+          <span className="pill">
+            {status === "loading"
+              ? t(locale, "loading")
+              : status === "stale"
+                ? t(locale, "stale")
+                : status === "error"
+                  ? t(locale, "error")
+                  : status === "idle"
+                    ? t(locale, "statusReady")
+                    : status}
+          </span>
+          <div className="topbar-right">
+            <button
+              type="button"
+              className="cmdk-button"
+              ref={paletteButtonRef}
+              onClick={() => setPaletteOpen(true)}
+              aria-label={t(locale, "cmdkOpen")}
             >
-              <option value="default">{t(locale, "privacyDefault")}</option>
-              <option value="screenshot">{t(locale, "privacyScreenshot")}</option>
+              {t(locale, "cmdkOpen")} <kbd>⌘K</kbd>
+            </button>
+            <label>
+              {t(locale, "privacy")}
+              <select
+                value={privacy}
+                onChange={(e) => setPrivacy(e.target.value as "default" | "screenshot")}
+              >
+                <option value="default">{t(locale, "privacyDefault")}</option>
+                <option value="screenshot">{t(locale, "privacyScreenshot")}</option>
+              </select>
+            </label>
+            <select value={locale} onChange={(e) => setLocale(e.target.value as Locale)} aria-label="locale">
+              <option value="zh-CN">简体中文</option>
+              <option value="en">English</option>
             </select>
-          </label>
-          <select value={locale} onChange={(e) => setLocale(e.target.value as Locale)} aria-label="locale">
-            <option value="zh-CN">简体中文</option>
-            <option value="en">English</option>
-          </select>
-          <button
-            type="button"
-            className="secondary"
-            tabIndex={0}
-            onMouseDown={() => setHold(true)}
-            onMouseUp={() => setHold(false)}
-            onMouseLeave={() => setHold(false)}
-            onKeyDown={(e) => onHoldKey(e, true)}
-            onKeyUp={(e) => onHoldKey(e, false)}
-            onBlur={() => setHold(false)}
-            aria-pressed={hold}
-          >
-            {t(locale, "unmaskHold")}
-          </button>
-          <span className="muted">{t(locale, "egressSeparate")}</span>
+            <button
+              type="button"
+              className="secondary"
+              tabIndex={0}
+              onMouseDown={() => setHold(true)}
+              onMouseUp={() => setHold(false)}
+              onMouseLeave={() => setHold(false)}
+              onKeyDown={(e) => onHoldKey(e, true)}
+              onKeyUp={(e) => onHoldKey(e, false)}
+              onBlur={() => setHold(false)}
+              aria-pressed={hold}
+            >
+              {t(locale, "unmaskHold")}
+            </button>
+            <span className="muted">{t(locale, "egressSeparate")}</span>
+          </div>
+        </div>
+        <div className="coordinate-summary" data-testid="startup-coordinate">
+          {String(bootstrap.project ?? "—")} · {String(asObj(receipt.coordinate).harness ?? asObj(bootstrap.coordinate).harness ?? "—")}
+          {" · "}{String(receipt.receipt_id ?? "—")}
+          {" · "}{t(locale, "snapshotOrigin")}: {String(bootstrap.selection ?? "—")}
+          {" · "}{t(locale, "freshness")}: {String(asObj(bootstrap.staleness).status ?? "unknown")}
         </div>
         {error ? <p role="alert">{error}</p> : null}
         <div className="workspace">
@@ -246,7 +392,7 @@ export function App() {
               element={
                 <DoctorPage
                   locale={locale}
-                  project={project}
+                  project={project || (bootstrap.project === "<project>" ? "<project>" : "")}
                   findings={findings}
                   doctor={doctor}
                   receipt={receipt}
@@ -287,13 +433,13 @@ export function App() {
               }
             />
             <Route path="/compare" element={<ComparePage locale={locale} />} />
-            <Route path="/receipts" element={<StateView path="/api/v1/receipts" route="/receipts" title={t(locale, "receipts")} locale={locale} />} />
+            <Route path="/receipts" element={<StateView path="/api/v1/receipts" route="/receipts" title={t(locale, "receipts")} locale={locale} render={(data) => <ReceiptsListView data={data} locale={locale} />} />} />
             <Route path="/receipts/:id" element={<ReceiptDetail locale={locale} />} />
             <Route path="/assets" element={<AssetsPage locale={locale} />} />
             <Route path="/assets/:id" element={<EntityPage folder="assets" locale={locale} />} />
-            <Route path="/sessions" element={<StateView path="/api/v1/sessions" route="/sessions" title={t(locale, "sessions")} locale={locale} />} />
+            <Route path="/sessions" element={<StateView path="/api/v1/sessions" route="/sessions" title={t(locale, "sessions")} locale={locale} render={(data) => <SessionsListView data={data} locale={locale} />} />} />
             <Route path="/sessions/:id" element={<SessionRequestsPage locale={locale} />} />
-            <Route path="/monitor" element={<StateView path="/api/v1/monitor" route="/monitor" title={t(locale, "monitor")} locale={locale} />} />
+            <Route path="/monitor" element={<StateView path={`/api/v1/monitor${receiptQuery}`} route="/monitor" title={t(locale, "monitor")} locale={locale} render={(data) => <MonitorView data={data} locale={locale} />} />} />
             <Route
               path="/lab"
               element={
@@ -308,23 +454,156 @@ export function App() {
             />
             <Route
               path="/lab/:id"
-              element={<EntityPage folder="lab" locale={locale} render={(data) => <LabResultView data={data} locale={locale} />} />}
+              element={<EntityPage folder="lab" locale={locale} render={(data) => (
+                <>
+                  <LabResultView data={data} locale={locale} />
+                  <RawJsonDetails data={data} locale={locale} />
+                </>
+              )} />}
             />
             <Route path="/sync" element={<SyncPage locale={locale} />} />
-            <Route path="/policy" element={<StateView path="/api/v1/policy" route="/policy" title={t(locale, "policy")} locale={locale} />} />
+            <Route path="/policy" element={<StateView path="/api/v1/policy" route="/policy" title={t(locale, "policy")} locale={locale} render={(data) => <PolicyView data={data} locale={locale} />} />} />
             <Route path="/standards" element={<StateView path="/api/v1/standards" route="/standards" title={t(locale, "standards")} locale={locale} />} />
             <Route path="/standards/:id" element={<EntityPage folder="standards" locale={locale} />} />
             <Route path="/settings" element={<SettingsPage locale={locale} />} />
-            <Route path="/exceptions" element={<StateView path="/api/v1/exceptions" route="/exceptions" title={t(locale, "exceptions")} locale={locale} />} />
-            <Route path="/team/compliance" element={<StateView path="/api/v1/team/compliance" route="/team/compliance" title={t(locale, "team")} locale={locale} />} />
-            <Route path="/care-plan/:findingId" element={<CarePlanPage locale={locale} />} />
+            <Route path="/exceptions" element={<StateView path="/api/v1/exceptions" route="/exceptions" title={t(locale, "exceptions")} locale={locale} render={(data) => <ExceptionsListView data={data} locale={locale} />} />} />
+            <Route path="/team/compliance" element={<StateView path={`/api/v1/team/compliance${receiptQuery}`} route="/team/compliance" title={t(locale, "team")} locale={locale} render={(data) => <TeamComplianceView data={data} locale={locale} />} />} />
+            <Route path="/care-plan/:findingId" element={<CarePlanPage locale={locale} receiptQuery={receiptQuery} />} />
             <Route path="/integrations" element={<IntegrationsPage locale={locale} />} />
             <Route path="/integrations/:id" element={<EntityPage folder="integrations" locale={locale} />} />
             <Route path="*" element={<p>{t(locale, "notFound")}: {loc.pathname}</p>} />
           </Routes>
         </div>
       </main>
+      {paletteOpen ? (
+        <CommandPalette
+          locale={locale}
+          onClose={() => setPaletteOpen(false)}
+          triggerRef={paletteButtonRef}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * ⌘K / Ctrl+K jump-to-page palette.
+ *
+ * Mounted only while open, so SSR first paint never runs it; the global
+ * shortcut listener lives in App's effect. Focus moves into the filter
+ * input on open and back to the trigger button on close.
+ */
+function CommandPalette({
+  locale,
+  onClose,
+  triggerRef,
+}: {
+  locale: Locale;
+  onClose: () => void;
+  triggerRef: RefObject<HTMLButtonElement | null>;
+}) {
+  const navigate = useNavigate();
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    inputRef.current?.focus();
+    return () => {
+      dialog?.close();
+      (previous?.isConnected ? previous : triggerRef.current)?.focus();
+    };
+  }, [triggerRef]);
+
+  const needle = query.trim().toLowerCase();
+  const items = NAV_GROUPS.flatMap((group) =>
+    NAV.filter((item) => group.items.includes(item.key)).map((item) => ({
+      to: item.to,
+      key: item.key,
+      label: t(locale, item.key),
+      group: t(locale, group.key),
+    })),
+  ).filter((item) => needle === "" || item.label.toLowerCase().includes(needle));
+  const current = items.length === 0 ? 0 : Math.min(active, items.length - 1);
+
+  function pick(to: string) {
+    onClose();
+    navigate(to);
+  }
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="palette"
+      aria-label={t(locale, "cmdkOpen")}
+      onCancel={(event) => { event.preventDefault(); onClose(); }}
+      onKeyDown={(event) => {
+        if (event.key !== "Tab") return;
+        const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("input, button"));
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault(); last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault(); first?.focus();
+        }
+      }}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div>
+        <input
+          ref={inputRef}
+          className="palette-input"
+          value={query}
+          placeholder={t(locale, "cmdkPlaceholder")}
+          aria-label={t(locale, "cmdkPlaceholder")}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setActive(0);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onClose();
+            } else if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setActive((index) => Math.max(0, Math.min(index + 1, items.length - 1)));
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setActive((index) => Math.max(index - 1, 0));
+            } else if (event.key === "Enter" && items[current]) {
+              event.preventDefault();
+              pick(items[current].to);
+            }
+          }}
+        />
+        <div className="palette-list">
+          {items.length === 0 ? (
+            <div className="palette-empty">{t(locale, "cmdkNoMatch")}</div>
+          ) : (
+            items.map((item, index) => (
+              <button
+                key={item.to}
+                type="button"
+                className={index === current ? "palette-item active" : "palette-item"}
+                onMouseEnter={() => setActive(index)}
+                onClick={() => pick(item.to)}
+              >
+                <span className="nav-dot" aria-hidden="true" />
+                <span>{item.label}</span>
+                <span className="palette-group">{item.group}</span>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </dialog>
   );
 }
 
@@ -430,10 +709,11 @@ function DoctorPage({
   return (
     <>
       <section className="panel">
+        <div className="eyebrow">{t(locale, "navGroupDiagnose")}</div>
         <h1>{t(locale, "contextDoctor")}</h1>
-        <div className="row">
+        <div className="symptom-bar">
+          <span className="symptom-prefix">{t(locale, "symptomPrefix")}</span>
           <input
-            style={{ flex: 1 }}
             value={symptom}
             onChange={(e) => setSymptom(e.target.value)}
             placeholder={t(locale, "symptom")}
@@ -457,20 +737,29 @@ function DoctorPage({
             {t(locale, "symptom")} {String(doctor.symptom)}
           </p>
         ) : null}
-        <div className="row" style={{ marginTop: 12 }}>
-          <span className="pill confirmed">
-            {String(counts.confirmed ?? 0)} {t(locale, "confirmed")}
-          </span>
-          <span className="pill suspected">
-            {String(counts.suspected ?? 0)} {t(locale, "suspected")}
-          </span>
-          <span className="pill unknown">
-            {String(counts.unknown ?? 0)} {t(locale, "unknown")}
-          </span>
+        <div className="statband">
+          <div className="stat c-confirmed">
+            <div className="stat-lab">{t(locale, "confirmed")}</div>
+            <div className="stat-num">{String(counts.confirmed ?? "—")}</div>
+            <div className="stat-cap">{t(locale, "statCapConfirmed")}</div>
+          </div>
+          <div className="stat c-suspected">
+            <div className="stat-lab">{t(locale, "suspected")}</div>
+            <div className="stat-num">{String(counts.suspected ?? "—")}</div>
+            <div className="stat-cap">{t(locale, "statCapSuspected")}</div>
+          </div>
+          <div className="stat c-unknown">
+            <div className="stat-lab">{t(locale, "unknown")}</div>
+            <div className="stat-num">{String(counts.unknown ?? "—")}</div>
+            <div className="stat-cap">{t(locale, "statCapUnknown")}</div>
+          </div>
         </div>
         <p className="muted">{String(counts.note ?? "")}</p>
+        {typeof counts.active_confirmed === "number" ? <p data-testid="active-counts">
+          {t(locale, "activeFindings")}: {String(counts.active_confirmed)} / {String(counts.active_blocking ?? "—")}
+        </p> : null}
         {findings.length === 0 ? (
-          <p>{t(locale, "emptyFindings")}</p>
+          <p>{t(locale, Object.keys(counts).length === 0 ? "diagnosisNotRun" : "emptyFindings")}</p>
         ) : (
           <table>
             {/* The table needs a name of its own; the surrounding heading is
@@ -478,6 +767,7 @@ function DoctorPage({
             <caption className="sr-only">{t(locale, "findingsTableCaption")}</caption>
             <thead>
               <tr>
+                <th>{t(locale, "findingSeverity")}</th>
                 <th>{t(locale, "finding")}</th>
                 <th>{t(locale, "affectedSurfaces")}</th>
                 <th>{t(locale, "evidence")}</th>
@@ -486,41 +776,73 @@ function DoctorPage({
               </tr>
             </thead>
             <tbody>
-              {findings.map((item, index) => (
-                <tr
-                  key={String(item.finding_id)}
-                  tabIndex={0}
-                  // Selection is announced, so the drawer's content change is
-                  // not silent for assistive tech.
-                  aria-selected={index === selected}
-                  // While a collection is running the selection is frozen:
-                  // switching would land the result on a different finding.
-                  aria-disabled={collectStatus === "loading"}
-                  onClick={() => selectFinding(index)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      selectFinding(index);
-                    }
-                  }}
-                  style={{ background: index === selected ? "#eef3f6" : undefined }}
-                >
-                  <td>{String(item.title)}</td>
-                  <td>{JSON.stringify(item.affected_surfaces)}</td>
-                  <td>
-                    <EvidencePill
-                      locale={locale}
-                      kind={item.evidence_state === "indeterminate" ? "unknown" : "static"}
-                    />
-                  </td>
-                  <td>{String(item.impact)}</td>
-                  <td>{String(item.first_seen)}</td>
-                </tr>
-              ))}
+              {findings.map((item, index) => {
+                const severity = item.severity === "confirmed" || item.severity === "suspected"
+                  ? item.severity : "";
+                const surfaces = Array.isArray(item.affected_surfaces)
+                  ? item.affected_surfaces
+                  : [];
+                return (
+                  <tr
+                    key={String(item.finding_id)}
+                    tabIndex={0}
+                    // Selection is announced, so the drawer's content change is
+                    // not silent for assistive tech.
+                    aria-selected={index === selected}
+                    // While a collection is running the selection is frozen:
+                    // switching would land the result on a different finding.
+                    aria-disabled={collectStatus === "loading"}
+                    onClick={() => selectFinding(index)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        selectFinding(index);
+                      }
+                    }}
+                  >
+                    <td>
+                      <span className={`sev ${severity}`}>
+                        <span className="sev-mark" aria-hidden="true" />
+                        {severity ? t(locale, severity) : "—"}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="f-title">{String(item.title)}</div>
+                      {item.suppressed === true ? <span className="pill">{t(locale, "suppressedFinding")}</span> : null}
+                      <div className="f-meta">
+                        <span className="mono">{String(item.finding_id)}</span>
+                      </div>
+                    </td>
+                    <td>
+                      {surfaces.length > 0
+                        ? surfaces.map((surface) => (
+                            <span key={String(surface)} className="agent-chip">
+                              {String(surface)}
+                            </span>
+                          ))
+                        : String(item.affected_surfaces ?? "")}
+                    </td>
+                    <td>
+                      <EvidencePill
+                        locale={locale}
+                        kind={item.evidence_state === "indeterminate" ? "unknown" : "static"}
+                      />
+                    </td>
+                    <td>{String(item.impact)}</td>
+                    <td>
+                      <span className="f-firstseen">
+                        {item.first_seen === "current-receipt" ? t(locale, "firstSeenUntracked") : String(item.first_seen ?? "—")}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
-        <h2>{t(locale, "adapterCoverage")}</h2>
+        <div className="sec-head">
+          <h2>{t(locale, "adapterCoverage")}</h2>
+        </div>
         <AdapterCoverage locale={locale} />
       </section>
       <aside
@@ -532,21 +854,27 @@ function DoctorPage({
         aria-labelledby="drawer-title"
         aria-busy={collectStatus === "loading"}
       >
-        <h2 id="drawer-title">{t(locale, "diagnosisEvidence")}</h2>
+        {finding ? (
+          <div className="rail-eyebrow">
+            {t(locale, "diagnosisEvidence")} · <span className="mono">{String(finding.finding_id)}</span>
+          </div>
+        ) : null}
+        <h2 id="drawer-title">{finding ? String(finding.title) : t(locale, "diagnosisEvidence")}</h2>
         {collectStatus === "loading" ? (
           <p role="status">{t(locale, "drawerBusy")}</p>
         ) : null}
         {finding ? (
           <>
-            <p>
-              {t(locale, "decision")}:{" "}
-              <strong>
+            <div className={asObj(finding.treatment).locked === true ? "decision indeterminate" : "decision"}>
+              <div className="d-lab">{t(locale, "decision")}</div>
+              <div className="d-val">
                 {asObj(finding.treatment).locked === true
                   ? t(locale, "decisionIndeterminate")
                   : t(locale, "decisionOpen")}
-              </strong>
-            </p>
-            <EvidenceChain locale={locale} />
+              </div>
+              <div className="d-why">{String(finding.impact ?? "")}</div>
+            </div>
+            <EvidenceChain receipt={receipt} finding={finding} locale={locale} />
             <h2>{t(locale, "sixFacets")}</h2>
             <div className="facet-grid">
               {FACETS.map((name) => {
@@ -554,13 +882,13 @@ function DoctorPage({
                 const truth = String(claim.truth_state ?? "unknown");
                 return (
                   <div key={name} className={truth === "indeterminate" ? "facet broken" : "facet"}>
-                    <div>{name}</div>
-                    <div>{truth}</div>
+                    <div className="f-lab">{name}</div>
+                    <div className={truthClass(truth) ? `f-val ${truthClass(truth)}` : "f-val"}>{truth}</div>
                   </div>
                 );
               })}
             </div>
-            <p>
+            <div className="rail-actions">
               <button
                 type="button"
                 className="primary"
@@ -570,16 +898,20 @@ function DoctorPage({
               >
                 {collectStatus === "loading" ? t(locale, "loading") : t(locale, "collectEvidence")}
               </button>
-            </p>
-            {!canAct ? <p className="muted">{t(locale, "collectDisabled")}</p> : null}
+              {!canAct ? <p className="muted">{t(locale, "collectDisabled")}</p> : null}
+            </div>
             {collectError ? <p role="alert">{collectError}</p> : null}
             {collectResult.inventory_digest ? (
               <pre className="mono">{JSON.stringify(collectResult, null, 2)}</pre>
             ) : null}
-            <p className="muted">
-              {t(locale, "treatmentLocked")}: {String(asObj(finding.treatment).locked === true)}. {t(locale, "cannotUnlock")}
-            </p>
+            <div className="lockbox">
+              <span className="lockicon" aria-hidden="true">⚿</span>
+              <span>
+                {t(locale, "treatmentLocked")}: {String(asObj(finding.treatment).locked === true)}. {t(locale, "cannotUnlock")}
+              </span>
+            </div>
             <MaskedText text={String(finding.reason_code)} hold={hold} locale={locale} onCopy={onCopy} />
+            <p className="honest-note">{t(locale, "honestNoteStatic")}</p>
           </>
         ) : (
           <p className="muted">{t(locale, "selectFinding")}</p>
@@ -589,22 +921,14 @@ function DoctorPage({
   );
 }
 
-function EvidenceChain({ locale }: { locale: Locale }) {
-  const steps = [
-    [t(locale, "evidenceDeclared"), t(locale, "evidenceDeclaredState")],
-    [t(locale, "evidenceResolver"), t(locale, "evidenceResolverState")],
-    [t(locale, "evidenceModelVisible"), t(locale, "evidenceModelVisibleState")],
-    [t(locale, "evidenceNative"), t(locale, "evidenceNativeState")],
-  ];
-  return (
-    <ol>
-      {steps.map(([a, b]) => (
-        <li key={a}>
-          {a}: {b}
-        </li>
-      ))}
-    </ol>
-  );
+function EvidenceChain({ receipt, finding, locale }: { receipt: Json; finding: Json; locale: Locale }) {
+  const modelVisible = asObj(asObj(receipt.facets)["model-visible"]);
+  return <dl className="kv" data-testid="evidence-facts">
+    <dt>{t(locale, "evidence")}</dt><dd>{String(finding.evidence_state ?? "unknown")}</dd>
+    <dt>{t(locale, "evidenceModelVisible")}</dt><dd>{String(modelVisible.truth_state ?? "unknown")}</dd>
+    <dt>claim_kind</dt><dd>{String(modelVisible.claim_kind ?? "unknown")}</dd>
+    <dt>{t(locale, "reasonCodeLabel")}</dt><dd>{String(finding.reason_code ?? "unknown")}</dd>
+  </dl>;
 }
 
 function AdapterCoverage({ locale }: { locale: Locale }) {
@@ -618,7 +942,7 @@ function AdapterCoverage({ locale }: { locale: Locale }) {
       else setFailure(result.code);
     });
   }, []);
-  const families = Array.isArray(data.families) ? (data.families as Json[]) : [];
+  const families = Array.isArray(data.families) ? data.families.map(asObj) : [];
   if (failure) {
     return (
       <p role="alert">
@@ -626,13 +950,65 @@ function AdapterCoverage({ locale }: { locale: Locale }) {
       </p>
     );
   }
+  // Counts come straight from the catalog payload: the daemon-declared
+  // `evidence_capability` axis, with a read of `native_oracle`/`reason_code`
+  // as the fallback for older daemons. No number is invented here.
+  const capabilityOf = (f: Json): string => {
+    if (typeof f.evidence_capability === "string") {
+      return ["native", "static-only", "connector-required", "unsupported"].includes(f.evidence_capability)
+        ? f.evidence_capability : "unknown";
+    }
+    if (typeof f.native_oracle === "string" && f.native_oracle !== "none-declared-repeatable") return "native";
+    if (f.reason_code === "static-resolver-available") return "static-only";
+    return f.reason_code === "connector_required" ? "connector-required" : "unsupported";
+  };
+  const nativeCount = families.filter((f) => capabilityOf(f) === "native").length;
+  const staticCount = families.filter((f) => capabilityOf(f) === "static-only").length;
+  const connectorCount = families.filter((f) => capabilityOf(f) === "connector-required").length;
+  const unsupportedCount = families.filter((f) => capabilityOf(f) === "unsupported").length;
+  const unknownCount = families.filter((f) => capabilityOf(f) === "unknown").length;
+  const total = families.length;
   return (
-    <div className="row" data-testid="adapter-coverage">
-      {families.map((f) => (
-        <span key={String(f.family_id)} className="pill" data-family={String(f.family_id)}>
-          {String(f.family_name)}
-        </span>
-      ))}
+    <div>
+      {total > 0 ? (
+        <>
+          <div className="covbar" aria-hidden="true">
+            <i className="n" style={{ width: `${(nativeCount / total) * 100}%` }} />
+            <i className="s" style={{ width: `${(staticCount / total) * 100}%` }} />
+            <i className="c" style={{ width: `${(connectorCount / total) * 100}%` }} />
+            <i className="u" style={{ width: `${(unsupportedCount / total) * 100}%` }} />
+            <i className="unknown" style={{ width: `${(unknownCount / total) * 100}%` }} />
+          </div>
+          <div className="cov-legend">
+            {unknownCount > 0 ? <span>{t(locale, "unknown")} <b>{unknownCount}</b></span> : null}
+            <span>
+              <span className="dot" style={{ background: "var(--verified)" }} />
+              {t(locale, "covNative")} <b>{nativeCount}</b>
+            </span>
+            <span>
+              <span className="dot" style={{ background: "var(--info)" }} />
+              {t(locale, "covStaticOnly")} <b>{staticCount}</b>
+            </span>
+            <span>
+              <span className="dot" style={{ background: "#C7CDD8" }} />
+              {t(locale, "covNeedsConnector")} <b>{connectorCount}</b>
+            </span>
+            {unsupportedCount > 0 ? (
+              <span>
+                <span className="dot" style={{ background: "var(--text-faint)" }} />
+                {t(locale, "covUnsupported")} <b>{unsupportedCount}</b>
+              </span>
+            ) : null}
+          </div>
+        </>
+      ) : null}
+      <div className="row" data-testid="adapter-coverage">
+        {families.map((f) => (
+          <span key={String(f.family_id)} className="pill" data-family={String(f.family_id)}>
+            {String(f.family_name)}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -654,8 +1030,9 @@ function CheckupPage({
 }) {
   return (
     <section className="panel">
+      <div className="eyebrow">{t(locale, "navGroupDiagnose")}</div>
       <h1>{t(locale, "checkup")}</h1>
-      <p>{t(locale, "checkupLead")}</p>
+      <p className="page-sub">{t(locale, "checkupLead")}</p>
       <p>
         {t(locale, "statusLabel")}: {status}
       </p>
@@ -693,22 +1070,21 @@ function InspectorPage({
       <div className="facet-grid">
         {FACETS.map((name) => {
           const claim = asObj(facets[name]);
+          const truth = String(claim.truth_state ?? "unknown");
           return (
-            <div key={name} className="facet">
-              <h2>{name}</h2>
-              <div>
-                {t(locale, "truthState")}: {String(claim.truth_state ?? "unknown")}
-              </div>
-              <div>
+            <div key={name} className={truth === "indeterminate" ? "facet broken" : "facet"}>
+              <div className="f-lab">{name}</div>
+              <div className={truthClass(truth) ? `f-val ${truthClass(truth)}` : "f-val"}>{truth}</div>
+              <div className="f-axis">
                 {t(locale, "provenance")}: {String(claim.provenance ?? "")}
               </div>
-              <div>
+              <div className="f-axis">
                 {t(locale, "coverage")}: {String(claim.coverage ?? "")}
               </div>
-              <div>
+              <div className="f-axis">
                 {t(locale, "precision")}: {String(claim.precision ?? "")}
               </div>
-              <div>
+              <div className="f-axis">
                 {t(locale, "knowledgeStatus")}: {String(claim.knowledge_status ?? "")}
               </div>
               <EvidencePill
@@ -778,6 +1154,7 @@ function ComparePage({ locale }: { locale: Locale }) {
     .filter((id) => id.length > 0);
   return (
     <section className="panel">
+      <div className="eyebrow">{t(locale, "navGroupDiagnose")}</div>
       <h1>{t(locale, "compare")}</h1>
       {ids.length < 2 ? <p className="muted">{t(locale, "compareNeedTwo")}</p> : null}
       <SharedStateBanner
@@ -787,6 +1164,9 @@ function ComparePage({ locale }: { locale: Locale }) {
         onRetry={() => void runDiff()}
       />
       {err ? <p role="alert">{err}</p> : null}
+      <div className="sec-head">
+        <h2>{t(locale, "runDiff")}</h2>
+      </div>
       <div className="row">
         <select value={a} onChange={(e) => setA(e.target.value)} aria-label="diff-a">
           <option value="">{t(locale, "empty")}</option>
@@ -1062,22 +1442,24 @@ export function StateBanner({
   const declared = stateApplies(route, status);
   const isFailure = status === "error" || status === "offline" || status === "permission-denied";
   return (
-    <div className="pill" role={isFailure ? "alert" : "status"} data-state={status}>
-      <strong>{t(locale, labelKey)}</strong>
-      {reasonCode ? (
-        <span>
-          {" "}
-          · {t(locale, "reasonCodeLabel")}: <code>{reasonCode}</code>
-        </span>
-      ) : null}
-      <p>
-        {t(locale, "nextStepLabel")}: {t(locale, STATE_NEXT[status] ?? "nextError")}
-      </p>
-      {!declared ? (
-        // The contract said this page could not reach this state. Surface the
-        // contradiction rather than hiding it behind a generic message.
-        <p data-undeclared="true">{t(locale, "stateNotApplicable")}</p>
-      ) : null}
+    <div className="statebanner" role={isFailure ? "alert" : "status"} data-state={status}>
+      <div>
+        <span className="sb-title">{t(locale, labelKey)}</span>
+        {reasonCode ? (
+          <span className="sb-body">
+            {" "}
+            · {t(locale, "reasonCodeLabel")}: <code>{reasonCode}</code>
+          </span>
+        ) : null}
+        <p className="sb-body">
+          {t(locale, "nextStepLabel")}: {t(locale, STATE_NEXT[status] ?? "nextError")}
+        </p>
+        {!declared ? (
+          // The contract said this page could not reach this state. Surface the
+          // contradiction rather than hiding it behind a generic message.
+          <p className="sb-body" data-undeclared="true">{t(locale, "stateNotApplicable")}</p>
+        ) : null}
+      </div>
       {retryable ? (
         <button type="button" onClick={onRetry} title={t(locale, "retryNoWiden")}>
           {t(locale, "retry")}
@@ -1090,9 +1472,10 @@ export function StateBanner({
 /**
  * A page backed by one GET, rendered through the C04 state contract.
  *
- * The body is still a JSON dump: giving each page its own presentation is a
- * separate piece of work. What changed is that the page now says which state
- * it is in, why, and what to do next.
+ * Pages without a `render` function still show the raw JSON dump. Pages with
+ * one own their presentation entirely — including how (or whether) the raw
+ * payload stays reachable — so a structured view never reads as if the dump
+ * were the content.
  */
 function StateView({
   path,
@@ -1109,7 +1492,7 @@ function StateView({
   /** Use 2 when this view sits inside a page that already has an `h1`;
       two `h1`s in one document make the outline ambiguous (SC 1.3.1). */
   headingLevel?: 1 | 2;
-  /** A presentation for the payload, rendered above the JSON dump. */
+  /** A presentation for the payload. When given, it replaces the JSON dump. */
   render?: (data: Json) => ReactNode;
 }) {
   const res = useResource(path);
@@ -1118,16 +1501,16 @@ function StateView({
     <section className="panel">
       <Heading>{title}</Heading>
       {res.status === "loading" ? (
-        <p role="status">
-          {t(locale, "loading")}{" "}
+        <p role="status" data-state="loading">
+          <span className="loading-pulse">{t(locale, "loading")}</span>{" "}
           <button type="button" onClick={res.cancel}>
             {t(locale, "cancel")}
           </button>
         </p>
       ) : null}
       {res.status === "cancelled" ? (
-        <p role="status">
-          {t(locale, "cancelled")}{" "}
+        <p role="status" data-state="cancelled">
+          {t(locale, "cancelled")} <code>{res.reasonCode}</code>{" "}
           <button type="button" onClick={res.retry}>
             {t(locale, "retry")}
           </button>
@@ -1141,11 +1524,24 @@ function StateView({
         locale={locale}
         onRetry={res.retry}
       />
-      {res.data != null && render ? render(asObj(res.data)) : null}
       {res.data != null ? (
-        <pre className="mono">{JSON.stringify(res.data, null, 2)}</pre>
+        render ? (
+          render(asObj(res.data))
+        ) : (
+          <pre className="mono">{JSON.stringify(res.data, null, 2)}</pre>
+        )
       ) : null}
     </section>
+  );
+}
+
+/** The raw payload, folded away but still one click from the summary. */
+function RawJsonDetails({ data, locale }: { data: unknown; locale: Locale }) {
+  return (
+    <details>
+      <summary className="muted">{t(locale, "rawPayload")}</summary>
+      <pre className="mono">{JSON.stringify(data, null, 2)}</pre>
+    </details>
   );
 }
 
@@ -1153,35 +1549,468 @@ function StateView({
 export function LabListView({ data, locale }: { data: Json; locale: Locale }) {
   const items = Array.isArray(data.experiments) ? data.experiments : [];
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>experiment_id</th>
-          <th>{t(locale, "labExecuted")}</th>
-          <th>{t(locale, "labDecision")}</th>
-          <th>{t(locale, "reasonCodeLabel")}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {items.map((raw) => {
-          const item = asObj(raw);
-          const id = String(item.experiment_id ?? "");
-          const executed = item.executed === true;
-          return (
-            <tr key={id} data-executed={String(executed)}>
-              <td>
-                <NavLink to={`/lab/${encodeURIComponent(id)}`}>{id}</NavLink>
-              </td>
-              <td>{executed ? t(locale, "labExecuted") : t(locale, "labNotExecuted")}</td>
-              <td>{item.decision == null ? "—" : String(item.decision)}</td>
-              <td>
-                <code>{String(item.reason_code ?? "")}</code>
+    <>
+      <table>
+        <thead>
+          <tr>
+            <th>experiment_id</th>
+            <th>{t(locale, "labExecuted")}</th>
+            <th>{t(locale, "labDecision")}</th>
+            <th>{t(locale, "reasonCodeLabel")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.length === 0 ? (
+            <tr>
+              <td colSpan={4} className="muted">
+                {t(locale, "labEmpty")}
               </td>
             </tr>
-          );
-        })}
-      </tbody>
+          ) : (
+            items.map((raw) => {
+              const item = asObj(raw);
+              const id = String(item.experiment_id ?? "");
+              const executed = item.executed === true;
+              return (
+                <tr key={id} data-executed={String(executed)}>
+                  <td>
+                    <NavLink to={`/lab/${encodeURIComponent(id)}`}>{id}</NavLink>
+                  </td>
+                  <td>{executed ? t(locale, "labExecuted") : t(locale, "labNotExecuted")}</td>
+                  <td>{item.decision == null ? "—" : String(item.decision)}</td>
+                  <td>
+                    <code>{String(item.reason_code ?? "")}</code>
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+      <RawJsonDetails data={data} locale={locale} />
+    </>
+  );
+}
+
+/**
+ * V04 Receipts: the store index rows — id, kind, harness, creation time,
+ * manifest digest (prefix) and tombstone flag — as served by
+ * `GET /api/v1/receipts`. An unrecognized payload falls back to the raw
+ * dump rather than guessed-at columns.
+ */
+function ReceiptsListView({ data, locale }: { data: Json; locale: Locale }) {
+  if (!Array.isArray(data.receipts)) {
+    return <pre className="mono">{JSON.stringify(data, null, 2)}</pre>;
+  }
+  const rows = data.receipts.map(asObj);
+  return (
+    <>
+      <table>
+        <thead>
+          <tr>
+            <th>receipt_id</th>
+            <th>receipt_kind</th>
+            <th>harness</th>
+            <th>created_at</th>
+            <th>digest</th>
+            <th>tombstone</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={6} className="muted">
+                {t(locale, "empty")}
+              </td>
+            </tr>
+          ) : (
+            rows.map((row) => {
+              const id = String(row.receipt_id ?? "");
+              return (
+                <tr key={id} data-tombstone={String(row.tombstone === true)}>
+                  <td>
+                    <NavLink className="mono" to={`/receipts/${encodeURIComponent(id)}`}>
+                      {id}
+                    </NavLink>
+                  </td>
+                  <td>{String(row.receipt_kind ?? "")}</td>
+                  <td>{String(row.harness ?? "")}</td>
+                  <td className="mono">{String(row.created_at ?? "")}</td>
+                  <td>
+                    <code>{String(row.digest ?? "").slice(0, 16)}</code>
+                  </td>
+                  <td>{row.tombstone === true ? t(locale, "receiptTombstoned") : "—"}</td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+      <RawJsonDetails data={data} locale={locale} />
+    </>
+  );
+}
+
+/**
+ * V06 Sessions: the list endpoint serves ids only (`{sessions: [id]}`), so
+ * the table has exactly one honest column; everything else lives on the
+ * per-session page.
+ */
+function MonitorView({ data, locale }: { data: Json; locale: Locale }) {
+  if (data.schema !== "ctxpect-monitor-v1") return <pre className="mono">{JSON.stringify(data, null, 2)}</pre>;
+  const staleness = asObj(data.staleness);
+  return <>
+    <dl className="kv" data-testid="monitor-summary">
+      <dt>Receipt</dt><dd>{String(data.current_receipt_id ?? "—")}</dd>
+      <dt>{t(locale, "freshness")}</dt><dd>{String(staleness.status ?? "unknown")}</dd>
+      <dt>{t(locale, "reasonCodeLabel")}</dt><dd>{String(staleness.reason_code ?? "—")}</dd>
+      <dt>mode</dt><dd>{String(data.mode ?? "—")}</dd>
+      <dt>compared</dt><dd>{String(staleness.compared ?? "—")}</dd>
+    </dl>
+    <RawJsonDetails data={data} locale={locale} />
+  </>;
+}
+
+function SessionsListView({ data, locale }: { data: Json; locale: Locale }) {
+  if (!Array.isArray(data.sessions)) {
+    return <pre className="mono">{JSON.stringify(data, null, 2)}</pre>;
+  }
+  const summaries = Array.isArray(data.session_summaries) ? data.session_summaries.map(asObj) : [];
+  const ids = data.sessions.filter((id): id is string => typeof id === "string");
+  return <>
+    <table data-testid="session-list">
+      <thead><tr><th>session_id</th><th>mapping_id</th><th>event_count</th><th>partial</th><th>bodies_stored</th></tr></thead>
+      <tbody>{ids.length === 0 ? <tr><td colSpan={5}>{t(locale, "empty")}</td></tr> : ids.map((id) => {
+        const summary = summaries.find((item) => item.session_id === id) ?? {};
+        return <tr key={id}>
+          <td><NavLink className="mono" to={`/sessions/${encodeURIComponent(id)}`}>{id}</NavLink></td>
+          <td>{String(summary.mapping_id ?? "—")}</td>
+          <td>{String(summary.event_count ?? "—")}</td>
+          <td>{typeof summary.partial === "boolean" ? t(locale, summary.partial ? "boolYes" : "boolNo") : "—"}</td>
+          <td>{typeof summary.bodies_stored === "boolean" ? t(locale, summary.bodies_stored ? "boolYes" : "boolNo") : "—"}</td>
+        </tr>;
+      })}</tbody>
     </table>
+    <RawJsonDetails data={data} locale={locale} />
+  </>;
+}
+
+/**
+ * V13 Exceptions: the list endpoint serves ids only (`{exceptions: [id]}`),
+ * and the UI has no /exceptions/:id route, so ids render as text rather
+ * than as links to a route that does not exist.
+ */
+function ExceptionsListView({ data, locale }: { data: Json; locale: Locale }) {
+  if (!Array.isArray(data.exceptions)) {
+    return <pre className="mono">{JSON.stringify(data, null, 2)}</pre>;
+  }
+  const ids = data.exceptions.map(String);
+  return (
+    <>
+      <p className="muted">{t(locale, "exceptionsCliNote")}</p>
+      <table>
+        <thead>
+          <tr>
+            <th>exception_id</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ids.length === 0 ? (
+            <tr>
+              <td className="muted">{t(locale, "empty")}</td>
+            </tr>
+          ) : (
+            ids.map((id) => (
+              <tr key={id}>
+                <td className="mono">{id}</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+      <RawJsonDetails data={data} locale={locale} />
+    </>
+  );
+}
+
+/**
+ * V10 Policy: the effective mutation decision for one scope.
+ *
+ * The pill keeps the machine verdict visible; colour is only a coarse
+ * grouping (pass → verified hue, deny/fail-closed → confirmed hue,
+ * unknown/indeterminate → unknown hue, detect-only/approval_required →
+ * suspected hue). detect-only is never drawn as a pass, and a payload
+ * without layers is Unknown, not a pass.
+ */
+function PolicyView({ data, locale }: { data: Json; locale: Locale }) {
+  if (data.schema !== "ctxpect-policy-effective-v1") {
+    return <pre className="mono">{JSON.stringify(data, null, 2)}</pre>;
+  }
+  const verdict = String(data.verdict ?? "unknown");
+  const verdictClass =
+    verdict === "pass"
+      ? "native"
+      : verdict === "deny" || verdict === "fail-closed"
+        ? "confirmed"
+        : verdict === "unknown" || verdict === "indeterminate"
+          ? "unknown"
+          : "suspected";
+  const boolCell = (v: unknown) =>
+    typeof v === "boolean" ? t(locale, v ? "boolYes" : "boolNo") : "—";
+  const scope = asObj(data.scope);
+  const layersPresent = data.layers_present === true;
+  const evaluation = asObj(data.layer_evaluation);
+  const hasEvaluation = evaluation.schema === "ctxpect-policy-eval-v1";
+  const ruleGroups: { group: string; pill: string; rules: Json[] }[] = hasEvaluation
+    ? [
+        {
+          group: "required",
+          pill: "confirmed",
+          rules: Array.isArray(evaluation.required_rules) ? evaluation.required_rules.map(asObj) : [],
+        },
+        {
+          group: "required-allow",
+          pill: "native",
+          rules: Array.isArray(evaluation.required_allow_rules)
+            ? evaluation.required_allow_rules.map(asObj)
+            : [],
+        },
+        {
+          group: "detect-only",
+          pill: "suspected",
+          rules: Array.isArray(evaluation.detect_only_rules) ? evaluation.detect_only_rules.map(asObj) : [],
+        },
+      ]
+    : [];
+  const ruleCount = ruleGroups.reduce((sum, group) => sum + group.rules.length, 0);
+  return (
+    <>
+      <p>
+        <span className={`pill ${verdictClass}`}>
+          {t(locale, "decision")}: <span className="mono">{verdict}</span>
+        </span>{" "}
+        {t(locale, "reasonCodeLabel")}: <code>{String(data.reason_code ?? "")}</code>
+      </p>
+      <dl className="kv">
+        <dt>scope.action</dt>
+        <dd>{String(scope.action ?? "—")}</dd>
+        <dt>scope.target</dt>
+        <dd>{String(scope.target ?? "—")}</dd>
+        <dt>scope.project_digest</dt>
+        <dd>{String(scope.project_digest ?? "—")}</dd>
+        <dt>mutation_allowed</dt>
+        <dd>{boolCell(data.mutation_allowed)}</dd>
+        <dt>layers_present</dt>
+        <dd>{boolCell(data.layers_present)}</dd>
+        <dt>policy_source_fresh</dt>
+        <dd>{boolCell(data.policy_source_fresh)}</dd>
+        <dt>exception_id</dt>
+        <dd>{typeof data.exception_id === "string" && data.exception_id ? data.exception_id : "—"}</dd>
+        {typeof data.message === "string" && data.message ? (
+          <>
+            <dt>message</dt>
+            <dd>{data.message}</dd>
+          </>
+        ) : null}
+      </dl>
+      {layersPresent ? null : (
+        // No policy layers means nothing can be enforced; the contract
+        // answer here is Unknown, never a pass.
+        <p className="muted">layers_present: {t(locale, "boolNo")} — {t(locale, "unknown")}</p>
+      )}
+      {hasEvaluation ? (
+        <>
+          <dl className="kv">
+            <dt>evaluation.verdict</dt>
+            <dd className="mono">{String(evaluation.verdict ?? "—")}</dd>
+            <dt>evaluation.enforceable</dt>
+            <dd>{boolCell(evaluation.enforceable)}</dd>
+            <dt>evaluation.unique_authority</dt>
+            <dd>{String(evaluation.unique_authority ?? "—")}</dd>
+          </dl>
+          <table>
+            <thead>
+              <tr>
+                <th>rule</th>
+                <th>layer</th>
+                <th>effect</th>
+                <th>required</th>
+                <th>group</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ruleCount === 0 ? (
+                <tr>
+                  <td colSpan={5} className="muted">
+                    {t(locale, "empty")}
+                  </td>
+                </tr>
+              ) : (
+                ruleGroups.flatMap((group) =>
+                  group.rules.map((rule, index) => (
+                    <tr key={`${group.group}-${String(rule.id ?? index)}`}>
+                      <td className="mono">{String(rule.id ?? "—")}</td>
+                      <td>{String(rule.layer ?? "—")}</td>
+                      <td>{String(rule.effect ?? "—")}</td>
+                      <td>{boolCell(rule.required)}</td>
+                      <td>
+                        <span className={`pill ${group.pill}`}>{group.group}</span>
+                      </td>
+                    </tr>
+                  )),
+                )
+              )}
+            </tbody>
+          </table>
+        </>
+      ) : (
+        <p className="muted">layer_evaluation: —</p>
+      )}
+      <RawJsonDetails data={data} locale={locale} />
+    </>
+  );
+}
+
+/**
+ * V14 Team compliance: a metadata-only roll-up of the local store. The
+ * payload's own disclosure leads the page, and drift/unknown stay "—" when
+ * no Receipt exists rather than reading as zero.
+ */
+function TeamComplianceView({ data, locale }: { data: Json; locale: Locale }) {
+  if (data.schema !== "ctxpect-team-compliance-v1") {
+    return <pre className="mono">{JSON.stringify(data, null, 2)}</pre>;
+  }
+  const boolCell = (v: unknown) =>
+    typeof v === "boolean" ? t(locale, v ? "boolYes" : "boolNo") : "—";
+  const num = (v: unknown) => (typeof v === "number" ? String(v) : "—");
+  const cell = (v: unknown) => (v == null ? "—" : typeof v === "string" ? v : JSON.stringify(v));
+  const disclosure = asObj(data.disclosure);
+  const standardStatus = asObj(data.standard_status);
+  const exceptionInfo = asObj(data.exception);
+  const standards = Array.isArray(standardStatus.standards) ? standardStatus.standards.map(asObj) : [];
+  const granting = Array.isArray(exceptionInfo.granting) ? exceptionInfo.granting.map(asObj) : [];
+  const drift = data.drift == null ? null : asObj(data.drift);
+  const freshness = asObj(data.freshness);
+  const audit = asObj(data.audit);
+  return (
+    <>
+      <div className="doc-note">
+        <strong>{String(disclosure.scope ?? "—")}</strong> · {String(disclosure.note ?? "")}
+      </div>
+      <dl className="kv">
+        <dt>standard_status.total</dt>
+        <dd>{num(standardStatus.total)}</dd>
+        <dt>standard_status.signed</dt>
+        <dd>{num(standardStatus.signed)}</dd>
+        <dt>standard_status.adopted</dt>
+        <dd>{num(standardStatus.adopted)}</dd>
+        <dt>exception.total</dt>
+        <dd>{num(exceptionInfo.total)}</dd>
+        <dt>exception.live</dt>
+        <dd>{num(exceptionInfo.live)}</dd>
+      </dl>
+      <h2>{t(locale, "standards")}</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>standard_id</th>
+            <th>signed</th>
+            <th>adoption_state</th>
+            <th>pinned_digest</th>
+          </tr>
+        </thead>
+        <tbody>
+          {standards.length === 0 ? (
+            <tr>
+              <td colSpan={4} className="muted">
+                {t(locale, "empty")}
+              </td>
+            </tr>
+          ) : (
+            standards.map((standard) => (
+              <tr key={String(standard.standard_id)}>
+                <td className="mono">{String(standard.standard_id ?? "—")}</td>
+                <td>{boolCell(standard.signed)}</td>
+                <td>{String(standard.adoption_state ?? "—")}</td>
+                <td>
+                  {typeof standard.pinned_digest === "string" ? (
+                    <code>{standard.pinned_digest.slice(0, 16)}</code>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+      <h2>{t(locale, "exceptions")}</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>exception_id</th>
+            <th>requester</th>
+            <th>decided_by</th>
+          </tr>
+        </thead>
+        <tbody>
+          {granting.length === 0 ? (
+            <tr>
+              <td colSpan={3} className="muted">
+                {t(locale, "empty")}
+              </td>
+            </tr>
+          ) : (
+            granting.map((grant) => (
+              <tr key={String(grant.exception_id)}>
+                <td className="mono">{String(grant.exception_id ?? "—")}</td>
+                <td>{cell(grant.requester)}</td>
+                <td>{cell(grant.decided_by)}</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+      <h2>drift</h2>
+      {drift ? (
+        <dl className="kv">
+          <dt>confirmed</dt>
+          <dd>{num(drift.confirmed)}</dd>
+          <dt>suspected</dt>
+          <dd>{num(drift.suspected)}</dd>
+          <dt>unknown</dt>
+          <dd>{num(drift.unknown)}</dd>
+        </dl>
+      ) : (
+        <p className="muted">
+          —
+          {typeof freshness.reason_code === "string" && freshness.reason_code ? (
+            <>
+              {" "}
+              · {t(locale, "reasonCodeLabel")}: <code>{freshness.reason_code}</code>
+            </>
+          ) : null}
+        </p>
+      )}
+      <h2>audit</h2>
+      <dl className="kv">
+        <dt>verified</dt>
+        <dd>{boolCell(audit.verified)}</dd>
+        <dt>count</dt>
+        <dd>{num(audit.count)}</dd>
+        <dt>legacy_entries</dt>
+        <dd>{num(audit.legacy_entries)}</dd>
+        <dt>reason_code</dt>
+        <dd>
+          {typeof audit.reason_code === "string" && audit.reason_code ? (
+            <code>{audit.reason_code}</code>
+          ) : (
+            "—"
+          )}
+        </dd>
+      </dl>
+      <RawJsonDetails data={data} locale={locale} />
+    </>
   );
 }
 
@@ -1457,7 +2286,7 @@ function SessionRequestsPage({ locale }: { locale: Locale }) {
       </h1>
       {verdict.status === "loading" ? (
         <p role="status">
-          {t(locale, "loading")}{" "}
+          <span className="loading-pulse">{t(locale, "loading")}</span>{" "}
           <button type="button" onClick={() => controller.current?.abort()}>
             {t(locale, "cancel")}
           </button>
@@ -1605,14 +2434,27 @@ function ReceiptDetail({ locale }: { locale: Locale }) {
     setBusy("");
   }
 
+  const meta = asObj(res.data);
   return (
-    <section className="panel">
-      <h1>
-        {t(locale, "receipts")} {id}
-      </h1>
+    <section className="docpage">
+      <div className="doc-eyebrow">{t(locale, "receiptDocEyebrow")}</div>
+      <h1 className="doc-title">{id}</h1>
+      <div className="doc-meta">
+        <span>{t(locale, "receipts")}</span>
+        {typeof meta.receipt_kind === "string" && meta.receipt_kind ? (
+          <span>
+            kind · <b>{meta.receipt_kind}</b>
+          </span>
+        ) : null}
+        {meta.tombstone === true ? (
+          <span>
+            <b>{t(locale, "receiptTombstoned")}</b>
+          </span>
+        ) : null}
+      </div>
       {res.status === "loading" ? (
-        <p role="status">
-          {t(locale, "loading")}{" "}
+        <p role="status" data-state="loading">
+          <span className="loading-pulse">{t(locale, "loading")}</span>{" "}
           <button type="button" onClick={res.cancel}>
             {t(locale, "cancel")}
           </button>
@@ -1682,7 +2524,17 @@ function ReceiptDetail({ locale }: { locale: Locale }) {
       />
 
       {res.data != null && deleted === null ? (
-        <pre className="mono">{JSON.stringify(res.data, null, 2)}</pre>
+        <>
+          <dl className="kv">
+            <dt>receipt_id</dt>
+            <dd>{id}</dd>
+            <dt>receipt_kind</dt>
+            <dd>{String(meta.receipt_kind ?? "—")}</dd>
+            <dt>tombstone</dt>
+            <dd>{String(meta.tombstone === true)}</dd>
+          </dl>
+          <pre className="mono">{JSON.stringify(res.data, null, 2)}</pre>
+        </>
       ) : null}
     </section>
   );
@@ -1936,6 +2788,7 @@ function AssetsPage({ locale }: { locale: Locale }) {
 
   return (
     <section className="panel">
+      <div className="eyebrow">{t(locale, "navGroupRecords")}</div>
       <h1>{t(locale, "assets")}</h1>
       <StateBanner
         route="/assets"
@@ -1987,7 +2840,7 @@ function AssetsPage({ locale }: { locale: Locale }) {
       ) : null}
 
       {plan ? (
-        <dl data-testid="assets-plan">
+        <dl className="kv" data-testid="assets-plan">
           <dt>{t(locale, "assetsLicense")}</dt>
           <dd>{String(plan.license ?? "-")}</dd>
           <dt>{t(locale, "assetsOrigin")}</dt>
@@ -2061,6 +2914,7 @@ function SyncPage({ locale }: { locale: Locale }) {
 
   return (
     <section className="panel">
+      <div className="eyebrow">{t(locale, "navGroupActions")}</div>
       <h1>{t(locale, "sync")}</h1>
       <StateBanner
         route="/sync"
@@ -2112,22 +2966,30 @@ function SyncPage({ locale }: { locale: Locale }) {
       ) : null}
 
       {outcome ? (
-        <dl data-testid="sync-outcome">
-          <dt>{t(locale, "syncTransport")}</dt>
-          <dd>
-            {String(outcome.transport ?? "-")}
-            {/* Stated on the same row it could be mistaken for. */}
-            <span className="muted"> · {t(locale, "syncTransportNotVerified")}</span>
-          </dd>
-          <dt>{t(locale, "syncSemantic")}</dt>
-          <dd>{String(outcome.semantic ?? "-")}</dd>
-          {outcome.reconciliation ? (
-            <>
-              <dt>{t(locale, "syncReconciliation")}</dt>
-              <dd>{String(outcome.reconciliation)}</dd>
-            </>
-          ) : null}
-        </dl>
+        <>
+          <div className="sec-head">
+            <h2>
+              {t(locale, "syncTransport")} · {t(locale, "syncSemantic")}
+            </h2>
+            <span className="sec-note">{t(locale, "syncTransportNotVerified")}</span>
+          </div>
+          <dl className="kv" data-testid="sync-outcome">
+            <dt>{t(locale, "syncTransport")}</dt>
+            <dd>
+              {String(outcome.transport ?? "-")}
+              {/* Stated on the same row it could be mistaken for. */}
+              <span className="muted"> · {t(locale, "syncTransportNotVerified")}</span>
+            </dd>
+            <dt>{t(locale, "syncSemantic")}</dt>
+            <dd>{String(outcome.semantic ?? "-")}</dd>
+            {outcome.reconciliation ? (
+              <>
+                <dt>{t(locale, "syncReconciliation")}</dt>
+                <dd>{String(outcome.reconciliation)}</dd>
+              </>
+            ) : null}
+          </dl>
+        </>
       ) : null}
 
       {status.data != null ? (
@@ -2209,8 +3071,9 @@ function SettingsPage({ locale }: { locale: Locale }) {
 
   return (
     <section className="panel">
+      <div className="eyebrow">{t(locale, "navGroupGovernance")}</div>
       <h1>{t(locale, "settings")}</h1>
-      <p>{t(locale, "vaultDefault")}</p>
+      <p className="page-sub">{t(locale, "vaultDefault")}</p>
       <SharedStateBanner
         route="/settings"
         verdict={load}
@@ -2282,7 +3145,7 @@ function SettingsPage({ locale }: { locale: Locale }) {
   );
 }
 
-function CarePlanPage({ locale }: { locale: Locale }) {
+function CarePlanPage({ locale, receiptQuery }: { locale: Locale; receiptQuery: string }) {
   const { findingId } = useParams();
   return (
     <section className="panel">
@@ -2292,7 +3155,7 @@ function CarePlanPage({ locale }: { locale: Locale }) {
       </p>
       <p>{t(locale, "carePlanLocked")}</p>
       <StateView
-        path={`/api/v1/care-plan/${findingId ?? ""}`}
+        path={`/api/v1/care-plan/${findingId ?? ""}${receiptQuery}`}
         route="/care-plan/:findingId"
         title={t(locale, "plan")}
         locale={locale}
@@ -2305,8 +3168,9 @@ function CarePlanPage({ locale }: { locale: Locale }) {
 function IntegrationsPage({ locale }: { locale: Locale }) {
   return (
     <section className="panel">
+      <div className="eyebrow">{t(locale, "navGroupActions")}</div>
       <h1>{t(locale, "integrations")}</h1>
-      <p>{t(locale, "integrationsIndependence")}</p>
+      <p className="page-sub">{t(locale, "integrationsIndependence")}</p>
       <AdapterCoverage locale={locale} />
       <StateView
         path="/api/v1/integrations"

@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+ctxpect-doctor = { path = "../ctxpect-doctor" }
 ctxpect-fs = { path = "../ctxpect-fs" }
 ctxpect-schema = { path = "../ctxpect-schema" }
 

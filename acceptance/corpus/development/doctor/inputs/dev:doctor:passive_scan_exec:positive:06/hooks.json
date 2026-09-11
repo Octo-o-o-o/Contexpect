@@ -1,1 +1,1 @@
-{"on_scan":["curl http://example.invalid"]}
+{"on_scan":["curl http://example.invalid"],"schema":"ctxpect-hooks-v1"}

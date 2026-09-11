@@ -1,29 +1,65 @@
+/* Contexpect design tokens — "Refined Clinical" (方案 A).
+   Semantic names are contractual: contrast.test.mjs reads the hex values here
+   and verifies WCAG ratios, and tokens.js maps evidence/severity onto them.
+   Unknown is not a severity color; Expected is not a truth_state. */
 :root {
-  --bg-canvas: #F3F1EA;
+  /* Grounds — warm paper canvas, ink-navy shell */
+  --bg-canvas: #F4F2EB;
   --bg-surface: #FCFBF7;
-  --bg-shell: #101722;
-  --text-primary: #17202B;
-  /* Darkened to clear 4.5:1 on --bg-canvas, the lighter of the two grounds. */
-  --text-muted: #656F7D;
-  --text-on-shell: #E8E6DC;
-  --border: #D9D8D1;
-  /* Interactive components need 3:1 against their background (WCAG 2.2
-     SC 1.4.11). `--border` is decorative — panel edges and row rules — and
-     stays light; controls use this one. */
-  --border-strong: #95937F;
-  --verified: #167C70;
-  /* Darkened to clear 4.5:1 on --bg-surface (SC 1.4.3); hue is unchanged, so
-     the severity language is intact. It was 2.90:1. */
-  --suspected: #9C6A1D;
-  --confirmed: #C54C42;
-  --unknown: #6F62B5;
-  --info: #2878A8;
-  --nav-width: 224px;
+  --bg-surface-2: #F7F5EE;
+  --bg-shell: #10151F;
+  --bg-shell-2: #18202C;
+  --bg-shell-active: #1c2533;
+
+  /* Text */
+  --text-primary: #151C26;
+  /* 5.49:1 on --bg-canvas, 5.94:1 on --bg-surface (SC 1.4.3) */
+  --text-muted: #5A6270;
+  --text-faint: #828A97;
+  --text-on-shell: #E9E7DE;
+  --text-nav-link: #c9c6bb;
+
+  /* Borders — `--border` is decorative; controls use `--border-strong`
+     (3.30:1 on surface, SC 1.4.11). */
+  --border: #E4E1D6;
+  --border-strong: #8F8B7A;
+
+  /* Evidence & severity semantics (all ≥ 4.5:1 on --bg-surface) */
+  --verified: #0F7A6B;
+  --suspected: #96620F;
+  --confirmed: #BE4439;
+  --unknown: #6A5ACD;
+  --info: #2B6FA3;
+
+  /* Semantic tints — badge/panel grounds paired with the hues above */
+  --verified-bg: #E2EFEA;
+  --suspected-bg: #F6ECD7;
+  --confirmed-bg: #F8E6E2;
+  --unknown-bg: #EBE8F7;
+  --info-bg: #E3EDF5;
+
+  /* Shape & elevation */
+  --radius-sm: 7px;
+  --radius: 11px;
+  --radius-lg: 16px;
+  --shadow-1: 0 1px 2px rgba(21, 28, 38, 0.05);
+  --shadow-2: 0 2px 6px rgba(21, 28, 38, 0.07), 0 12px 32px rgba(21, 28, 38, 0.08);
+  --shadow-pop: 0 4px 12px rgba(21, 28, 38, 0.10), 0 24px 64px rgba(21, 28, 38, 0.16);
+
+  /* Metrics */
+  --nav-width: 236px;
   --topbar-height: 56px;
-  --drawer-width: 368px;
-  --radius: 10px;
-  --font-ui: "SF Pro Text", "Inter", "PingFang SC", sans-serif;
+  --drawer-width: 392px;
+  --control-height: 36px;
+
+  /* Type */
+  --font-ui: "SF Pro Text", "Inter", "PingFang SC", "Helvetica Neue", sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  --font-serif: "Songti SC", "Noto Serif SC", Georgia, serif;
+
+  /* Motion */
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur: 140ms;
 }
 
 [data-privacy="screenshot"] [data-mask] {

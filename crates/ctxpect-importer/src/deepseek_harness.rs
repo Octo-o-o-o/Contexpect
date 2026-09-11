@@ -61,7 +61,7 @@
 //!   listed, never appended.
 
 use crate::ImportError;
-use ctxpect_schema::{array, canonical_json, object, parse, sha256_hex, sha256_text, string, Value};
+use ctxpect_schema::{array, canonical_json, object, parse_preserving_numbers, sha256_hex, sha256_text, string, NumberLexeme, Value};
 use std::collections::BTreeMap;
 
 /// The mapping this importer serves.
@@ -195,7 +195,35 @@ fn decode_seq_ranges(value: &Value, max_entries: usize) -> Result<Vec<usize>, St
     if has_range && !out.windows(2).all(|w| w[1] > w[0]) {
         return Err("sourceEventSeqs ranges must be strictly increasing".into());
     }
+    // `surface.ts:242`: a seq cited twice is a provenance error, ranges or not.
+    let mut seen = out.clone();
+    seen.sort_unstable();
+    if seen.windows(2).any(|w| w[0] == w[1]) {
+        return Err("sourceEventSeqs cites the same seq twice".into());
+    }
     Ok(out)
+}
+
+/// Parse one DSH line. A DSH log is written by `JSON.stringify`, whose
+/// numbers may be non-integers (`config.temperature`), so the number-
+/// preserving parser is used and every preserved lexeme must have the
+/// shape `JSON.stringify` gives a double. That shape is what makes
+/// re-emitting the lexeme verbatim reproduce the JS writer's bytes — and
+/// therefore makes `header_digest` equal to what DSH itself would hash. A
+/// number JS would never write (`1.0`, `1E5`, `1e-07`) means the line was
+/// not written by DSH's serializer, and the line is refused as a parse
+/// failure rather than digested under a false equivalence.
+fn parse_line(line: &str) -> Result<Value, ()> {
+    let value = parse_preserving_numbers(line).map_err(|_| ())?;
+    fn js_shaped(value: &Value) -> bool {
+        match value {
+            Value::Number(lexeme) => NumberLexeme::is_js_shortest_form(lexeme),
+            Value::Array(items) => items.iter().all(js_shaped),
+            Value::Object(map) => map.values().all(js_shaped),
+            _ => true,
+        }
+    }
+    if js_shaped(&value) { Ok(value) } else { Err(()) }
 }
 
 /// Port of `request-header.ts` `canonicalHeader`: empty `system` and empty
@@ -312,9 +340,20 @@ pub fn import_deepseek_harness(bytes: &[u8], session_id: &str) -> Result<Value, 
         .next()
         .filter(|line| !line.trim().is_empty())
         .ok_or_else(|| err("import_parse_failed", "empty or header-less session log"))?;
-    let header = parse(header_line).map_err(|_| err("import_parse_failed", "header line is not valid JSON"))?;
+    let header = parse_line(header_line).map_err(|_| err("import_parse_failed", "header line is not valid JSON"))?;
     if header.get("type").and_then(Value::as_str) != Some("session") {
         return Err(err("import_parse_failed", "first line is not a session header"));
+    }
+    // `format.ts` `isHeaderLine`: a header carries id, createdAt and
+    // delegationDepth; DSH refuses to open a log without them.
+    if header.get("id").and_then(Value::as_str).is_none()
+        || header.get("createdAt").and_then(Value::as_i64).is_none()
+        || header.get("delegationDepth").and_then(Value::as_i64).is_none()
+    {
+        return Err(err(
+            "import_parse_failed",
+            "session header lacks id / createdAt / delegationDepth (format.ts isHeaderLine)",
+        ));
     }
     let version = header.get("version").and_then(Value::as_i64);
     if version != Some(DSH_FORMAT_VERSION) {
@@ -339,13 +378,38 @@ pub fn import_deepseek_harness(bytes: &[u8], session_id: &str) -> Result<Value, 
     let mut unknown = Vec::new();
     let mut stopped_at: Option<usize> = None;
     let mut line_no = 1usize;
-    for line in lines {
+    // `format.ts` reads a log line by line: a blank line inside the log is
+    // corruption, and a final line without its newline is a torn tail
+    // (an append that did not finish); neither is a line to skip.
+    let body_lines: Vec<&str> = lines.collect();
+    let torn_tail = !text.ends_with('\n');
+    let last_index = body_lines.len().saturating_sub(1);
+    for (index, line) in body_lines.iter().enumerate() {
         line_no += 1;
-        if line.trim().is_empty() {
+        let expected = events.len();
+        if line.is_empty() && index == last_index {
+            // The empty string after the final newline.
             continue;
         }
-        let expected = events.len();
-        let Ok(value) = parse(line) else {
+        if line.trim().is_empty() {
+            unknown.push(object([
+                ("reason_code", string("import_parse_failed")),
+                ("line", int(line_no)),
+                ("detail", string("blank line inside the log; DSH reads it as corruption and so does this importer from here on")),
+            ]));
+            stopped_at = Some(expected);
+            break;
+        }
+        if torn_tail && index == last_index {
+            unknown.push(object([
+                ("reason_code", string("import_parse_failed")),
+                ("line", int(line_no)),
+                ("detail", string("the last line has no newline: a torn tail from an unfinished append, not an event")),
+            ]));
+            stopped_at = Some(expected);
+            break;
+        }
+        let Ok(value) = parse_line(line) else {
             unknown.push(object([
                 ("reason_code", string("import_parse_failed")),
                 ("line", int(line_no)),
@@ -376,6 +440,16 @@ pub fn import_deepseek_harness(bytes: &[u8], session_id: &str) -> Result<Value, 
         // `surface_op` lets a viewer separate the human transcript
         // (append-origin surface events, `surface.ts` isAppendSurfaceEvent)
         // from replacement copies without any body.
+        // `surface.ts` `isReplaceOp`: exactly {op: "replace", start, end}.
+        let replace_shape_ok = match value.get("surfaceOp") {
+            Some(Value::Object(map)) => {
+                map.len() == 3
+                    && map.get("op").and_then(Value::as_str) == Some("replace")
+                    && map.contains_key("start")
+                    && map.contains_key("end")
+            }
+            _ => true,
+        };
         let surface_op = match value.get("surfaceOp") {
             Some(Value::Str(op)) => string(op),
             Some(Value::Object(_)) => string("replace"),
@@ -424,6 +498,15 @@ pub fn import_deepseek_harness(bytes: &[u8], session_id: &str) -> Result<Value, 
                 ("seq", int(seq)),
                 ("type_len", int(kind.len())),
                 ("detail", string("event type outside the pinned DSH vocabulary and not marked ignorable; DSH refuses to interpret such a log and so does this importer from here on")),
+            ]));
+            stopped_at = Some(seq);
+            break;
+        }
+        if !replace_shape_ok {
+            unknown.push(object([
+                ("reason_code", string("provenance_incomplete")),
+                ("seq", int(seq)),
+                ("detail", string("surfaceOp object is not exactly {op: \"replace\", start, end} (surface.ts isReplaceOp)")),
             ]));
             stopped_at = Some(seq);
             break;
@@ -953,7 +1036,9 @@ fn claim(seq: usize, stage: &str, truth: &str, reason: Option<&str>, evidence_id
         ("capability_id", string("session-request")),
         ("request_seq", int(seq)),
         ("lifecycle_stage", string(stage)),
-        ("claim_kind", string("observed")),
+        // field-to-claim: outcome-affecting is an effect claim (it needs an
+        // Effect Lab contract, never a log); the other stages are observed.
+        ("claim_kind", string(if stage == "outcome-affecting" { "effect" } else { "observed" })),
         ("truth_state", string(truth)),
         ("provenance", string("native-log")),
         (

@@ -2,9 +2,9 @@
 
 use crate::args::{InspectArgs, ProductArgs};
 use crate::catalog::{family_entry, integrations_json};
-use crate::dispatch::{
+use crate::dispatch::{persist_inspect_in,
     asset_lock, assets_status, authorize_store_apply, effective_store_policy, exception_state,
-    listen_addr, load_asset_registry, load_preview, mark_preview, now_unix, persist_inspect,
+    listen_addr, load_asset_registry, load_preview, mark_preview, now_unix,
     persist_preview, policy_fresh, policy_query_scope, project_scope_digest, standard_status,
     verify_standard_document, Authorization, ProductReport,
 };
@@ -13,7 +13,7 @@ use crate::jsonutil::with_snapshot_digest;
 use ctxpect_advisor::suggest;
 use ctxpect_collect::scan;
 use ctxpect_diff::{diff, EquivalenceProfile};
-use ctxpect_doctor::{diagnose, render_project_findings, with_project_findings};
+use ctxpect_doctor::diagnose;
 use ctxpect_effect::{decide as effect_decide, not_executed, RunsDocument};
 use ctxpect_fs::{Refusal, Root};
 use ctxpect_importer::{deepseek_harness, import_session_bytes};
@@ -60,10 +60,64 @@ impl Coordinate {
 struct AppState {
     store: Store,
     project: Option<PathBuf>,
+    /// The scope digest of `project` (see `project_scope_digest`); Receipts
+    /// carry the same digest, which is how a Receipt is known to belong to
+    /// the root this daemon rescans.
+    project_digest: Option<String>,
+    /// The Codex home the daemon was started with; a request may name only
+    /// this one.
+    codex_home: Option<PathBuf>,
     ui_root: Option<PathBuf>,
+    listen: String,
     generation: AtomicU64,
     current_receipt: Mutex<Option<String>>,
     coordinate: Mutex<Coordinate>,
+}
+
+/// Whether a Receipt was observed in the root this daemon serves.
+enum ReceiptScope {
+    Matches,
+    Mismatch,
+    /// The Receipt carries no project digest (persisted without a project).
+    Unknown,
+}
+
+fn receipt_scope(state: &AppState, receipt: &Value) -> ReceiptScope {
+    let recorded = receipt
+        .pointer(&["coordinate", "project_digest"])
+        .and_then(Value::as_str)
+        .filter(|d| !d.is_empty() && *d != "unknown");
+    match (recorded, state.project_digest.as_deref()) {
+        (Some(recorded), Some(ours)) if recorded == ours => ReceiptScope::Matches,
+        (Some(_), Some(_)) => ReceiptScope::Mismatch,
+        _ => ReceiptScope::Unknown,
+    }
+}
+
+/// The Receipt a request names explicitly, or the session's current one.
+/// An explicit id that does not exist is an error — never a fallback to
+/// whatever is current.
+fn selected_receipt(state: &AppState, receipt_id: Option<&str>) -> Result<Value, ctxpect_store::StoreError> {
+    match receipt_id {
+        Some(id) => state.store.get_receipt(id),
+        None => current_receipt(state),
+    }
+}
+
+/// `selected_receipt`, refused when the Receipt is not from this root.
+fn scoped_receipt(state: &AppState, receipt_id: Option<&str>) -> Result<Value, ctxpect_store::StoreError> {
+    let receipt = selected_receipt(state, receipt_id)?;
+    match receipt_scope(state, &receipt) {
+        ReceiptScope::Matches => Ok(receipt),
+        ReceiptScope::Mismatch => Err(ctxpect_store::StoreError {
+            code: "api.receipt_scope",
+            message: "this Receipt was observed in another project; the daemon does not read it against its own root".into(),
+        }),
+        ReceiptScope::Unknown => Err(ctxpect_store::StoreError {
+            code: "api.receipt_scope_unknown",
+            message: "this Receipt carries no project scope; it cannot be tied to the daemon's root".into(),
+        }),
+    }
 }
 
 impl AppState {
@@ -124,10 +178,17 @@ pub fn serve(args: &ProductArgs) -> Result<ProductReport, crate::inspect::Inspec
             None
         }
     });
+    let project_digest = args
+        .project
+        .as_deref()
+        .map(|p| project_scope_digest(store.root(), Some(p)));
     let state = Arc::new(AppState {
         store,
         project: args.project.clone(),
+        project_digest,
+        codex_home: args.codex_home.clone(),
         ui_root,
+        listen: bound.to_string(),
         generation: AtomicU64::new(1),
         current_receipt: Mutex::new(None),
         coordinate: Mutex::new(Coordinate {
@@ -438,6 +499,7 @@ fn route(method: &str, path: &str, body: &str, state: &AppState) -> (u16, &'stat
 /// so an endpoint that is not here cannot be declared by a page.
 pub const ROUTE_TABLE: &[(&str, &str)] = &[
     ("GET", "/api/v1/health"),
+    ("GET", "/api/v1/status"),
     ("GET", "/api/v1/coordinate"),
     ("POST", "/api/v1/inspect"),
     ("GET", "/api/v1/receipts"),
@@ -597,6 +659,7 @@ fn api(method: &str, path: &str, full: &str, body: &str, state: &AppState) -> (u
                 ("ui_computes_claims", Value::Bool(false)),
             ],
         )),
+        ("GET", "/api/v1/status") => status_api(state),
         ("POST", "/api/v1/inspect") => inspect_api(body, state),
         ("GET", "/api/v1/receipts") => match state.store.list_receipts() {
             Ok(v) => json_ok(object([("receipts", v)])),
@@ -669,11 +732,31 @@ fn api(method: &str, path: &str, full: &str, body: &str, state: &AppState) -> (u
         ("GET", "/api/v1/sessions/:id") => named_get(state, "sessions", id),
         ("GET", "/api/v1/sessions/:id/requests") => session_requests_api(state, id),
         ("GET", "/api/v1/sessions") => match state.store.list_named("sessions") {
-            Ok(ids) => json_ok(object([("sessions", array(ids.into_iter().map(string)))])),
+            Ok(ids) => {
+                let mut summaries = Vec::new();
+                for id in &ids {
+                    let session = match state.store.get_named("sessions", id) {
+                        Ok(session) => session,
+                        Err(err) => return json_err(err.code, &err.message),
+                    };
+                    summaries.push(object([
+                        ("session_id", string(id)),
+                        ("mapping_id", session.get("mapping_id").cloned().unwrap_or(Value::Null)),
+                        ("event_count", session.get("timeline").and_then(Value::as_array)
+                            .map_or(Value::Null, |events| Value::Int(events.len() as i64))),
+                        ("bodies_stored", session.get("bodies_stored").cloned().unwrap_or(Value::Null)),
+                        ("partial", session.get("partial").cloned().unwrap_or(Value::Null)),
+                    ]));
+                }
+                json_ok(object([
+                    ("sessions", array(ids.into_iter().map(string))),
+                    ("session_summaries", array(summaries)),
+                ]))
+            },
             Err(err) => json_err(err.code, &err.message),
         },
         ("POST", "/api/v1/sessions/import") => sessions_import_api(body, state),
-        ("GET", "/api/v1/monitor") => json_ok(monitor_status(state)),
+        ("GET", "/api/v1/monitor") => json_ok(monitor_status(state, query(full, "receipt_id").as_deref())),
         ("GET", "/api/v1/policy") => {
             let (action, target) = policy_query_scope(
                 query(full, "action").as_deref(),
@@ -743,8 +826,8 @@ fn api(method: &str, path: &str, full: &str, body: &str, state: &AppState) -> (u
             Err(err) => json_err(err.code, &err.message),
         },
         ("POST", "/api/v1/lab") => lab_api(body, state),
-        ("GET", "/api/v1/team/compliance") => json_ok(team_compliance(state)),
-        ("GET", "/api/v1/care-plan/:id") => care_plan_api(id, state),
+        ("GET", "/api/v1/team/compliance") => json_ok(team_compliance(state, query(full, "receipt_id").as_deref())),
+        ("GET", "/api/v1/care-plan/:id") => care_plan_api(id, state, query(full, "receipt_id").as_deref()),
         ("POST", "/api/v1/collect") => collect_api(state),
         ("POST", "/api/v1/intent/preview") => intent_preview_api(body, state),
         ("POST", "/api/v1/apply") => apply_api(body, state),
@@ -758,14 +841,40 @@ fn inspect_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
         Ok(value) => value,
         Err(refusal) => return refusal,
     };
-    let project = parsed
-        .get("project")
-        .and_then(Value::as_str)
-        .map(PathBuf::from)
-        .or_else(|| state.project.clone());
-    let Some(project) = project else {
-        return json_err("usage.invalid", "--project required");
+    // The daemon observes the root it was started for and its subdirectories,
+    // nothing else: a page or local process reaching the loopback API must
+    // not be able to point it at an arbitrary directory. Without `--project`
+    // it serves records only.
+    let project = match (parsed.get("project").and_then(Value::as_str), state.project.as_deref()) {
+        (Some(requested), Some(root)) => match Root::new(root).and_then(|r| r.contain(requested)) {
+            Ok(contained) => contained,
+            Err(_) => {
+                return json_err(
+                    "api.project_scope",
+                    "project must be the daemon's --project root or a directory inside it",
+                );
+            }
+        },
+        (None, Some(root)) => root.to_path_buf(),
+        (Some(_), None) => {
+            return json_err(
+                "api.project_scope",
+                "this daemon was started without --project and does not scan directories on request",
+            );
+        }
+        (None, None) => return json_err("usage.invalid", "--project required"),
     };
+    if let Some(requested) = parsed.get("codex_home").and_then(Value::as_str) {
+        let same = state.codex_home.as_deref().is_some_and(|ours| {
+            fs::canonicalize(ours).ok() == fs::canonicalize(requested).ok()
+        });
+        if !same {
+            return json_err(
+                "api.project_scope",
+                "codex_home may only name the Codex home the daemon was started with (--codex-home)",
+            );
+        }
+    }
     let generation = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
     // The request moves the session coordinate; fields it omits keep the
     // session's current value rather than snapping back to a hardcoded family.
@@ -798,7 +907,7 @@ fn inspect_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
     let args = InspectArgs {
         json: true,
         offline: true,
-        project,
+        project: project.clone(),
         cwd: None,
         harness: coordinate.harness.clone(),
         surface: coordinate.surface.clone(),
@@ -816,7 +925,7 @@ fn inspect_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
         Ok(report) => {
             let latest = state.generation.load(Ordering::SeqCst);
             let stale = latest != generation;
-            match persist_inspect(&state.store, &report.envelope, "one-shot") {
+            match persist_inspect_in(&state.store, &report.envelope, "one-shot", Some(project.as_path())) {
                 Ok(receipt) => {
                     let id = receipt
                         .get("receipt_id")
@@ -845,24 +954,102 @@ fn inspect_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
     }
 }
 
+/// Bootstrap is a read-only selection. It never moves the daemon's current
+/// Receipt, and never substitutes another project's history for this root.
+fn status_api(state: &AppState) -> (u16, &'static str, String) {
+    let coordinate = state.coordinate();
+    let matches = |receipt: &Value| {
+        receipt.get("tombstone").is_none_or(|value| *value == Value::Null)
+            && matches!(receipt_scope(state, receipt), ReceiptScope::Matches)
+            && [
+                ("harness", coordinate.harness.as_str()),
+                ("version", coordinate.version.as_str()),
+                ("surface", coordinate.surface.as_str()),
+                ("os_lane", coordinate.os_lane.as_str()),
+            ].iter().all(|(key, expected)| {
+                receipt.pointer(&["coordinate", key]).and_then(Value::as_str) == Some(*expected)
+            })
+    };
+    let (selected, selection) = match current_receipt(state) {
+        Ok(receipt) if matches(&receipt) => (Some(receipt), "session-current"),
+        Ok(_) => return json_err("api.receipt_scope", "current Receipt does not match the daemon coordinate"),
+        Err(err) if err.code == "api.no_current_receipt" => {
+            let index = match state.store.list_receipts() {
+                Ok(index) => index,
+                Err(err) => return json_err(err.code, &err.message),
+            };
+            let mut candidates = Vec::new();
+            for row in index.as_array().unwrap_or(&[]) {
+                let Some(id) = row.get("receipt_id").and_then(Value::as_str) else {
+                    return json_err("store.index_corrupt", "Receipt index row has no id");
+                };
+                let receipt = match state.store.get_receipt(id) {
+                    Ok(receipt) => receipt,
+                    Err(err) => return json_err(err.code, &err.message),
+                };
+                if matches(&receipt) {
+                    let Some(time) = receipt.get("created_at").and_then(Value::as_str)
+                        .and_then(ctxpect_effect::epoch_seconds) else {
+                        return json_err("receipt.time_invalid", "matching Receipt has an unreadable creation time");
+                    };
+                    let fractional = receipt.get("created_at").and_then(Value::as_str)
+                        .and_then(|text| text.split_once('.'))
+                        .map(|(_, tail)| tail.chars().take_while(char::is_ascii_digit).collect::<String>())
+                        .unwrap_or_default().trim_end_matches('0').to_string();
+                    // Fractional seconds compare lexically after removing trailing
+                    // zeroes; equal observation times use the id as a stable tie.
+                    candidates.push(((time, fractional, id.to_string()), receipt));
+                }
+            }
+            let receipt = candidates.into_iter().max_by(|a, b| a.0.cmp(&b.0)).map(|(_, receipt)| receipt);
+            let selection = if receipt.is_some() { "latest-matching" } else { "none" };
+            (receipt, selection)
+        }
+        Err(err) => return json_err(err.code, &err.message),
+    };
+    let (summary, counts, staleness) = if let Some(receipt) = selected {
+        let id = receipt.get("receipt_id").and_then(Value::as_str).unwrap_or("");
+        let diagnosis = match diagnose_with_project(state, &receipt) {
+            Ok(diagnosis) => diagnosis,
+            Err(err) => return err,
+        };
+        let monitor = monitor_status(state, Some(id));
+        (
+            object([
+                ("receipt_id", string(id)),
+                ("receipt_kind", receipt.get("receipt_kind").cloned().unwrap_or(Value::Null)),
+                ("created_at", receipt.get("created_at").cloned().unwrap_or(Value::Null)),
+                ("digest", receipt.pointer(&["manifest", "digest"]).cloned().unwrap_or(Value::Null)),
+            ]),
+            diagnosis.get("counts").cloned().unwrap_or(Value::Null),
+            monitor.get("staleness").cloned().unwrap_or(Value::Null),
+        )
+    } else {
+        (Value::Null, Value::Null, object([
+            ("status", string("unknown")),
+            ("reason_code", string("api.no_matching_receipt")),
+        ]))
+    };
+    json_ok(object([
+        ("schema", string("ctxpect-status-v1")),
+        ("project", string(if state.project.is_some() { "<project>" } else { "unset" })),
+        ("coordinate", coordinate.to_value()),
+        ("generation", Value::Int(state.generation.load(Ordering::SeqCst) as i64)),
+        ("daemon", object([
+            ("version", string(env!("CARGO_PKG_VERSION"))),
+            ("listen", string(&state.listen)),
+        ])),
+        ("selection", string(selection)),
+        ("selected_receipt", summary),
+        ("doctor_counts", counts),
+        ("diagnosis_basis", string("receipt-and-current-project-scan")),
+        ("staleness", staleness),
+    ]))
+}
+
 fn doctor_api(full: &str, state: &AppState) -> (u16, &'static str, String) {
     let id = query(full, "receipt_id");
-    let receipt = if let Some(id) = id {
-        state.store.get_receipt(&id)
-    } else if let Ok(cur) = state.current_receipt.lock() {
-        match cur.as_deref() {
-            Some(id) => state.store.get_receipt(id),
-            None => Err(ctxpect_store::StoreError {
-                code: "store.missing",
-                message: "no current receipt".into(),
-            }),
-        }
-    } else {
-        Err(ctxpect_store::StoreError {
-            code: "store.missing",
-            message: "no current receipt".into(),
-        })
-    };
+    let receipt = selected_receipt(state, id.as_deref());
     match receipt {
         Ok(v) => {
             let mut diagnosis = match diagnose_with_project(state, &v) {
@@ -897,15 +1084,36 @@ fn diagnose_with_project(state: &AppState, receipt: &Value) -> Result<Value, (u1
     let Some(project) = state.project.as_deref() else {
         return Ok(base);
     };
+    // The project rules rescan *this* root; a Receipt observed elsewhere is
+    // refused, and one whose scope is unknown gets no project rules rather
+    // than the daemon's root by default.
+    match receipt_scope(state, receipt) {
+        ReceiptScope::Matches => {}
+        ReceiptScope::Mismatch => {
+            return Err(json_err(
+                "api.receipt_scope",
+                "this Receipt was observed in another project; its diagnosis is not rescanned against this daemon's root",
+            ));
+        }
+        ReceiptScope::Unknown => {
+            let mut out = base;
+            if let Value::Object(map) = &mut out {
+                map.insert(
+                    "project_rules".into(),
+                    object([
+                        ("scanned", Value::Bool(false)),
+                        ("reason_code", string("api.receipt_scope_unknown")),
+                        ("note", string("the Receipt carries no project scope; project-content rules were not run against this daemon's root")),
+                    ]),
+                );
+            }
+            return Ok(out);
+        }
+    }
     // A project that cannot be scanned yields no diagnosis, not a diagnosis
     // with the project rules quietly missing (the CLI answers the same way).
     let root = Root::new(project).map_err(|err| json_err("io.missing", &err.to_string()))?;
-    let files = crate::dispatch::scan_project_for_doctor(&root)
-        .map_err(|err| json_err(err.code(), &err.message()))?;
-    Ok(with_project_findings(
-        base,
-        &render_project_findings(&ctxpect_doctor::project_findings(&files)),
-    ))
+    crate::dispatch::diagnosis_for_root(base, &root).map_err(|err| json_err(err.code(), &err.message()))
 }
 
 fn diff_api(full: &str, state: &AppState) -> (u16, &'static str, String) {
@@ -1016,7 +1224,7 @@ fn observe_after_mutation(
         store: None,
     };
     let report = inspect(args).map_err(|err| json_err(err.code(), &err.message()))?;
-    let receipt = persist_inspect(&state.store, &report.envelope, "one-shot")
+    let receipt = persist_inspect_in(&state.store, &report.envelope, "one-shot", Some(std::path::Path::new(project)))
         .map_err(|err| json_err(err.code(), &err.message()))?;
     Ok(receipt
         .get("receipt_id")
@@ -1227,8 +1435,8 @@ fn merge_fields<'a>(base: Value, extra: impl IntoIterator<Item = (&'a str, Value
 /// declared. The endpoint previously reported `stale: false` unconditionally,
 /// which is the one answer that cannot be wrong-flagged and therefore says
 /// nothing.
-fn monitor_status(state: &AppState) -> Value {
-    let receipt = match current_receipt(state) {
+fn monitor_status(state: &AppState, receipt_id: Option<&str>) -> Value {
+    let receipt = match scoped_receipt(state, receipt_id) {
         Ok(receipt) => receipt,
         Err(err) => {
             return object([
@@ -1355,7 +1563,7 @@ fn refusal_code(refusal: &ctxpect_fs::Refusal) -> &'static str {
 /// The endpoint previously answered with the list of field *names* it would
 /// one day report. That reads as a compliance report while asserting nothing,
 /// so each field now carries either a computed status or an explicit unknown.
-fn team_compliance(state: &AppState) -> Value {
+fn team_compliance(state: &AppState, receipt_id: Option<&str>) -> Value {
     let standard_ids = state.store.list_named("standards").unwrap_or_default();
     let mut standards = Vec::new();
     let mut signed_count = 0i64;
@@ -1422,7 +1630,7 @@ fn team_compliance(state: &AppState) -> Value {
 
     // Drift, unknown and freshness are properties of a Receipt. Without one in
     // this session they are unknown, not zero.
-    let receipt = current_receipt(state).ok();
+    let receipt = selected_receipt(state, receipt_id).ok();
     let diagnosis = receipt.as_ref().and_then(|r| diagnose_with_project(state, r).ok());
     let unknown_cells = diagnosis
         .as_ref()
@@ -1553,11 +1761,11 @@ fn findings_of(diagnosis: &Value) -> &[Value] {
 /// Every field here comes from the Receipt. The endpoint previously answered
 /// with the same four constants for any id, including ids that did not exist,
 /// which made an unknown finding indistinguishable from a locked one.
-fn care_plan_api(finding_id: &str, state: &AppState) -> (u16, &'static str, String) {
+fn care_plan_api(finding_id: &str, state: &AppState, receipt_id: Option<&str>) -> (u16, &'static str, String) {
     if finding_id.is_empty() {
         return json_err("api.not_found", "care-plan requires a finding id");
     }
-    let receipt = match current_receipt(state) {
+    let receipt = match selected_receipt(state, receipt_id) {
         Ok(receipt) => receipt,
         Err(err) => return json_err(err.code, &err.message),
     };
@@ -1634,15 +1842,25 @@ fn sessions_import_api(body: &str, state: &AppState) -> (u16, &'static str, Stri
         Ok(value) => value,
         Err(refusal) => return refusal,
     };
-    let session_id = parsed
-        .get("session_id")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("s_{}", &ctxpect_schema::sha256_text(body)[..12]));
     let mapping = parsed
         .get("mapping_id")
         .and_then(Value::as_str)
         .unwrap_or("generic-json");
+    // The default id is the artifact's content digest — for a native log the
+    // digest of the `jsonl` string, the same bytes the CLI hashes from the
+    // file — so the same session lands under the same id from either entry.
+    let session_id = parsed
+        .get("session_id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            let content = if mapping == deepseek_harness::MAPPING_ID {
+                parsed.get("jsonl").and_then(Value::as_str).unwrap_or("")
+            } else {
+                body
+            };
+            format!("s_{}", &ctxpect_schema::sha256_text(content)[..12])
+        });
     let _auth = match require_mutation(state, "sessions.import", &session_id) {
         Ok(auth) => auth,
         Err(denied) => return denied,
@@ -1665,7 +1883,15 @@ fn sessions_import_api(body: &str, state: &AppState) -> (u16, &'static str, Stri
     let bytes: &[u8] = native.as_deref().map_or(body.as_bytes(), str::as_bytes);
     match import_session_bytes(bytes, mapping, &session_id) {
         Ok(session) => {
+            if let Err(err) = crate::dispatch::refuse_replacing_a_different_session(&state.store, &session_id, &session) {
+                return json_err(err.code(), &err.message());
+            }
             if let Err(err) = state.store.put_named("sessions", &session_id, &session) {
+                return json_err(err.code, &err.message);
+            }
+            // The same derived insight the CLI writes (R04: one answer).
+            let note = ctxpect_importer::insight(&session_id, "partial timeline imported; occupancy unknown");
+            if let Err(err) = state.store.put_named("insights", &session_id, &note) {
                 return json_err(err.code, &err.message);
             }
             json_ok(session)
@@ -1774,18 +2000,6 @@ fn apply_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
         Ok(auth) => auth,
         Err(denied) => return denied,
     };
-    let intent = Intent {
-        intent_id: preview.intent_id.clone(),
-        authority: preview.authority.clone(),
-        target_rel: preview.target_rel.clone(),
-        desired: preview.desired.clone(),
-    };
-    if let Err(err) = state
-        .store
-        .put_named("intents", &intent.intent_id, &intent.to_value())
-    {
-        return json_err(err.code, &err.message);
-    }
     match proj_apply(
         &root,
         &preview,
@@ -1793,6 +2007,19 @@ fn apply_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
         true,
     ) {
         Ok(v) => {
+            // Recorded after the apply landed (see the CLI).
+            let intent = Intent {
+                intent_id: preview.intent_id.clone(),
+                authority: preview.authority.clone(),
+                target_rel: preview.target_rel.clone(),
+                desired: preview.desired.clone(),
+            };
+            if let Err(err) = state
+                .store
+                .put_named("intents", &intent.intent_id, &intent.to_value())
+            {
+                return json_err(err.code, &err.message);
+            }
             if let Err(err) = mark_preview(&state.store, &preview.tx_id, PREVIEW_APPLIED) {
                 return json_err(err.code(), &err.message());
             }

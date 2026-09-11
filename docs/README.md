@@ -61,6 +61,8 @@
 - [process/release.md](process/release.md)
 - [process/dependency-and-provenance.md](process/dependency-and-provenance.md)
 
+- [前端/API 配套收口](plan/2026-09-10-frontend-api-change-proposals.md) — 启动恢复、Sessions 增量元数据、展示真值修复与历史首见边界；未独立验收的候选，不代表完整产品验收
+
 ### ADR
 
 - [adr/0001-rust-tauri-react-sqlite.md](adr/0001-rust-tauri-react-sqlite.md) — Rust workspace + Tauri 2 + React/TypeScript + SQLite/FTS5

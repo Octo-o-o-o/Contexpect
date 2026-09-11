@@ -13,6 +13,7 @@ dependencies = [
 name = "ctxpect-assets"
 version = "0.1.0"
 dependencies = [
+ "ctxpect-doctor",
  "ctxpect-fs",
  "ctxpect-schema",
 ]

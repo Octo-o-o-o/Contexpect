@@ -197,6 +197,7 @@ where
         Ok(Cli::Inspect(parsed)) => {
             let roots = RedactRoots::from_inspect_args(&parsed);
             let store_path = parsed.store.clone();
+            let project_path = parsed.project.clone();
             match inspect(parsed) {
                 Ok(mut report) => {
                     if let Some(path) = store_path {
@@ -207,7 +208,7 @@ where
                         let persisted = ctxpect_store::Store::open(&path)
                             .map_err(|err| (err.code, err.message))
                             .and_then(|store| {
-                                dispatch::persist_inspect(&store, &report.envelope, "one-shot")
+                                dispatch::persist_inspect_in(&store, &report.envelope, "one-shot", Some(project_path.as_path()))
                                     .map_err(|err| (err.code(), err.message()))
                             });
                         if let ctxpect_schema::Value::Object(map) = &mut report.envelope {

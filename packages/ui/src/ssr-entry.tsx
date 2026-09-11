@@ -11,8 +11,8 @@ import { App, LabResultView, SessionRequestsView, StateBanner } from "./App";
 import type { Locale } from "./i18n";
 import type { Json } from "./api";
 
-export function renderRoute(route: string, locale: Locale = "zh-CN"): string {
-  void locale;
+/** The application at `route`. `App` owns its locale state (zh-CN at first paint), so no locale is taken here. */
+export function renderRoute(route: string): string {
   return renderToString(
     <MemoryRouter initialEntries={[route]}>
       <App />

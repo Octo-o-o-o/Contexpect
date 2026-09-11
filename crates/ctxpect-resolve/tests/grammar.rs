@@ -175,7 +175,7 @@ fn cl5_user_memory_is_permission_not_granted_and_does_not_block() {
 fn cl6_budget_declaration_truncates_the_named_file_only() {
     let scratch = Scratch::new("cl6");
     scratch.write("CLAUDE.md", &"x".repeat(100));
-    scratch.write("budget.json", r#"{"path":"CLAUDE.md","max_bytes":32}"#);
+    scratch.write("budget.json", r#"{"schema":"ctxpect-budget-v1","path":"CLAUDE.md","max_bytes":32}"#);
     let resolution = resolve_claude(&scratch, "");
     assert!(resolution.included);
     assert!(resolution.truncated);
@@ -193,7 +193,7 @@ fn cl6_budget_declaration_truncates_the_named_file_only() {
     // A declaration naming a file that was not adopted applies to nothing.
     let other = Scratch::new("cl6-other");
     other.write("CLAUDE.md", &"x".repeat(100));
-    other.write("budget.json", r#"{"path":"README.md","max_bytes":32}"#);
+    other.write("budget.json", r#"{"schema":"ctxpect-budget-v1","path":"README.md","max_bytes":32}"#);
     let resolution = resolve_claude(&other, "");
     assert!(!resolution.truncated);
     assert_eq!(resolution.native_paths_used, vec!["CLAUDE.md"]);
@@ -228,6 +228,24 @@ fn claude_all_layers_unreadable_is_indeterminate() {
         resolution.claims.primary.unknown_reason,
         Some(UnknownReason::ContentRedactedByPolicy)
     );
+}
+
+#[test]
+fn a_root_budget_without_the_schema_is_not_a_declaration_but_the_namespaced_one_is() {
+    // Somebody else's budget.json: no cap, no evidence, no native path.
+    let scratch = Scratch::new("cl6-noschema");
+    scratch.write("CLAUDE.md", &"x".repeat(200));
+    scratch.write("budget.json", r#"{"path":"CLAUDE.md","max_bytes":32}"#);
+    let resolution = resolve_claude(&scratch, "");
+    assert!(!resolution.edges.iter().any(|edge| edge.kind == EdgeKind::TruncatedAfter));
+    assert!(!resolution.native_paths_used.iter().any(|p| p == "budget.json"));
+    // The namespaced form needs no schema and is the path that is recorded.
+    scratch.write(".ctxpect/budget.json", r#"{"path":"CLAUDE.md","max_bytes":32}"#);
+    let resolution = resolve_claude(&scratch, "");
+    assert!(resolution.edges.iter().any(|edge| {
+        edge.kind == EdgeKind::TruncatedAfter && edge.related_path.as_deref() == Some(".ctxpect/budget.json")
+    }));
+    assert!(resolution.native_paths_used.iter().any(|p| p == ".ctxpect/budget.json"));
 }
 
 #[test]

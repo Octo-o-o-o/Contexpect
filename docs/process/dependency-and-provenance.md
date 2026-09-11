@@ -32,7 +32,7 @@ Corpus 中的厂商文档与真实会话尤其如此。不能公开再分发的�
 
 ## 本副本已引入（前端，不进入 Cargo workspace）
 
-Rust workspace 仍为零第三方 crate，十二条非前端 required gate（含 cargo 三条与 corpus/doctor/native conformance 三条）保持离线。下列 Node 包只用于 `packages/ui`，license 与版本以 lockfile 为准（安装后登记 digest）：
+Rust workspace 仍为零第三方 crate，十二条非前端 required gate（含 cargo 三条与 corpus/doctor/native conformance 三条）保持离线；crate 间新增的边只有 `ctxpect-projection → ctxpect-doctor` 与 `ctxpect-assets → ctxpect-doctor`（两个 executor 共用 secret 门）。下列 Node 包只用于 `packages/ui`，license 与版本以 lockfile 为准（安装后登记 digest）：
 
 | 名称 | 版本 | SPDX | 来源 | lockfile integrity |
 | --- | --- | --- | --- | --- |

@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案 A · 精密仪器 — Contexpect Doctor</title>
+<style>
+  :root {
+    --canvas: #F4F2EB;
+    --surface: #FCFBF7;
+    --surface-2: #F8F6F0;
+    --shell: #101722;
+    --shell-2: #18222F;
+    --ink: #161E2A;
+    --ink-2: #3D4653;
+    --muted: #6A7382;
+    --faint: #9AA1AD;
+    --line: #E4E1D6;
+    --line-strong: #C9C5B8;
+    --teal: #0F7A6D;
+    --teal-bg: #E3F0ED;
+    --amber: #96620F;
+    --amber-bg: #F7ECD8;
+    --coral: #BE4439;
+    --coral-bg: #F9E7E4;
+    --violet: #6A5ACD;
+    --violet-bg: #ECE9F8;
+    --blue: #2B6FA3;
+    --blue-bg: #E4EEF6;
+    --radius: 12px;
+    --font-ui: "SF Pro Text", "Inter", "PingFang SC", "Helvetica Neue", sans-serif;
+    --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--font-ui);
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--ink);
+    background: var(--canvas);
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { display: grid; grid-template-columns: 232px 1fr; height: 100vh; overflow: hidden; }
+
+  /* ---------- Shell / nav ---------- */
+  .shell {
+    background: var(--shell);
+    color: #B9C2CF;
+    display: flex; flex-direction: column;
+    padding: 18px 12px 14px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 2px 10px 18px; }
+  .brand-mark {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: linear-gradient(135deg, #2EC4B0, #167C70);
+    display: grid; place-items: center;
+    color: #fff; font-weight: 700; font-size: 13px; letter-spacing: -.5px;
+  }
+  .brand-name { color: #F2F4F7; font-weight: 650; font-size: 14.5px; letter-spacing: .2px; }
+  .brand-sub { font-size: 10.5px; color: #5E6B7C; letter-spacing: .6px; text-transform: uppercase; margin-top: 1px; }
+  .nav-group { margin-top: 14px; }
+  .nav-group-label {
+    font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase;
+    color: #54606F; padding: 0 10px 6px;
+  }
+  .nav-item {
+    display: flex; align-items: center; gap: 9px;
+    padding: 6.5px 10px; border-radius: 8px;
+    color: #A7B1BF; font-size: 13px; cursor: pointer;
+    transition: background .12s, color .12s;
+  }
+  .nav-item:hover { background: var(--shell-2); color: #E4E9F0; }
+  .nav-item.active { background: #233041; color: #FFFFFF; }
+  .nav-item.active .nav-dot { background: #2EC4B0; }
+  .nav-dot { width: 6px; height: 6px; border-radius: 50%; background: #3A4656; flex: none; }
+  .nav-item .kbd { margin-left: auto; font-size: 10px; color: #54606F; font-family: var(--font-mono); }
+  .shell-foot { margin-top: auto; padding: 10px; border-top: 1px solid #1D2735; font-size: 11px; color: #5E6B7C; }
+  .shell-foot .daemon { display: flex; align-items: center; gap: 7px; }
+  .pulse { width: 7px; height: 7px; border-radius: 50%; background: #2EC4B0; box-shadow: 0 0 0 3px rgba(46,196,176,.15); }
+
+  /* ---------- Main ---------- */
+  .main { display: flex; flex-direction: column; overflow: hidden; }
+
+  /* coordinate bar */
+  .coord {
+    height: 54px; flex: none;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 20px; font-size: 12.5px;
+  }
+  .coord-item { display: flex; align-items: center; gap: 6px; color: var(--ink-2); }
+  .coord-item .lab { color: var(--faint); font-size: 11px; }
+  .coord-sep { color: var(--line-strong); margin: 0 2px; }
+  .coord-val { font-weight: 550; }
+  .snap { font-family: var(--font-mono); font-size: 11.5px; background: var(--surface-2); border: 1px solid var(--line); padding: 2px 7px; border-radius: 6px; }
+  .stale-tag {
+    font-size: 10.5px; font-weight: 650; color: var(--amber);
+    background: var(--amber-bg); border: 1px solid #E7D3AC;
+    padding: 1.5px 7px; border-radius: 999px; letter-spacing: .3px;
+  }
+  .coord-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .cmdk {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid var(--line); background: var(--surface-2);
+    border-radius: 8px; padding: 5px 10px; color: var(--faint); font-size: 12px;
+  }
+  .cmdk kbd { font-family: var(--font-mono); font-size: 10.5px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; background: var(--surface); }
+  .mask-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
+
+  .workspace { display: grid; grid-template-columns: 1fr 392px; flex: 1; overflow: hidden; }
+  .content { overflow-y: auto; padding: 22px 24px 60px; }
+
+  /* ---------- Page head ---------- */
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 16px; }
+  .page-title { font-size: 21px; font-weight: 680; letter-spacing: -.3px; }
+  .page-sub { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .symptom-bar {
+    display: flex; gap: 8px; margin-bottom: 18px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 10px 12px; align-items: center;
+  }
+  .symptom-input {
+    flex: 1; border: none; outline: none; background: transparent;
+    font: inherit; color: var(--ink);
+  }
+  .btn {
+    border-radius: 8px; padding: 7px 14px; font: inherit; font-size: 12.5px; font-weight: 600;
+    cursor: pointer; border: 1px solid transparent;
+  }
+  .btn-primary { background: #17222E; color: #fff; }
+  .btn-primary:hover { background: #24313F; }
+  .btn-ghost { background: transparent; border-color: var(--line-strong); color: var(--ink-2); }
+
+  /* ---------- Status band ---------- */
+  .band { display: grid; grid-template-columns: repeat(3, 1fr) 1.4fr; gap: 12px; margin-bottom: 18px; }
+  .stat {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 13px 15px 11px; position: relative;
+  }
+  .stat::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 3px; }
+  .stat.c-confirmed::before { background: var(--coral); }
+  .stat.c-suspected::before { background: var(--amber); }
+  .stat.c-unknown::before { background: var(--violet); }
+  .stat .num { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+  .stat.c-confirmed .num { color: var(--coral); }
+  .stat.c-suspected .num { color: var(--amber); }
+  .stat.c-unknown .num { color: var(--violet); }
+  .stat .lab { font-size: 11.5px; font-weight: 650; letter-spacing: .4px; color: var(--ink-2); }
+  .stat .cap { font-size: 10.5px; color: var(--faint); margin-top: 2px; }
+  .coverage { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 13px 15px; }
+  .coverage .lab { font-size: 11.5px; font-weight: 650; letter-spacing: .4px; color: var(--ink-2); display: flex; justify-content: space-between; }
+  .coverage .lab .fixture { font-weight: 500; color: var(--faint); letter-spacing: 0; }
+  .cov-bar { display: flex; height: 8px; border-radius: 5px; overflow: hidden; margin: 9px 0 8px; }
+  .cov-bar i { display: block; }
+  .cov-bar .n { background: var(--teal); width: 22.2%; }
+  .cov-bar .s { background: var(--blue); width: 50%; }
+  .cov-bar .c { background: #C7CEDA; width: 27.8%; }
+  .cov-legend { display: flex; gap: 12px; font-size: 10.5px; color: var(--muted); }
+  .cov-legend b { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; }
+
+  /* ---------- Findings ---------- */
+  .sec-head { display: flex; align-items: baseline; gap: 10px; margin: 20px 0 10px; }
+  .sec-title { font-size: 14px; font-weight: 680; }
+  .sec-note { font-size: 11.5px; color: var(--faint); }
+  .findings { display: flex; flex-direction: column; gap: 8px; }
+  .finding {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 13px 16px;
+    display: grid; grid-template-columns: 118px 1fr auto; gap: 14px; align-items: center;
+    cursor: pointer; transition: border-color .12s, box-shadow .12s;
+  }
+  .finding:hover { border-color: var(--line-strong); }
+  .finding.sel { border-color: #17222E; box-shadow: 0 1px 0 #17222E, 0 4px 14px rgba(23,34,46,.07); }
+  .sev { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
+  .sev .mark { width: 10px; height: 10px; flex: none; }
+  .sev.confirmed { color: var(--coral); } .sev.confirmed .mark { background: var(--coral); border-radius: 2px; }
+  .sev.suspected { color: var(--amber); } .sev.suspected .mark { background: var(--amber); border-radius: 50%; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+  .sev.indeterminate { color: var(--violet); } .sev.indeterminate .mark { border: 2px dashed var(--violet); border-radius: 50%; background: transparent; width: 8px; height: 8px; }
+  .f-title { font-weight: 620; font-size: 13.5px; }
+  .f-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 11.5px; color: var(--muted); flex-wrap: wrap; }
+  .agent-chip { border: 1px solid var(--line); background: var(--surface-2); padding: 1px 7px; border-radius: 999px; font-size: 10.5px; color: var(--ink-2); }
+  .ev-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid; }
+  .ev-pill.native { color: var(--teal); background: var(--teal-bg); border-color: #BFDCD6; }
+  .ev-pill.static { color: var(--blue); background: var(--blue-bg); border-color: #C4D9E9; }
+  .ev-pill.attested { color: var(--ink-2); background: var(--surface-2); border-color: var(--line-strong); }
+  .ev-pill.unknown { color: var(--violet); background: var(--violet-bg); border-color: #D3CCEF; }
+  .f-right { text-align: right; font-size: 11px; color: var(--faint); }
+  .f-right .lock { color: var(--violet); font-weight: 600; }
+
+  /* ---------- Right rail ---------- */
+  .rail {
+    border-left: 1px solid var(--line); background: var(--surface);
+    overflow-y: auto; padding: 20px 20px 40px;
+  }
+  .rail-eyebrow { font-size: 10.5px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--faint); margin-bottom: 6px; }
+  .rail-title { font-size: 15.5px; font-weight: 680; letter-spacing: -.2px; margin-bottom: 14px; }
+  .decision {
+    border: 1.5px dashed var(--violet); background: var(--violet-bg);
+    border-radius: var(--radius); padding: 11px 13px; margin-bottom: 16px;
+  }
+  .decision .d-lab { font-size: 10.5px; letter-spacing: .8px; text-transform: uppercase; color: var(--violet); font-weight: 700; }
+  .decision .d-val { font-size: 15px; font-weight: 700; color: var(--violet); margin: 2px 0 3px; }
+  .decision .d-why { font-size: 11.5px; color: var(--ink-2); }
+
+  .rail-sec { margin-bottom: 18px; }
+  .rail-sec-t { font-size: 11px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: baseline; }
+  .rail-sec-t a { color: var(--blue); font-weight: 500; text-transform: none; letter-spacing: 0; font-size: 11px; text-decoration: none; }
+
+  .chain { display: flex; flex-direction: column; gap: 0; }
+  .chain-node { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--line); background: var(--surface-2); border-radius: 8px; font-size: 12px; }
+  .chain-node .ok { color: var(--teal); font-weight: 700; }
+  .chain-node.broken { border-style: dashed; border-color: var(--violet); background: var(--violet-bg); color: var(--violet); }
+  .chain-link { width: 1px; height: 10px; background: var(--line-strong); margin-left: 19px; }
+  .chain-link.broken { background: repeating-linear-gradient(var(--violet) 0 2px, transparent 2px 5px); }
+
+  .facets { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+  .facet { border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; background: var(--surface-2); }
+  .facet .f-lab { font-size: 10.5px; color: var(--muted); font-weight: 600; letter-spacing: .3px; }
+  .facet .f-val { font-size: 12px; font-weight: 650; margin-top: 2px; display: flex; align-items: center; gap: 6px; }
+  .t-present { color: var(--teal); } .t-absent { color: var(--coral); }
+  .t-indeterminate { color: var(--violet); } .t-na { color: var(--faint); }
+
+  .treatment { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 13px; background: var(--surface-2); }
+  .treatment .locked { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--ink-2); }
+  .treatment .lockicon { color: var(--violet); flex: none; }
+  .rail-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+  .btn-block { width: 100%; text-align: center; padding: 9px; }
+  .btn-disabled { background: var(--surface-2); color: var(--faint); border-color: var(--line); cursor: not-allowed; }
+  .honest-note { font-size: 10.5px; color: var(--faint); margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ============ SHELL ============ -->
+  <aside class="shell">
+    <div class="brand">
+      <div class="brand-mark">Cx</div>
+      <div>
+        <div class="brand-name">Contexpect</div>
+        <div class="brand-sub">Context Review</div>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-label">诊断</div>
+      <div class="nav-item active"><span class="nav-dot"></span>Doctor<span class="kbd">G D</span></div>
+      <div class="nav-item"><span class="nav-dot"></span>体检 Checkup<span class="kbd">G C</span></div>
+      <div class="nav-item"><span class="nav-dot"></span>Inspector</div>
+      <div class="nav-item"><span class="nav-dot"></span>Compare</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">记录</div>
+      <div class="nav-item"><span class="nav-dot"></span>Receipts</div>
+      <div class="nav-item"><span class="nav-dot"></span>Sessions</div>
+      <div class="nav-item"><span class="nav-dot"></span>Monitor</div>
+      <div class="nav-item"><span class="nav-dot"></span>Assets</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">操作</div>
+      <div class="nav-item"><span class="nav-dot"></span>Effect Lab</div>
+      <div class="nav-item"><span class="nav-dot"></span>Sync</div>
+      <div class="nav-item"><span class="nav-dot"></span>Integrations</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">治理</div>
+      <div class="nav-item"><span class="nav-dot"></span>Policy</div>
+      <div class="nav-item"><span class="nav-dot"></span>Standards</div>
+      <div class="nav-item"><span class="nav-dot"></span>Exceptions</div>
+      <div class="nav-item"><span class="nav-dot"></span>Settings</div>
+    </div>
+
+    <div class="shell-foot">
+      <div class="daemon"><span class="pulse"></span>daemon · 127.0.0.1:7420</div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main">
+    <div class="coord">
+      <div class="coord-item"><span class="lab">设备</span><span class="coord-val">MacBook-Pro</span></div>
+      <span class="coord-sep">/</span>
+      <div class="coord-item"><span class="lab">项目</span><span class="coord-val">ContextView</span></div>
+      <span class="coord-sep">/</span>
+      <div class="coord-item"><span class="lab">快照</span><span class="snap">R-2417</span><span class="stale-tag">STALE · 3h</span></div>
+      <div class="coord-right">
+        <div class="mask-toggle">◑ 隐私遮罩 <b>开</b></div>
+        <div class="cmdk">搜索或命令 <kbd>⌘K</kbd></div>
+      </div>
+    </div>
+
+    <div class="workspace">
+      <div class="content">
+        <div class="page-head">
+          <div>
+            <div class="page-title">Doctor</div>
+            <div class="page-sub">对账诊断 · 基于 Receipt R-2417 · 观测于 2026-09-10 08:41（已过期，结论可能不再成立）</div>
+          </div>
+        </div>
+
+        <div class="symptom-bar">
+          <span style="color:var(--faint)">症状</span>
+          <input class="symptom-input" value="我的 Cursor User Rules 好像没有生效" spellcheck="false">
+          <button class="btn btn-ghost">重新扫描</button>
+          <button class="btn btn-primary">诊断</button>
+        </div>
+
+        <div class="band">
+          <div class="stat c-confirmed">
+            <div class="lab">CONFIRMED</div>
+            <div class="num">2</div>
+            <div class="cap">有直接证据支撑的问题</div>
+          </div>
+          <div class="stat c-suspected">
+            <div class="lab">SUSPECTED</div>
+            <div class="num">1</div>
+            <div class="cap">证据指向但未闭环</div>
+          </div>
+          <div class="stat c-unknown">
+            <div class="lab">UNKNOWN</div>
+            <div class="num">1</div>
+            <div class="cap">缺少证据 · 不是严重程度</div>
+          </div>
+          <div class="coverage">
+            <div class="lab">ADAPTER COVERAGE <span class="fixture">fixture</span></div>
+            <div class="cov-bar"><i class="n"></i><i class="s"></i><i class="c"></i></div>
+            <div class="cov-legend">
+              <span><i class="dot" style="background:var(--teal)"></i>Native <b>4</b></span>
+              <span><i class="dot" style="background:var(--blue)"></i>Static-only <b>9</b></span>
+              <span><i class="dot" style="background:#C7CEDA"></i>Needs connector <b>5</b></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec-head">
+          <div class="sec-title">Findings</div>
+          <div class="sec-note">按影响排序 · Unknown 单列，不计入问题数</div>
+        </div>
+
+        <div class="findings">
+          <div class="finding sel" data-f="0">
+            <div class="sev indeterminate"><span class="mark"></span>Indeterm.</div>
+            <div>
+              <div class="f-title">Cursor User Rules 的模型可见性无法判定</div>
+              <div class="f-meta">
+                <span class="agent-chip">Cursor</span>
+                <span class="ev-pill unknown">? Unknown evidence</span>
+                <span>首见 09-08 14:22</span>
+              </div>
+            </div>
+            <div class="f-right"><span class="lock">⚿ Treatment 锁定</span><br>F-1013</div>
+          </div>
+
+          <div class="finding" data-f="1">
+            <div class="sev confirmed"><span class="mark"></span>Confirmed</div>
+            <div>
+              <div class="f-title">CLAUDE.md 超出注入预算，尾部 1.2k tokens 被截断</div>
+              <div class="f-meta">
+                <span class="agent-chip">Claude Code</span>
+                <span class="ev-pill native">✓ Native evidence</span>
+                <span>首见 09-09 21:03</span>
+              </div>
+            </div>
+            <div class="f-right">Care plan 可用<br>F-1014</div>
+          </div>
+
+          <div class="finding" data-f="2">
+            <div class="sev confirmed"><span class="mark"></span>Confirmed</div>
+            <div>
+              <div class="f-title">AGENTS.md 与 .cursorrules 内容漂移 37 行</div>
+              <div class="f-meta">
+                <span class="agent-chip">Cursor</span><span class="agent-chip">Codex</span>
+                <span class="ev-pill static">▤ Static resolution</span>
+                <span>首见 09-07 10:48</span>
+              </div>
+            </div>
+            <div class="f-right">Care plan 可用<br>F-1015</div>
+          </div>
+
+          <div class="finding" data-f="3">
+            <div class="sev suspected"><span class="mark"></span>Suspected</div>
+            <div>
+              <div class="f-title">MCP server「ctxpect」工具描述疑似未进入模型可见层</div>
+              <div class="f-meta">
+                <span class="agent-chip">Claude Code</span>
+                <span class="ev-pill attested">✎ User-attested</span>
+                <span>首见 09-09 18:30</span>
+              </div>
+            </div>
+            <div class="f-right">需收集证据<br>F-1016</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ RAIL ============ -->
+      <aside class="rail">
+        <div class="rail-eyebrow">Diagnosis &amp; Evidence · F-1013</div>
+        <div class="rail-title">Cursor User Rules 的模型可见性无法判定</div>
+
+        <div class="decision">
+          <div class="d-lab">Decision</div>
+          <div class="d-val">Indeterminate</div>
+          <div class="d-why">model-visible facet 无 native 证据，无法给出 pass / deny。</div>
+        </div>
+
+        <div class="rail-sec">
+          <div class="rail-sec-t">证据链 <a href="#">How do you know?</a></div>
+          <div class="chain">
+            <div class="chain-node"><span class="ok">✓</span>Source · ~/.cursor/rules 存在</div>
+            <div class="chain-link"></div>
+            <div class="chain-node"><span class="ok">✓</span>Resolver · 静态解析 4 条规则</div>
+            <div class="chain-link broken"></div>
+            <div class="chain-node broken"><span>✕</span>Native observation · 断点：无原生导出证据</div>
+          </div>
+        </div>
+
+        <div class="rail-sec">
+          <div class="rail-sec-t">六个 Facet <a href="#">Why is this here?</a></div>
+          <div class="facets">
+            <div class="facet"><div class="f-lab">Installed</div><div class="f-val t-present">● present</div></div>
+            <div class="facet"><div class="f-lab">Discoverable</div><div class="f-val t-present">● present</div></div>
+            <div class="facet"><div class="f-lab">Eligible</div><div class="f-val t-present">● present</div></div>
+            <div class="facet"><div class="f-lab">Model-visible</div><div class="f-val t-indeterminate">◌ indeterminate</div></div>
+            <div class="facet"><div class="f-lab">Use-evidence</div><div class="f-val t-na">— n/a</div></div>
+            <div class="facet"><div class="f-lab">Outcome-affecting</div><div class="f-val t-na">— n/a</div></div>
+          </div>
+        </div>
+
+        <div class="rail-sec">
+          <div class="rail-sec-t">Treatment</div>
+          <div class="treatment">
+            <div class="locked">
+              <span class="lockicon">⚿</span>
+              <span>处置已锁定。Decision 为 Indeterminate 时不允许 preview / apply —— 下一步是收集证据，而不是修改配置。</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="rail-actions">
+          <button class="btn btn-primary btn-block">收集下一条证据（Cursor inspect 导出）</button>
+          <button class="btn btn-disabled btn-block" disabled>Preview 处置（不可用）</button>
+        </div>
+
+        <div class="honest-note">
+          Static resolution 不证明模型实际收到。本页计数来自 Receipt R-2417；4/9/5 coverage 为设计 fixture，live 环境由 Receipt 复算。
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+<script>
+  // 仅演示：切换选中 finding 的高亮
+  document.querySelectorAll('.finding').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.finding').forEach(x => x.classList.remove('sel'));
+      el.classList.add('sel');
+    });
+  });
+</script>
+</body>
+</html>

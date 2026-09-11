@@ -12,7 +12,7 @@
       "header_logged_in_step": true,
       "dispatch_seq": 6,
       "reason": "initial",
-      "header_digest": "ba3fe5cbe1524e143b3be4c4bd1ded68425d691d90ece9a8491fd304916ba375",
+      "header_digest": "93ce7d87d9614293f97f1ba04924bd34ef01a01d5c94f01199efff8b9e6e818f",
       "message_count": 2,
       "messages": [
         {
@@ -40,7 +40,7 @@
       "header_logged_in_step": true,
       "dispatch_seq": 15,
       "reason": "change",
-      "header_digest": "14593aa016fd325bdc823ad741a4832a8bfbdf24f4cdbb5897cf83e9e5802f34",
+      "header_digest": "e355e6e237d8d21f5b6abec63418a0f875b0d5e971d007c72be0205cf64c2f2d",
       "message_count": 4,
       "messages": [
         {
@@ -56,7 +56,7 @@
         {
           "index": 2,
           "role": "assistant",
-          "digest": "ad3e8d76aa03ebff30cf42ca4211601d317ed685050d16be074ee49266e15203"
+          "digest": "680ecb5bcecfd9bed47418caa1f419209c3b1b48bc4ebdd3eebcd2b82505e822"
         },
         {
           "index": 3,
@@ -80,7 +80,7 @@
       "header_logged_in_step": false,
       "dispatch_seq": 18,
       "reason": "change",
-      "header_digest": "14593aa016fd325bdc823ad741a4832a8bfbdf24f4cdbb5897cf83e9e5802f34",
+      "header_digest": "e355e6e237d8d21f5b6abec63418a0f875b0d5e971d007c72be0205cf64c2f2d",
       "message_count": 5,
       "messages": [
         {
@@ -96,7 +96,7 @@
         {
           "index": 2,
           "role": "assistant",
-          "digest": "ad3e8d76aa03ebff30cf42ca4211601d317ed685050d16be074ee49266e15203"
+          "digest": "680ecb5bcecfd9bed47418caa1f419209c3b1b48bc4ebdd3eebcd2b82505e822"
         },
         {
           "index": 3,
@@ -106,7 +106,7 @@
         {
           "index": 4,
           "role": "assistant",
-          "digest": "660cc2302cb8000934dd261e89c1ee7fbc9956740214cf692f37793c9031fd20"
+          "digest": "e9c7b5da34fd420b687625df68f252e3929d929bad5da277c729cf58ccb1dcd7"
         }
       ],
       "surface_nodes": [
@@ -126,7 +126,7 @@
       "header_logged_in_step": true,
       "dispatch_seq": 26,
       "reason": "series",
-      "header_digest": "14593aa016fd325bdc823ad741a4832a8bfbdf24f4cdbb5897cf83e9e5802f34",
+      "header_digest": "e355e6e237d8d21f5b6abec63418a0f875b0d5e971d007c72be0205cf64c2f2d",
       "message_count": 4,
       "messages": [
         {
@@ -137,12 +137,12 @@
         {
           "index": 1,
           "role": "assistant",
-          "digest": "660cc2302cb8000934dd261e89c1ee7fbc9956740214cf692f37793c9031fd20"
+          "digest": "e9c7b5da34fd420b687625df68f252e3929d929bad5da277c729cf58ccb1dcd7"
         },
         {
           "index": 2,
           "role": "assistant",
-          "digest": "148ba49cca574f6f2c29a67f761b03c471f5a10043a867f56c23dfb227358052"
+          "digest": "2eaea68fc5f1e7183d93cd20bff22c35c1847788153fbbccecd6ddf82ab9f1fb"
         },
         {
           "index": 3,

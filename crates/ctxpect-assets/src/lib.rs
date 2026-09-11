@@ -293,8 +293,15 @@ pub fn apply(
         ));
     }
 
+    // A secret-bearing executor path is refused, not archived: neither the
+    // bytes being copied nor the bytes a backup would keep may carry a
+    // credential shape (the same gate projection uses).
+    secret_gate("asset content", &bytes)?;
     let target = contained_new_path(root, &plan.asset.target_rel)?;
     let current = probe_target(&target)?;
+    if let Some(current) = &current {
+        secret_gate("current target content (would enter the backup)", current)?;
+    }
     let now_before = current
         .as_deref()
         .map(sha256_hex)
@@ -356,6 +363,18 @@ fn tx_meta(plan: &CopyPlan, state: &str) -> Value {
         ("state", string(state)),
         ("authority", string("contexpect-assets-copy-executor")),
     ])
+}
+
+/// Refuse a payload that carries a credential shape (`assets.contains_secrets`).
+fn secret_gate(label: &str, bytes: &[u8]) -> Result<(), AssetError> {
+    let text = String::from_utf8_lossy(bytes);
+    if let Some(class) = ctxpect_doctor::secret_literal(&text) {
+        return Err(AssetError::new(
+            "assets.contains_secrets",
+            format!("{label} carries a `{}` secret shape; a secret-bearing executor path is refused", class.as_str()),
+        ));
+    }
+    Ok(())
 }
 
 /// Write through an exclusively created sibling temp file and rename into
@@ -681,6 +700,23 @@ mod tests {
         assert_eq!(err.code, "assets.digest_mismatch");
         // Nothing was written.
         assert!(scratch.read(".ctxpect/skills/skill-a.md").is_none());
+    }
+
+    #[test]
+    fn a_secret_bearing_target_is_never_archived_into_a_backup() {
+        let scratch = Scratch::new("secret");
+        scratch.write("vendor/skill-a.md", BODY);
+        // The file the copy would overwrite carries a credential shape.
+        scratch.write(".ctxpect/skills/skill-a.md", "token=ghp_fixture_not_a_real_secret_00\n");
+        let root = scratch.root();
+        let asset = registered(Some(&registry_json("")), "skill-a").unwrap();
+        let plan = preview(&root, &asset).unwrap();
+        assert!(plan.overwrites);
+        let backup = scratch.path.join("store/apply/tx-secret");
+        let err = apply(&root, &plan, &backup, true).expect_err("secret");
+        assert_eq!(err.code, "assets.contains_secrets");
+        assert!(!backup.exists(), "refused before any backup exists");
+        assert_eq!(scratch.read(".ctxpect/skills/skill-a.md").as_deref(), Some("token=ghp_fixture_not_a_real_secret_00\n"));
     }
 
     #[test]

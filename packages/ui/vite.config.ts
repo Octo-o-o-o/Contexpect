@@ -8,7 +8,9 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:7420",
+        // The daemon's default listen address; CTXPECT_DAEMON_URL overrides
+        // it for a dev setup that points at a non-default daemon.
+        target: process.env.CTXPECT_DAEMON_URL ?? "http://127.0.0.1:7420",
         changeOrigin: false,
       },
     },

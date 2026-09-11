@@ -90,11 +90,13 @@ cwd 见下表。env：不强制 `CARGO_NET_OFFLINE`，不设 `CI`。fixture：`p
 | ui-typecheck | `packages/ui` | `pnpm typecheck` | typescript 5.7.3 |
 | ui-build | `packages/ui` | `pnpm build` | vite 6.0.11 |
 
+CI 模板 `.github/workflows/gates.yml` 在 ubuntu-24.04 与 macos-15 上跑上表全部 required gate（前端四条只在 ubuntu）；远端结果未回来之前不算 lane 已验。
+
 可选门禁（不进 required 表，[ADR 0006](../adr/0006-third-party-dependency-policy-and-estimator.md)）：
 
 | 名称 | cwd | 命令 | 覆盖 |
 | --- | --- | --- | --- |
-| ui-e2e | `packages/ui` | `pnpm test:e2e` | Playwright 1.56.1 + Chromium headless shell，`global-setup` 构建 UI 到 `tests/.e2e-dist`、在临时项目/store 上起真实 `ctxpect daemon`（`--listen 127.0.0.1:0`）并经 API 种入两份原生会话与一个实验；用例覆盖 `/sessions/:id` 取数与选择、会话切换后旧错误不残留、**离开会话后其迟到的响应被丢弃**（`page.route` 延迟 s-alpha 的请求证据，客户端跳到不存在的会话后错误横幅保留、表格不出现）、`/lab` 列表与明细的执行状态、`/checkup` 真实 inspect 往返。需联网安装浏览器与已构建二进制，因此本机实跑记录退出码，不作为离线 required gate |
+| ui-e2e | `packages/ui` | `pnpm test:e2e` | Playwright 1.56.1 + Chromium headless shell，`global-setup` 构建 UI 到 `tests/.e2e-dist`、在临时项目/store 上起真实 `ctxpect daemon`（`--listen 127.0.0.1:0`）并经 API 种入两份原生会话与一个实验；用例覆盖 `/sessions/:id` 取数与选择、会话切换后旧错误不残留、**取消**（延迟 `/api/v1/receipts` 后点击取消 → `cancelled` 状态且响应不落页）、**离开会话后其迟到的响应被丢弃**（`page.route` 延迟 s-alpha 的请求证据，客户端跳到不存在的会话后错误横幅保留、表格不出现）、`/lab` 列表与明细的执行状态、`/checkup` 真实 inspect 往返。需联网安装浏览器与已构建二进制，因此本机实跑记录退出码，不作为离线 required gate |
 
 未跑或失败不得记为通过。Tauri 桌面壳已存在于独立 workspace `apps/desktop/src-tauri`（macOS lane 已验，见 [交付状态](2026-09-08-delivery-status.md)），但**没有 Tauri required gate**：是否把 `cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml` 纳入门禁取决于第三方依赖政策的决定（缺口分析 A4-(d)）。
 

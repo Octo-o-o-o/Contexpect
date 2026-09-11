@@ -670,7 +670,7 @@ OutcomeAffecting facet 的 decision 只允许：`supported-beneficial`、`suppor
 10. `Policy`：分层有效 policy、recommended/required/prohibited、detect-only 诚实性、Approval、例外和 audit events。
 11. `Standards`：Team Context Standard 目录、成员 disclosure、per-harness projection；adapter conformance 放 Integrations。
 12. `Settings`：privacy、retention、analysis adapters、notification、resource limits。
-13. `Exceptions`：request/approve/reject/revoke。
+13. `Exceptions`：查看与状态；request/approve/reject/revoke 经 CLI 身份通道（仓内已登记 principals，[ADR 0005](../adr/0005-exception-identity-and-mutation-boundary.md)），UI 动作待 daemon 身份通道建立后开放。（2026-09-09 澄清：原句「request/approve/reject/revoke」未区分 UI 与 CLI，与已接受的 ADR 0005 矛盾；按 ADR 对齐，非新增需求。）
 14. `Team compliance`（leader）：redacted compliance/drift，不含私有 prompt 或 session 正文。
 
 ### 9.2 Inspector 视觉层级

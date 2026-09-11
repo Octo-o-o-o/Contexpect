@@ -1,0 +1,2 @@
+## always
+Run tests first.​

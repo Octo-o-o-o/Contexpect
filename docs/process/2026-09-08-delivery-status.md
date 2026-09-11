@@ -71,17 +71,32 @@
 | HTTP / UI（P1–P2） | 一次 `read()` 当完整请求：分段到达的体被丢弃按 `{}` 处理，>64 KiB 体必失败；无 read timeout，空闲连接阻塞 daemon；`POST /rollback` 的 `tx_id` 路径穿越；`POST /intent/preview` 空体用默认值算出预览并落盘；`GET /sessions/import` 命中 `:id`；settings 不经 `object_body`；`useResource` 的旧回调无代次守卫；Doctor 链的 generation 是另一份手写计数；e2e 没有真正制造重叠请求；桌面壳把 `http://127.0.0.1:7420@example.invalid` 读成回环主机 | 按 `Content-Length` 收满、64 KiB/4 MiB 上限、5 s 读超时、拒绝 `Transfer-Encoding`、HEAD/OPTIONS 语义；`tx_id` 形状校验；preview 必填字段；字面路由排他；settings 走 `object_body` 并剥离 `snapshot_digest`；`useResource`/`runInspect` 共用 `createGeneration()` 并 abort 旧请求；e2e 新增「离开会话后迟到响应被丢弃」用例；桌面壳改用 `Url::parse` 并拒绝 userinfo（`only_a_plain_loopback_http_url_is_accepted`，`cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --offline` 通过） |
 | 文档 ↔ 实现 | 引用了不存在的测试名；gap-analysis §8 C15 的 reason code 已被 T3 替换；`align.byte-equality-not-semantic` 不存在；`exception request` 示例缺必填参数；provenance 漏登记 `fsevents`；审计链"删除均可检测"超出实现；journal 路径与 legacy 代码名写错；grammar 文档 CL2/CL3 的来源不在台账；`NOT_EXECUTED` 漏列 doctor 语料；`adapter test` 的 `corpus_digest` 是现算不是核对；两个只解析不使用的 flag | 逐条改正（见各文档 2026-09-09 段落）；`--locale`/`--kind` 改为显式 `usage.unimplemented` |
 
-### 已记录、未修（需要决策或超出本轮）
+### 已记录、未修（需要决策或超出本轮）→ 已于同日下午处理，见下节
 
-- Doctor 语料每条规则实质只有 1 个独立正例 + 1 个反例（其余逐字复制）；声明类文件名是 Contexpect 自有约定且无写入者、无命名空间；`symlink_escape` 对指向根内的绝对链接误报；本仓库自身 `ctxpect doctor` exit 2 且无 suppress 机制。都写进 [doctor-rule-map「度量与语料的诚实边界」](doctor-rule-map.md)；改语料答案或加命名空间需要 contract revision。
-- MAC 输入无域分隔（Receipt / 审计链 / 标准文档共用一把密钥、靠输入形状区分）：P3，改动会让既有签名失效，记入威胁模型。
-- DSH header 里的浮点字面量（`temperature`）按本解析器边界报 `import_parse_failed`：`BOUNDARY.md` 已知边界，需单独决定 float canonical 化。
-- daemon 会话坐标是全 daemon 单例、`POST /inspect` 接受任意本机路径：写进 desktop-ui 与威胁模型，身份通道随 ADR 0005 后续决定。
-- ADR 0007（E2EE 依赖来源）、ADR 0005「是否永久 CLI-only」仍未建；PRD §9.1 第 13 项文字未改（会变更 traceability golden 行）。
+- Doctor 语料信息量、声明文件命名空间、suppress 机制 → D1 / D2。
+- MAC 域分隔 → D8。DSH 浮点字面量 → D3。daemon 会话坐标与 `POST /inspect` 范围 → D4。
+- ADR 0007、ADR 0005 非永久性、PRD §9.1 第 13 项 → D5 / D6 / D7。
 
 ### 本轮验证
 
 16 条 required gate 在修复后的候选上逐条退出码 0（cargo 六条在 staged 树的干净 worktree 上另行复跑），`ui-e2e` 5/5，桌面壳单测 1/1；`corpus-conformance` 计数不变（1,924 = 9 + 13 + 0 + 1,902），`doctor-corpus` 20 条规则 1.00/1.00，`native-conformance` 在重新生成的夹具上 4/4。
+
+## 2026-09-09 续：决策项实施（D1–D8）
+
+八项此前标为「需要决策」。每项先与 Codex `gpt-6-astra`（xhigh，只读会话）交叉讨论，采纳其修改意见后实施；Codex 的逐项立场记录在会话 scratchpad 的 `codex-decisions.last.md`，此处只记结论与证据。
+
+| 项 | 决定 | 实施与证据 |
+| --- | --- | --- |
+| D1 声明文件命名空间 | 双轨识别（`.ctxpect/<name>` 或根目录 `<name>` + `schema: ctxpect-<name>-v1`），以 contract revision 重生成语料：旧答案不改，输入只多 `schema` 键；每条规则补内容不同的正反例 | `rules.rs` `declarations()`；`claude_code.rs` `budget.json` 同规则（`a_root_budget_without_the_schema_is_not_a_declaration_but_the_namespaced_one_is`）；`contexpect_fixtures.py` `_declarations` / `decl()` / 变体；语料 589 → 707 行（29 双轨 + 89 变体），旧 589 行答案逐 id 相同、280 个输入文件差异仅 `schema` 键（脚本核对）；`doctor-corpus` 20/20 1.00/1.00；`doctor_corpus.rs` 断言改 707 |
+| D2 suppressions | `.ctxpect/doctor-suppressions.json`，finding 仍输出并标 `suppressed`，事实计数保留、另加 active 计数，阻断规则必须绑定 `evidence_digest`，无效条目非阻断报出 | `crates/ctxpect-doctor/src/suppressions.rs`（12 单测）；`blocking_exit` 只看 active；`a_suppression_keeps_the_finding_visible_and_is_bound_to_the_reviewed_bytes`（改一字节即失效） |
+| D3 DSH 浮点字面量 | **不**扩展公开 canonical JSON：`parse` 仍拒绝浮点；新增 `parse_preserving_numbers` 只给 DSH importer 用，非整数按原始词素保留（`Value::Number(NumberLexeme)`）、原样回写、不做算术、`as_i64` 为 None；词素必须是 `JSON.stringify` 的形状（否则 `import_parse_failed`），因此 `header_digest` 与 DSH 自己的哈希一致 | `json.rs` `NumberLexeme::new` / `is_js_shortest_form`；validator `number` 接受词素、`integer` 不接受；`generate.ts` header 加 `config.temperature: 0.5` 等，夹具与 manifest digest 重生成；`native-conformance` 4/4；`BOUNDARY.md` 经 `render_boundary` 重生成 |
+| D4 daemon 观测范围 | Receipt 记 `coordinate.project_digest`；`/monitor`、`/care-plan/:id`、`/team/compliance` 接受 `?receipt_id=`，显式 id 不回退；Receipt 的项目摘要与 daemon `--project` 不符 → `api.receipt_scope`，任一方缺失 → Unknown（Doctor 报 `project_rules.scanned: false` + `api.receipt_scope_unknown`，其余端点报错）；`POST /inspect` 的 `project` 必须落在 `--project` 内、`codex_home` 必须等于 `--codex-home`，否则 `api.project_scope`；无 `--project` 的 daemon 不接受任何 `project` | `http.rs` `ReceiptScope` / `scoped_receipt` / `selected_receipt`；`the_daemon_scans_only_its_root_and_reads_receipts_only_from_it`；`persist_inspect_in` 为 collect / doctor / preflight / post-Receipt / ci 盖章 |
+| D5 E2EE 依赖来源 | ADR 0007：age 格式；两条实现路径（vendored `age` crate 经 ADR 0006 supersede；外部 `age` 可执行文件经受控 executor）都以「先修订进程护栏」为前置；当前 `sync.encryption_unavailable` 不变 | ADR 0007（原记录声称已形成；2026-09-11 核对当前工作区缺此文件，决策依据待补证，不能据此启用加密实现） |
+| D6 ADR 0005 非永久 | 写明 CLI-only 的退出条件：daemon 取得访问凭证（`--token-file` 随机 token 或 Unix socket peer credential）**且**请求映射到已登记 principal 并过既有四眼；浏览器自报角色永不算 | [ADR 0005 修订](../adr/0005-exception-identity-and-mutation-boundary.md) |
+| D7 PRD §9.1 第 13 项 | 原句就地改为「查看与状态；request/approve/reject/revoke 经 CLI 身份通道，UI 动作待身份通道」并附日期澄清 | `generate_acceptance.py` 重跑：traceability 250 行不变（Codex 复核 + `--traceability` PASS），只有 PRD 的 digest 变化 |
+| D8 MAC 域分隔 | 新签名 `hmac-sha256/ctxpect-receipt-v2`（输入 `canonical_json({domain, digest, created_at, signed_at})`）、审计条目 `v: 2` 带域前缀、标准文档 `hmac-sha256/ctxpect-standard-v2`；验签按 `signature.algorithm` 严格选规则（未知 → `*.signature_algorithm_unknown`），v1 仍按 v1 验（同一密钥，不是降级面） | `ctxpect-receipt` / `ctxpect-store` / `dispatch.rs` 各一条「v1 仍验、tag 只选一条规则」测试；schema `algorithm` enum |
+
+顺带修正：`generate_acceptance.py` 的 DSH `field-to-claim` 文案此前落后于手改过的 yaml（重生成会回退到旧文案），已把生成器对齐到已评审文本；`native-conformance` 新增的 `config` 对象同时覆盖 `top_p` 与整数 `maxTokens`。
 
 ## 上一轮 review §9 清单的逐项状态
 

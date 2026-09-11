@@ -36,6 +36,7 @@ fn type_name(value: &Value) -> &'static str {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
         Value::Int(_) => "integer",
+        Value::Number(_) => "number",
         Value::Str(_) => "string",
         Value::Array(_) => "array",
         Value::Object(_) => "object",
@@ -44,7 +45,10 @@ fn type_name(value: &Value) -> &'static str {
 
 fn type_matches(expected: &str, value: &Value) -> bool {
     match expected {
-        "number" => matches!(value, Value::Int(_)),
+        // `number` admits an integer and a preserved non-integer lexeme;
+        // `integer` admits only `Value::Int`, so a schema that says
+        // `integer` still refuses a float that slipped in as a lexeme.
+        "number" => matches!(value, Value::Int(_) | Value::Number(_)),
         other => type_name(value) == other,
     }
 }
@@ -143,7 +147,9 @@ fn check(root: &Value, schema: &Value, instance: &Value, path: &str, errors: &mu
     {
         errors.push(format!("{path}: value is not one of the `enum` members"));
     }
-    if let Some(Value::Array(required)) = map.get("required") {
+    if instance.as_object().is_some()
+        && let Some(Value::Array(required)) = map.get("required")
+    {
         for key in required.iter().filter_map(Value::as_str) {
             if instance.get(key).is_none() {
                 errors.push(format!("{path}: missing required property `{key}`"));
@@ -249,5 +255,18 @@ mod tests {
         // `$ref` with a sibling keyword is refused, not silently narrowed.
         let sibling = parse(r##"{"type":"object","properties":{"a":{"$ref":"#/$defs/p","enum":["x"]}},"$defs":{"p":{"type":"string"}}}"##).unwrap();
         assert!(validate(&sibling, &parse(r#"{"a":"y"}"#).unwrap()).is_err());
+    }
+}
+
+
+#[cfg(test)]
+mod nullable_tests {
+    #[test]
+    fn object_required_applies_to_objects_but_not_nullable_absence() {
+        let schema = crate::parse(r#"{"type":["object","null"],"required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":false}"#).unwrap();
+        assert!(super::validate(&schema, &crate::Value::Null).is_ok());
+        assert!(super::validate(&schema, &crate::parse("{}").unwrap()).is_err());
+        assert!(super::validate(&schema, &crate::parse(r#"{"id":"a"}"#).unwrap()).is_ok());
+        assert!(super::validate(&schema, &crate::parse(r#"{"id":42}"#).unwrap()).is_err());
     }
 }
