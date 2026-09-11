@@ -17,7 +17,7 @@
 
 ## 开发者环境
 
-文档/合同门禁只需要 Python 3.9+ 标准库；Rust 门禁需要 stable toolchain（零第三方 crate，离线）；前端四条需要 Node 22 / pnpm。不要为门禁安装 pip 包。本阶段 16 条 required gate 的名称与命令以 [AGENTS.md](AGENTS.md) 为准，必须一起跑；前四条如下：
+文档/合同门禁只需要 Python 3.9+ 标准库；Rust 门禁使用 `rust-toolchain.toml` 钉住的 Rust 1.94.0 与 clippy（rustup 自动选用；零第三方 crate，离线）；前端四条需要 Node 22 / pnpm。不要为门禁安装 pip 包。本阶段 16 条 required gate 的名称与命令以 [AGENTS.md](AGENTS.md) 为准，必须一起跑；前四条如下：
 
 ```bash
 python3 scripts/check_docs.py

@@ -1,0 +1,6 @@
+# Local and CI gates run the same toolchain. The workspace denies
+# `clippy::all`, so every lint a newer clippy adds is a gate failure:
+# moving to a newer Rust is an explicit change, never a runner update.
+[toolchain]
+channel = "1.94.0"
+components = ["clippy"]
