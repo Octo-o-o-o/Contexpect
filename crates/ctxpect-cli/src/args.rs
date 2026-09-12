@@ -141,6 +141,7 @@ pub struct ProductArgs {
     pub n: Option<i64>,
     pub execute: bool,
     pub oneshot: bool,
+    pub poll_ms: Option<u64>,
     pub text: Option<String>,
     /// Mutation action an exception is requested for / a policy query is about.
     pub action: Option<String>,
@@ -220,6 +221,7 @@ where
     let mut n = None;
     let mut execute = false;
     let mut oneshot = false;
+    let mut poll_ms = None;
     let mut text = None;
     let mut action = None;
     let mut expires_in = None;
@@ -402,6 +404,10 @@ where
                 "adapter" => {
                     adapter = Some(need_value("adapter", inline, &mut iter, command.as_deref())?);
                 }
+                "poll-ms" => {
+                    let value=need_value("poll-ms",inline,&mut iter,command.as_deref())?;
+                    poll_ms=Some(value.parse::<u64>().ok().filter(|n|(100..=3_600_000).contains(n)).ok_or_else(||invalid("--poll-ms must be 100..3600000".into(),command.clone()))?);
+                }
                 "n" => {
                     let value = need_value("n", inline, &mut iter, command.as_deref())?;
                     n = Some(value.parse::<i64>().map_err(|_| {
@@ -552,6 +558,9 @@ where
                 required.push(item);
             }
         }
+        if poll_ms.is_some() && (command!="daemon" || subcommand.as_deref()!=Some("start") || !execute) {
+            return Err(invalid("--poll-ms requires daemon start --execute".into(),Some(command)));
+        }
         return Ok(Cli::Product(Box::new(ProductArgs {
             command,
             subcommand,
@@ -596,6 +605,7 @@ where
             n,
             execute,
             oneshot,
+            poll_ms,
             text,
             action,
             expires_in,
@@ -644,7 +654,7 @@ fn listed_subcommands(command: &str) -> &'static [&'static str] {
     match command {
         "receipt" => &["show", "verify", "export", "redact"],
         "daemon" => &["start", "stop", "status"],
-        "sync" => &["preview", "apply", "status"],
+        "sync" => &["preview", "apply", "status", "seal"],
         "intent" => &["validate", "show", "project", "preview"],
         "standard" => &[
             "validate", "publish", "preview", "adopt", "pin", "update", "status", "leave",

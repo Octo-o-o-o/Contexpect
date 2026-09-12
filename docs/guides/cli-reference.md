@@ -284,3 +284,10 @@ CTXPECT_PRINCIPAL_SECRET=<secret> ctxpect exception request \
 ## 当前可运行的范围
 
 `ctxpect` 二进制可构建并实现命令树里列出的命令（`--config`/`--privacy`/`--allow-unknown`/`--force`/`--sarif` 与 `launch --execute` 仍 fail-closed）。静态 resolver 只覆盖两个 anchor 的 `instructions`（Codex 0.147.0、Claude Code 2.1.259，见 `docs/adapters/grammar/`）；其余坐标与 capability 如实报 Unknown。逐项状态见 [交付状态](../process/2026-09-08-delivery-status.md)。`python3 scripts/check_*.py` 是文档/合同门禁，不是产品命令，不要把它们别名为 `ctxpect`。
+
+## 原生工具与运行 adapter（2026-09-12）
+
+- `collect --execute --adapter codex-prompt-input-v1|grok-inspect-v1 --profile <profile.json> --harness codex|grok-build --version <pinned-version> --project <project> --store <store>` 需 `native.capture` grant。本地 profile schema 为 `ctxpect-native-tool-profile-v1`，`tool` 含绝对 `path` 与 `sha256`。隔离 HOME 下执行真实 oracle；当前支持 Codex 0.147.0、Grok 1.0.13 的 macOS 27 arm64，记录实际 OS build 是否匹配冻结值。输出为脱敏 native observation，`receipt_id: null`、`claims_upgraded: false`；不代表真实模型执行或 provider-wire 证据。
+- `sync seal|preview|apply|status --adapter age-ssh-v1` 的 profile 与 grant 见 [加密协议](../security/encrypted-sync-protocol.md#当前-cli-transport-切片)。没有 adapter 时仍使用既有 metadata 路径，不隐式降级传输正文。
+- `experiment --execute --adapter command-v1` 的协议与证据边界见 [Effect Lab](llm-advisor-and-effect-lab.md#外部-command-runner2026-09-12)。
+- `daemon start --execute --poll-ms <100..3600000>` 与基于所有权的 stop 见 [运维](operations.md)。

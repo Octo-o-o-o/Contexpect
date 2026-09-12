@@ -165,3 +165,7 @@
 
 - 浏览器自动化注入的 `keydown` 其 `key` 与 `code` 为空，页面无从判断按了什么。Tab 不受影响（浏览器层处理），但 Enter/Space 的激活只能用合规事件验证。
 - CDP 改视口后 `innerWidth` 与 `matchMedia().matches` 都已更新，却不派发 `resize` 或 `change`。断点切换因此只验到代码路径。
+
+## 2026-09-12 原生运行与发行接续
+
+本页较早记录中的“E2EE/oracle runner/daemon stop 未实现”为当时状态。当前新增外部 age/SSHSIG CLI transport、command Effect runner、真实 Codex/Grok observation、periodic-static daemon 和有所有权的停止流程；范围、证据与仍未完成项统一见 [本轮执行记录](../plan/2026-09-12-runtime-and-release-execution.md)。这些切片不等于完整 WP-07/WP-10/WP-12 或独立验收通过。

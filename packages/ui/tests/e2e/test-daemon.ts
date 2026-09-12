@@ -79,7 +79,7 @@ function runsDocument(pairs: number): unknown {
   };
 }
 
-export async function startTestDaemon(extraGrants: string[] = []) {
+export async function startTestDaemon(extraGrants: string[] = [], periodic = false) {
   const bin = process.env.CTXPECT_BIN ?? join(repoRoot, "target/debug/ctxpect");
   const scratch = mkdtempSync(join(tmpdir(), "cx-e2e-"));
   const project = join(scratch, "project");
@@ -110,7 +110,7 @@ export async function startTestDaemon(extraGrants: string[] = []) {
     }),
   );
 
-  const daemon = spawn(bin, ["daemon", "start", "--project", project, "--store", store, "--ui-root", distDir, "--listen", "127.0.0.1:0"], {
+  const daemon = spawn(bin, ["daemon", "start", ...(periodic ? ["--execute", "--poll-ms", "100"] : []), "--project", project, "--store", store, "--ui-root", distDir, "--listen", "127.0.0.1:0"], {
     stdio: ["ignore", "ignore", "pipe"],
   });
   let stderr = "";

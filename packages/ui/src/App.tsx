@@ -1716,6 +1716,7 @@ function ReceiptsListView({ data, locale }: { data: Json; locale: Locale }) {
 function MonitorView({ data, locale }: { data: Json; locale: Locale }) {
   if (data.schema !== "ctxpect-monitor-v1") return <pre className="mono">{JSON.stringify(data, null, 2)}</pre>;
   const staleness = asObj(data.staleness);
+  const continuous = asObj(data.continuous);
   return <>
     <dl className="kv" data-testid="monitor-summary">
       <dt>Receipt</dt><dd>{String(data.current_receipt_id ?? "—")}</dd>
@@ -1723,6 +1724,12 @@ function MonitorView({ data, locale }: { data: Json; locale: Locale }) {
       <dt>{t(locale, "reasonCodeLabel")}</dt><dd>{String(staleness.reason_code ?? "—")}</dd>
       <dt>mode</dt><dd>{String(data.mode ?? "—")}</dd>
       <dt>compared</dt><dd>{String(staleness.compared ?? "—")}</dd>
+      {continuous.enabled === true ? <>
+        <dt>{t(locale, "monitorScans")}</dt><dd>{String(continuous.scans ?? "—")}</dd>
+        <dt>{t(locale, "monitorLastReceipt")}</dt><dd>{continuous.last_receipt_id ? <NavLink to={`/receipts/${encodeURIComponent(String(continuous.last_receipt_id))}`}>{String(continuous.last_receipt_id)}</NavLink> : "—"}</dd>
+        <dt>{t(locale, "monitorScope")}</dt><dd>{t(locale, "monitorStaticScope")}</dd>
+        {continuous.error_code ? <><dt>{t(locale, "reasonCodeLabel")}</dt><dd role="alert">{String(continuous.error_code)}</dd></> : null}
+      </> : null}
     </dl>
     <RawJsonDetails data={data} locale={locale} />
   </>;
@@ -3193,6 +3200,7 @@ function SyncPage({ locale }: { locale: Locale }) {
 
   const conflict = preview?.conflict === true;
   const outcome = applied ?? preview;
+  const secureGroups = Array.isArray(asObj(status.data).secure_groups) ? asObj(status.data).secure_groups as Json[] : [];
 
   return (
     <section className="panel">
@@ -3207,6 +3215,16 @@ function SyncPage({ locale }: { locale: Locale }) {
         onRetry={status.retry}
       />
       <p className="muted">{t(locale, "syncDestFixed")}</p>
+      <p className="muted" data-testid="sync-encrypted-notice">{t(locale, "syncEncryptedCli")}</p>
+      {secureGroups.length > 0 ? (
+        <div data-testid="sync-secure-groups">
+          <h2>{t(locale, "syncEncryptedGroups")}</h2>
+          <ul>{secureGroups.map((item) => {
+            const group = asObj(item);
+            return <li key={String(group.group)}>{String(group.group)} · {String(group.generation ?? "?")} · {String(group.semantic ?? group.reason_code)} · {t(locale, "syncNativePending")}</li>;
+          })}</ul>
+        </div>
+      ) : null}
 
       <div className="row">
         <label>
@@ -3214,7 +3232,7 @@ function SyncPage({ locale }: { locale: Locale }) {
           <input
             value={bundleId}
             disabled={busy !== ""}
-            onChange={(e) => setBundleId(e.target.value)}
+            onChange={(e) => { setBundleId(e.target.value); setPreview(null); setApplied(null); setProblem(null); }}
           />
         </label>
         <button type="button" disabled={busy !== ""} onClick={() => void call("preview")}>

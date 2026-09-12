@@ -158,6 +158,18 @@ fn no_product_crate_on_the_scan_path_creates_processes() {
                 }
                 let source = fs::read_to_string(&path).expect("read source");
                 checked += 1;
+                // ADR 0007 permits only the bounded CLI executor to spawn.
+                // Passive collectors/resolvers and future modules retain the guard.
+                let relative = path.strip_prefix(&crates_dir).unwrap().to_string_lossy();
+                if relative == "ctxpect-cli/src/tool_process.rs" { continue; }
+                if !["ctxpect-cli/src/lib.rs", "ctxpect-cli/src/dispatch.rs",
+                    "ctxpect-cli/src/native_oracle.rs", "ctxpect-cli/src/secure_sync.rs",
+                    "ctxpect-cli/src/effect_runner.rs"].contains(&relative.as_ref()) {
+                    let passive_source = if relative == "ctxpect-cli/src/http.rs" {
+                        source.replace("crate::tool_process::private_write", "private_file_write")
+                    } else { source.clone() };
+                    assert!(!passive_source.contains("tool_process"), "passive path references executor: {relative}");
+                }
                 for forbidden in FORBIDDEN {
                     assert!(
                         !source.contains(forbidden),

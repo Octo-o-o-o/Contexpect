@@ -182,7 +182,7 @@ test("the routing table is parsed and routes by method as well as path", () => {
   const routes = backendRoutes();
   // Exact: a route rustfmt wrapped onto two lines, or one added without
   // updating this count, would otherwise disappear from the contract check.
-  assert.equal(routes.length, 45, `parsed ${routes.length} routes`);
+  assert.equal(routes.length, 46, `parsed ${routes.length} routes`);
   assert.ok(routedByBackend({ method: "POST", path: "/api/v1/receipts/:id/verify" }));
   assert.ok(routedByBackend({ method: "GET", path: "/api/v1/care-plan/:findingId" }));
   // A path the daemon knows under another method is not routed: the method

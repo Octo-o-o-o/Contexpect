@@ -81,6 +81,7 @@ test("an exception's status document is identical from the CLI and the API, and 
   const apiIds = (listApi.exceptions as string[]).slice().sort();
   expect(apiIds).toContain(exceptionId);
   await page.goto(`${base()}/exceptions`);
+  await expect(page.locator("tbody td.mono")).toHaveCount(apiIds.length);
   const uiIds = (await page.locator("tbody td.mono").allTextContents()).map((s) => s.trim()).sort();
   expect(uiIds).toEqual(apiIds);
 });
@@ -100,6 +101,7 @@ test("the session id set and one session document agree across CLI, API and the 
 
   // (c) UI leg: the rendered link texts on /sessions.
   await page.goto(`${base()}/sessions`);
+  await expect(page.getByTestId("session-list").locator("tbody tr")).toHaveCount(apiIds.length);
   const uiIds = (
     await page.getByTestId("session-list").locator("tbody tr td:first-child").allTextContents()
   )

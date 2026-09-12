@@ -1,6 +1,6 @@
 # 加密同步协议
 
-> 状态：规范（尚未实施产品运行时）
+> 状态：规范；2026-09-12 已有外部 age / SSHSIG 的 CLI transport 切片，完整 WP-07 尚未实施完毕、未验收。
 > 算法选择见 [ADR 0003](../adr/0003-encrypted-sync-and-signing.md)。
 
 ## 目标
@@ -79,6 +79,14 @@ Core 定义 bundle 格式与 provider contract。完整交付内置：
 
 签名的 Team Context Standard 必须能经 git/file 本地分发。把同一 bundle 放进已有加密云/文件夹 provider 只是可选传输，不得成为语义依赖，也不得把 transport success 写成 semantic reconciliation success。
 
-## 尚未实施
+## 当前 CLI transport 切片
 
-WP-07 将实现本协议。本阶段只有合同与测试向量清单，没有可运行的 sync engine。
+`sync seal|preview|apply|status --adapter age-ssh-v1 --profile <local-profile.json>` 使用 [ADR 0007](../adr/0007-external-age-ssh-and-runner-adapters.md) 的外部 age / SSHSIG。`seal` 只接受 `ctxpect-sync-assets-v1` 中显式 `device-group` 的 instruction 资产；需 `sync.seal` policy grant。导出文件要求新路径，不覆盖已有文件，也不推进发送端 head。发送端须先 preview/apply 自己的导出，才能继续下一代。
+
+接收端验证完整签名、当前 recipient/epoch、信任有效期及撤销，再在内存解密。`preview` 给出 15 分钟的 `tx_id`，绑定 profile、当前 head 和输入；`apply --tx <id>` 需 `sync.apply` grant，并重新核验后原子存储密文 head 与资产大小/id 元数据，保存上一代密文。正文不写入 store。双 profile、未来 recipient 撤销、篡改、分叉、过期预览测试在 `scripts/check_secure_sync.py`。
+
+本地 profile 显式指定 group、epoch、trust_valid_until、recipients、signers（principal→recipient）、sender、identity/signing_key/allowed_signers/revoked_signers 路径，以及 age/ssh_keygen 的绝对路径和 SHA-256。profile 不从远端导入；临时测试 profile 的完整构造见上述脚本，不应把测试授权复制到生产。
+
+## 保留工作
+
+该切片未完成 native projection、跨设备语义 Receipt、Git provider、组织 enrollment、OS keystore 接入或完整资产类型。Web Sync 页展示接收状态和边界，加密操作仍走 CLI。收取密文只算 transport，不是完整 WP-07 验收。

@@ -43,10 +43,16 @@ Decision 只允许：
 
 ### 当前实现的诚实边界
 
-- `ctxpect experiment` / `POST /api/v1/lab` **不自造观测**：没有 runs 文档就是未执行（`executed: false`、`effect.runs_required`、无 decision），本地探针与预构造 fixture 已从产品路径移除，fixture 只存在于测试命名空间。
+- 不带 `--execute` 的 `ctxpect experiment` / `POST /api/v1/lab` **不自造观测**：没有 runs 文档就是未执行（`executed: false`、`effect.runs_required`、无 decision），本地探针与预构造 fixture 已从产品路径移除，fixture 只存在于测试命名空间。
 - runs 文档（`ctxpect-effect-runs-v1`，字段见 [cli-reference「Effect Lab 的 runs 文档」](cli-reference.md#effect-lab-的-runs-文档)）携带冻结合同（F-15 全字段）与逐 run 结果；样本不足、arm 不平衡、混杂锁定值漂移、run 早于冻结时间、重复 run 一律 `inconclusive` 并给出具体原因；非完成 outcome 按 ITT 规则计入并列在 `deviations[]`。
 - 估计器是 `Estimator` trait。产品实现是仓内冻结的 `paired-exact-binomial-v2`（[ADR 0006](../adr/0006-third-party-dependency-policy-and-estimator.md)）：不一致对上的精确二项检验定方向（双侧 `p = 2·min(单侧) < alpha`，方向判定优先于等价判定），等价则对不一致率 `m/n` 与不一致对中的 treatment 份额 `b/m` **各取**精确 Clopper–Pearson 区间（各自单侧 `alpha`），配对差异 `(2q − 1)·r` 在两区间四个角上的范围严格落在 margin 内才算等价，无不一致对时用 `1 − alpha^(1/n)` 作不一致率上界（v1 把 `m/n` 当已知值，11 对里 1 个不一致对就判"等价"，2026-09-09 交叉 review 发现后换名修正）；样本数必须恰等于 `n_planned`（多收 `effect.n_mismatch`）、同一 `(task, arm)` 不得重复、时间必须可解析；其余 `inconclusive` + `effect.estimator_inconclusive`，并输出 `detail`（配对数、不一致数、p 值、区间）。`multiplicity != none` 在 v1 不实现，如实 inconclusive。没有引入统计库，`Cargo.lock` 仍无第三方条目。
 
 ## 与 Doctor 的关系
 
 Doctor 的 PlacementRecommendation 由确定性规则产生。Advisor 只能补充候选，不能自动搬移资产，也不能解锁 Treatment。
+
+### 外部 command runner（2026-09-12）
+
+`ctxpect experiment --execute --adapter command-v1 --from request.json --project <project> --store <store>` 需 `experiment.execute` 与 `experiment.persist` grant。请求 schema 为 `ctxpect-command-runner-v1`，包括冻结 contract、runner 的绝对路径/SHA-256/协议版本/sandbox 声明、files、配对 tasks 及 max_runs/timeout_seconds/total_seconds 预算；完整可执行合成例见 `scripts/check_effect_runner.py`。v1 使用按 task 配对、交替先后顺序，每次启动独立目录与清空的环境；这不是 OS sandbox。
+
+runner 从 stdin 接收 `ctxpect-runner-input-v1`，stdout 返回 `ctxpect-runner-result-v1`，须匹配 run_id/request_digest/sandbox，并提供 observed 锁定字段、outcome 与 gate_evidence_digest。结果和 sandbox 是 runner attestation，宿主不因此声称独立核验门禁或模型。协议错误及耗尽总预算强制 inconclusive；超时/crash 保留 ITT；同 experiment 不重复启动。调用前冻结、逐次 checkpoint，原始响应不保存。真实模型实验仍需确定 harness/model/预算；当前测试使用零 API 调用的真实本地子进程。

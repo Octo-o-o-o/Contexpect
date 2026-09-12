@@ -225,7 +225,7 @@ export const PAGE_CONTRACTS = [
       partial: R.noUnknownCells,
       "unsupported-version": R.noHarness,
       "connector-missing":
-        "E2EE 与远端传输都未实现，缺的是实现而不是 connector；如实报 sync.e2ee_unimplemented / sync.no_remote_transport。",
+        "默认 HTTP 同步未配置密钥，报 sync.profile_required；加密同步走显式 CLI profile，已接收分组的历史状态不代表当前签名信任或原生投影。",
     },
   },
   {

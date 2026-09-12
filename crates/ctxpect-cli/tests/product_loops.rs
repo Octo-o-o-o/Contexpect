@@ -1808,22 +1808,21 @@ fn constants_are_replaced_by_honest_unimplemented_answers() {
     assert_eq!(json.get("probe").and_then(Value::as_str), Some("no_addr"));
 
     let (code, json, out) = run(&["daemon", "stop", "--json", "--store", store_s]);
-    assert_eq!(code, 0, "{out} {json:?}");
-    assert_eq!(json.get("stopped").and_then(Value::as_bool), Some(false));
-    assert_eq!(json.get("reason_code").and_then(Value::as_str), Some("pid_file_removed_only"));
-    assert_eq!(json.get("signal_sent").and_then(Value::as_bool), Some(false));
-    assert!(!store.join("daemon.pid").exists());
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("daemon.control_missing"));
+    assert_eq!(fs::read_to_string(store.join("daemon.pid")).unwrap(), "424242");
 
-    // A live daemon: status finds it, and "stop" admits it is still there.
+    // A live daemon: status finds it; stop confirms release of the owner lock.
     let (_child, _listen) = start_daemon(&scratch, &store);
     let (code, json, out) = run(&["daemon", "status", "--json", "--store", store_s]);
     assert_eq!(code, 0, "{out} {json:?}");
     assert_eq!(json.get("running").and_then(Value::as_bool), Some(true));
     assert_eq!(json.get("probe").and_then(Value::as_str), Some("reachable"));
     let (code, json, out) = run(&["daemon", "stop", "--json", "--store", store_s]);
-    assert_eq!(code, 3, "{out} {json:?}");
-    assert_eq!(json.get("stopped").and_then(Value::as_bool), Some(false));
-    assert_eq!(json.get("reachable_after").and_then(Value::as_bool), Some(true));
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("stopped").and_then(Value::as_bool), Some(true));
+    assert_eq!(json.get("signal_sent").and_then(Value::as_bool), Some(false));
+    assert!(!store.join("daemon.control").exists());
 }
 
 /// C14: `intent validate|show|project|preview`, `sync status|preview` and

@@ -64,3 +64,7 @@ Rust workspace 仍为零第三方 crate，十二条非前端 required gate（含
 ## 供应链安全
 
 安装/更新锁定不可变 commit/digest。tag 漂移触发 drift。恶意 fixture 必须被阻止或清楚警告。无许可证内容不能复制进核心。
+
+## 2026-09-12 开发期外部运行 pin
+
+[ADR 0007](../adr/0007-external-age-ssh-and-runner-adapters.md) 登记 age 1.3.2（BSD-3-Clause）官方包/二进制摘要与 OpenSSH SSHSIG 来源。它们由本地 profile pin，未作为 Rust crate 或随包工具分发；不追溯修改 cutoff 的 `evidence-backed-unavailable` 矩阵。Effect 的现有 `paired-exact-binomial-v2` 仍依据 ADR 0006；上文“统计未 pin 则不能 supported-*”不适用于该已登记实现。外部 runner 的 digest/协议与观察结果由每个冻结请求绑定。

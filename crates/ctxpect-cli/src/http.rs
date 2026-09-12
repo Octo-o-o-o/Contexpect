@@ -31,7 +31,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// The harness coordinate this daemon session is currently about. Set from
@@ -72,6 +72,9 @@ struct AppState {
     generation: AtomicU64,
     current_receipt: Mutex<Option<String>>,
     coordinate: Mutex<Coordinate>,
+    monitor: Mutex<MonitorRuntime>,
+    shutdown_token: String,
+    stopping: AtomicBool,
 }
 
 /// Whether a Receipt was observed in the root this daemon serves.
@@ -156,7 +159,13 @@ pub fn serve(args: &ProductArgs) -> Result<ProductReport, crate::inspect::Inspec
             message: err.message,
         })?
     };
-    let _ = fs::write(store.root().join("daemon.pid"), format!("{}", std::process::id()));
+    let daemon_lock_path=store.root().join("daemon.lock");
+    if fs::symlink_metadata(&daemon_lock_path).is_ok_and(|m|m.file_type().is_symlink()) {
+        return Err(crate::inspect::InspectFailure::Io {command:Some("daemon".into()),code:"daemon.lock_unsafe",message:"daemon lock must be a regular file".into()});
+    }
+    let daemon_lock=fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(daemon_lock_path)
+        .map_err(|_|crate::inspect::InspectFailure::Io {command:Some("daemon".into()),code:"daemon.lock_unavailable",message:"cannot open daemon lock".into()})?;
+    daemon_lock.try_lock().map_err(|_|crate::inspect::InspectFailure::Io {command:Some("daemon".into()),code:"daemon.already_running",message:"another daemon owns this store".into()})?;
     let listener = TcpListener::bind(&addr).map_err(|err| crate::inspect::InspectFailure::Io {
             command: Some("daemon".into()),
         code: "api.bind",
@@ -169,6 +178,13 @@ pub fn serve(args: &ProductArgs) -> Result<ProductReport, crate::inspect::Inspec
             code: "api.bind",
             message: err.to_string(),
         })?;
+    let key=store.continuity_key().map_err(|e|crate::inspect::InspectFailure::Io {command:Some("daemon".into()),code:e.code,message:e.message})?;
+    let shutdown_token=ctxpect_schema::hmac_sha256_hex(&key.secret,format!("ctxpect/daemon-stop/v1:{}:{:?}",std::process::id(),std::time::SystemTime::now()).as_bytes());
+    let control=object([("address",string(bound.to_string())),("token",string(&shutdown_token))]);
+    let control_temp=store.root().join(format!("daemon-control-{}-{}.tmp",std::process::id(),&shutdown_token[..16]));
+    crate::tool_process::private_write(&control_temp,canonical_json(&control).as_bytes()).and_then(|()|fs::rename(&control_temp,store.root().join("daemon.control")))
+        .map_err(|_|crate::inspect::InspectFailure::Io {command:Some("daemon".into()),code:"daemon.control_unavailable",message:"cannot persist private daemon control".into()})?;
+    let _ = fs::write(store.root().join("daemon.pid"), format!("{}", std::process::id()));
     let _ = fs::write(store.root().join("daemon.addr"), bound.to_string());
     let ui_root = args.ui_root.clone().or_else(|| {
         let p = PathBuf::from("packages/ui/dist");
@@ -190,6 +206,9 @@ pub fn serve(args: &ProductArgs) -> Result<ProductReport, crate::inspect::Inspec
         ui_root,
         listen: bound.to_string(),
         generation: AtomicU64::new(1),
+        monitor: Mutex::new(MonitorRuntime::new(args.execute,args.poll_ms.unwrap_or(5000))),
+        shutdown_token,
+        stopping: AtomicBool::new(false),
         current_receipt: Mutex::new(None),
         coordinate: Mutex::new(Coordinate {
             harness: args.harness.clone(),
@@ -204,19 +223,28 @@ pub fn serve(args: &ProductArgs) -> Result<ProductReport, crate::inspect::Inspec
         // the parent stops us.
     }
     eprintln!("ctxpect daemon listening on http://{bound} (localhost API; UI does not scan disk)");
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
+    listener.set_nonblocking(true).map_err(|err|crate::inspect::InspectFailure::Io {
+        command:Some("daemon".into()),code:"api.listen",message:err.to_string(),
+    })?;
+    let mut next_scan=std::time::Instant::now();
+    loop {
+        if state.stopping.load(Ordering::SeqCst) {break;}
+        if args.execute && std::time::Instant::now()>=next_scan {
+            monitor_tick(&state);
+            next_scan=std::time::Instant::now()+std::time::Duration::from_millis(args.poll_ms.unwrap_or(5000));
+        }
+        match listener.accept() {
+            Ok((stream,_)) => {
                 let state = Arc::clone(&state);
                 let _ = handle_client(stream, &state);
             }
-            Err(_) => continue,
+            Err(err) if err.kind()==std::io::ErrorKind::WouldBlock => std::thread::sleep(std::time::Duration::from_millis(20)),
+            Err(err) => return Err(crate::inspect::InspectFailure::Io {command:Some("daemon".into()),code:"api.listen",message:err.to_string()}),
         }
     }
-    Ok(ProductReport {
-        exit_code: 0,
-        envelope: object([("stopped", Value::Bool(true))]),
-    })
+    for name in ["daemon.addr","daemon.pid","daemon.control"] {let _=fs::remove_file(state.store.root().join(name));}
+    drop(daemon_lock);
+    Ok(ProductReport {exit_code:0,envelope:object([("stopped",Value::Bool(true))])})
 }
 
 /// Largest request head (request line + headers) accepted.
@@ -286,6 +314,9 @@ fn read_request(stream: &mut TcpStream) -> Result<(String, Vec<u8>), (u16, &'sta
 }
 
 fn handle_client(mut stream: TcpStream, state: &AppState) -> Result<(), ()> {
+    // macOS may inherit O_NONBLOCK from the listener; per-request deadlines
+    // require a blocking accepted stream.
+    stream.set_nonblocking(false).map_err(|_| ())?;
     let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
     let (head, body_bytes) = match read_request(&mut stream) {
         Ok(parts) => parts,
@@ -524,6 +555,7 @@ pub const ROUTE_TABLE: &[(&str, &str)] = &[
     ("GET", "/api/v1/sessions/:id/requests"),
     ("POST", "/api/v1/sessions/import"),
     ("GET", "/api/v1/monitor"),
+    ("POST", "/api/v1/shutdown"),
     ("GET", "/api/v1/policy"),
     ("GET", "/api/v1/exceptions"),
     ("GET", "/api/v1/exceptions/:id"),
@@ -756,7 +788,22 @@ fn api(method: &str, path: &str, full: &str, body: &str, state: &AppState) -> (u
             Err(err) => json_err(err.code, &err.message),
         },
         ("POST", "/api/v1/sessions/import") => sessions_import_api(body, state),
-        ("GET", "/api/v1/monitor") => json_ok(monitor_status(state, query(full, "receipt_id").as_deref())),
+        ("POST", "/api/v1/shutdown") => {
+            match object_body(body) {
+                Ok(value) if value.get("token").and_then(Value::as_str)==Some(&state.shutdown_token) => {
+                    state.stopping.store(true,Ordering::SeqCst);
+                    json_ok(object([("shutdown_accepted",Value::Bool(true)),("control_id",string(ctxpect_schema::sha256_text(&state.shutdown_token)))]))
+                },
+                _=>json_err("daemon.control_refused","a matching local daemon control token is required"),
+            }
+        },
+        ("GET", "/api/v1/monitor") => {
+            let runtime=state.monitor.lock().map(|m|m.value()).unwrap_or(Value::Null);
+            let enabled=runtime.get("enabled").and_then(Value::as_bool)==Some(true);
+            json_ok(merge_fields(monitor_status(state,query(full,"receipt_id").as_deref()),[
+                ("mode",string(if enabled {"periodic-static"} else {"oneshot"})),("continuous",runtime),
+            ]))
+        },
         ("GET", "/api/v1/policy") => {
             let (action, target) = policy_query_scope(
                 query(full, "action").as_deref(),
@@ -2354,4 +2401,163 @@ fn static_file(path: &str, state: &AppState) -> (u16, &'static str, String) {
 #[allow(dead_code)]
 fn _path(p: &Path) -> &Path {
     p
+}
+
+struct MonitorRuntime {
+    enabled: bool,
+    interval_ms: u64,
+    scans: i64,
+    changes: i64,
+    last_scan: Value,
+    digest: Option<String>,
+    receipt: Option<String>,
+    error: Option<String>,
+}
+impl MonitorRuntime {
+    fn new(enabled: bool, interval_ms: u64) -> Self {
+        Self {
+            enabled,
+            interval_ms,
+            scans: 0,
+            changes: 0,
+            last_scan: Value::Null,
+            digest: None,
+            receipt: None,
+            error: None,
+        }
+    }
+    fn value(&self) -> Value {
+        object([
+            ("enabled", Value::Bool(self.enabled)),
+            ("interval_ms", Value::Int(self.interval_ms as i64)),
+            ("scans", Value::Int(self.scans)),
+            ("changes", Value::Int(self.changes)),
+            ("last_scan_at", self.last_scan.clone()),
+            (
+                "last_snapshot_digest",
+                self.digest.as_deref().map(string).unwrap_or(Value::Null),
+            ),
+            (
+                "last_receipt_id",
+                self.receipt.as_deref().map(string).unwrap_or(Value::Null),
+            ),
+            (
+                "error_code",
+                self.error.as_deref().map(string).unwrap_or(Value::Null),
+            ),
+            ("capabilities", array([string("instructions")])),
+            ("observation", string("static-resolution")),
+            ("transient_changes_between_polls", string("not-observed")),
+        ])
+    }
+}
+
+/// Runs on the same event-loop thread as API mutations. The store's lock is
+/// process-reentrant, so a background writer thread would not serialize it.
+fn monitor_tick(state: &AppState) {
+    let outcome = (|| -> Result<(String, String, bool), String> {
+        let project = state.project.clone().ok_or("monitor.project_required")?;
+        let coordinate = state.coordinate();
+        let report = inspect(InspectArgs {
+            json: true,
+            offline: true,
+            project: project.clone(),
+            cwd: None,
+            harness: coordinate.harness,
+            surface: coordinate.surface,
+            version: coordinate.version,
+            version_explicit: true,
+            codex_home: state.codex_home.clone(),
+            require: vec!["instructions".into()],
+            os_lane: coordinate.os_lane,
+            store: None,
+        })
+        .map_err(|e| e.code().to_string())?;
+        let snapshot = crate::with_snapshot_digest(report.envelope);
+        let digest = snapshot
+            .get("snapshot_digest")
+            .and_then(Value::as_str)
+            .ok_or("monitor.digest_missing")?
+            .to_string();
+        let previous = state.monitor.lock().map_err(|_| "monitor.lock")?;
+        if previous.digest.as_deref() == Some(&digest) {
+            return Ok((digest, previous.receipt.clone().unwrap_or_default(), false));
+        }
+        drop(previous);
+        let receipt = persist_inspect_in(&state.store, &snapshot, "one-shot", Some(&project))
+            .map_err(|e| e.code().to_string())?;
+        let id = receipt
+            .get("receipt_id")
+            .and_then(Value::as_str)
+            .ok_or("monitor.receipt_missing")?
+            .to_string();
+        let notification = ctxpect_schema::sha256_text(&format!(
+            "{}:{digest}",
+            state.project_digest.as_deref().unwrap_or("unknown")
+        ));
+        let notifications = state
+            .store
+            .list_named("notifications")
+            .map_err(|e| e.code.to_string())?;
+        let enabled = state
+            .store
+            .settings()
+            .map_err(|e| e.code.to_string())?
+            .get("notifications")
+            .and_then(Value::as_bool)
+            == Some(true);
+        if enabled && !notifications.contains(&notification) {
+            state
+                .store
+                .put_named(
+                    "notifications",
+                    &notification,
+                    &object([
+                        ("schema", string("ctxpect-static-change-v1")),
+                        ("receipt_id", string(&id)),
+                        ("snapshot_digest", string(&digest)),
+                        ("observed_at", string(ctxpect_store::now_rfc3339())),
+                        ("observation", string("static-resolution")),
+                        ("native_observed", Value::Bool(false)),
+                        (
+                            "project_digest",
+                            state
+                                .project_digest
+                                .as_deref()
+                                .map(string)
+                                .unwrap_or(Value::Null),
+                        ),
+                    ]),
+                )
+                .map_err(|e| e.code.to_string())?;
+        }
+        state
+            .store
+            .put_named(
+                "monitoring",
+                state.project_digest.as_deref().unwrap_or("unknown"),
+                &object([
+                    ("snapshot_digest", string(&digest)),
+                    ("receipt_id", string(&id)),
+                    ("observed_at", string(ctxpect_store::now_rfc3339())),
+                ]),
+            )
+            .map_err(|e| e.code.to_string())?;
+        Ok((digest, id, true))
+    })();
+    if let Ok(mut monitor) = state.monitor.lock() {
+        monitor.scans += 1;
+        monitor.last_scan = string(ctxpect_store::now_rfc3339());
+        match outcome {
+            Ok((digest, id, changed)) => {
+                if changed && monitor.digest.is_some() {
+                    monitor.changes += 1;
+                }
+                monitor.digest = Some(digest);
+                monitor.receipt = Some(id);
+                monitor.error = None;
+            }
+            Err(reason) => monitor.error = Some(reason),
+        }
+    }
 }

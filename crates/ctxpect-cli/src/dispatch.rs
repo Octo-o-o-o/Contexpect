@@ -805,6 +805,16 @@ pub(crate) fn full_diagnosis(snapshot: &Value, project: &Path, as_of: Option<(i6
 }
 
 fn collect_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
+    if args.execute || args.adapter.is_some() {
+        if !args.execute {return Err(fail("native.execute_required","native capture requires explicit --execute".into()));}
+        let store=open_store(args)?;
+        let _auth=authorize_store_apply(&store,args.project.as_deref(),"native.capture",&args.harness)?;
+        let key=store.continuity_key().map_err(|e|fail(e.code,e.message))?;
+        let observation=crate::native_oracle::capture(args,&key.secret).map_err(|c|fail(c,"native oracle refused; version, profile and actual output must match".into()))?;
+        let id=format!("native_{}",&sha256_text(&canonical_json(&observation))[..32]);
+        store.put_named("nativeobservations",&id,&observation).map_err(|e|fail(e.code,e.message))?;
+        return ok("collect",0,object([("observation_id",string(id)),("native_observation",observation),("receipt_id",Value::Null)]));
+    }
     let project = args
         .project
         .as_ref()
@@ -1308,25 +1318,13 @@ fn daemon_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
             )
         }
         Some("stop") => {
-            let store = open_store(args)?;
-            let pid_path = store.root().join("daemon.pid");
-            let removed = pid_path.exists() && fs::remove_file(&pid_path).is_ok();
-            // This slice sends no signal (no platform process API without a
-            // third-party crate). It removes the pid file and says exactly
-            // that; whether a daemon is still answering is probed, not
-            // assumed.
-            let reachable_after = probe_daemon(&store) == Some(true);
-            ok(
-                "daemon stop",
-                if reachable_after { 3 } else { 0 },
-                object([
-                    ("stopped", Value::Bool(false)),
-                    ("reason_code", string("pid_file_removed_only")),
-                    ("signal_sent", Value::Bool(false)),
-                    ("pid_file_removed", Value::Bool(removed)),
-                    ("reachable_after", Value::Bool(reachable_after)),
-                ]),
-            )
+            let store=open_store(args)?;
+            let stopped=stop_owned_daemon(&store)?;
+            ok("daemon stop",if stopped {0} else {3},object([
+                ("stopped",Value::Bool(stopped)),("shutdown_requested",Value::Bool(true)),
+                ("signal_sent",Value::Bool(false)),
+                ("reason_code",string(if stopped {"daemon.stopped"} else {"daemon.shutdown_pending"})),
+            ]))
         }
         _ => Err(fail("usage.invalid", "daemon requires start|stop|status".into())),
     }
@@ -1334,21 +1332,38 @@ fn daemon_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
 
 /// Sync state read from a store. Shared by `sync status` and `GET /api/v1/sync`.
 ///
-/// `encryption: "unavailable"` is kept because it is true: E2EE is not
-/// implemented in this slice.
+/// The default HTTP transport has no key profile. Encrypted CLI groups are
+/// listed separately; historical application is not current signature trust.
 pub(crate) fn sync_status_doc(store: &Store) -> Value {
     let settings = store.settings().unwrap_or(Value::Null);
     let vault_required = settings.get("vault").and_then(Value::as_str) == Some("required");
     let bundles = store.list_named("sync").unwrap_or_default();
+    let secure_groups = match store.list_named("secureheads") {
+        Ok(ids) => array(ids.iter().map(|id| {
+            match store.get_named("secureheads",id) {
+                Ok(record) => object([
+                    ("group",string(id)),
+                    ("generation",record.pointer(&["document","envelope","generation"]).cloned().unwrap_or(Value::Null)),
+                    ("epoch",record.pointer(&["document","envelope","epoch"]).cloned().unwrap_or(Value::Null)),
+                    ("semantic",string("structural-only")),("native_projection",string("not-applied")),
+                    ("current_signature_trust",string("not-rechecked")),
+                ]),
+                Err(_) => object([("group",string(id)),("reason_code",string("sync.state_unreadable"))]),
+            }
+        })),
+        Err(_) => Value::Null,
+    };
     let receipts = match store.list_receipts() {
         Ok(Value::Array(items)) => i64::try_from(items.len()).unwrap_or(0),
         _ => 0,
     };
     object([
         ("schema", string("ctxpect-sync-status-v1")),
-        // Not implemented, and reported as such rather than as "off".
         ("encryption", string("unavailable")),
-        ("encryption_reason_code", string("sync.e2ee_unimplemented")),
+        ("encryption_reason_code", string("sync.profile_required")),
+        ("external_encryption_adapter", string("age-ssh-v1")),
+        ("encrypted_entrypoint", string("cli-profile")),
+        ("secure_groups", secure_groups),
         // A transport that succeeded moved bytes; it did not verify meaning.
         ("transport_success_is_verified", Value::Bool(false)),
         ("vault_required", Value::Bool(vault_required)),
@@ -1372,6 +1387,10 @@ pub(crate) fn sync_status_doc(store: &Store) -> Value {
 /// bundle and (with `--dest`) previews its application; `sync apply` applies.
 /// Three operations, three envelopes.
 fn sync_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
+    if args.adapter.as_deref() == Some("age-ssh-v1") { return secure_sync_cmd(args); }
+    if args.adapter.is_some() || args.subcommand.as_deref() == Some("seal") {
+        return Err(fail("sync.adapter_required", "encrypted sync requires --adapter age-ssh-v1".into()));
+    }
     let store = open_store(args)?;
     let settings = store.settings().map_err(|err| fail(err.code, err.message))?;
     let vault_required = settings.get("vault").and_then(Value::as_str) == Some("required");
@@ -2326,6 +2345,25 @@ fn advisor_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
 /// authority, and the planned sample size of a persisted experiment cannot
 /// change afterwards (`effect.n_locked`).
 fn experiment_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
+    if args.execute || args.adapter.is_some() {
+        if !args.execute || args.adapter.as_deref()!=Some("command-v1") || args.runs.is_some() {
+            return Err(fail("effect.runner_usage", "runner requires --execute --adapter command-v1 --from request.json; --runs is an import path".into()));
+        }
+        let path=args.from.as_ref().ok_or_else(||fail("effect.runner_usage", "--from runner request required".into()))?;
+        let request=crate::secure_sync::read_json(path).map_err(|_|fail("effect.runner_invalid","runner request unreadable".into()))?;
+        let plan=crate::effect_runner::Plan::parse(request).map_err(|c|fail(c,"runner pre-registration refused".into()))?;
+        if args.id.as_ref().is_some_and(|id|id!=&plan.contract.experiment_id) || args.n.is_some_and(|n|n!=plan.contract.n_planned) {
+            return Err(fail("effect.contract_locked","CLI flags differ from frozen runner contract".into()));
+        }
+        let store=open_store(args)?;
+        let _auth=authorize_store_apply(&store,args.project.as_deref(),"experiment.execute",&plan.contract.experiment_id)?;
+        let _persist=authorize_store_apply(&store,args.project.as_deref(),"experiment.persist",&plan.contract.experiment_id)?;
+        if store.list_named("experiments").map_err(|e|fail(e.code,e.message))?.contains(&plan.contract.experiment_id) {
+            return Err(fail("effect.execution_exists","experiment id already has results; no rerun".into()));
+        }
+        let result=crate::effect_runner::execute(&plan,&store).map_err(|c|fail(c,"runner stopped; persisted job retains attempts and completed results".into()))?;
+        return ok("experiment",ctxpect_effect::exit_code(&result),result);
+    }
     let store = if let Some(path) = &args.store {
         Some(Store::open(path).map_err(|err| fail(err.code, err.message))?)
     } else {
@@ -2658,6 +2696,284 @@ pub fn listen_addr(args: &ProductArgs) -> String {
     args.listen
         .clone()
         .unwrap_or_else(|| "127.0.0.1:7420".to_string())
+}
+
+
+fn secure_sync_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
+    use crate::secure_sync::{self, Profile};
+    let error = |code| {
+        fail(
+            code,
+            "encrypted sync refused; local profile and signed chain must match".into(),
+        )
+    };
+    let store = open_store(args)?;
+    let profile_path = args
+        .profile
+        .as_deref()
+        .ok_or_else(|| error("sync.profile_required"))?;
+    let profile = Profile::load(Path::new(profile_path)).map_err(error)?;
+    let _guard = store.lock_mutation().map_err(|e| fail(e.code, e.message))?;
+    let state_path = store
+        .root()
+        .join("secureheads")
+        .join(format!("{}.json", profile.group));
+    let state = if state_path
+        .try_exists()
+        .map_err(|_| error("sync.state_unreadable"))?
+    {
+        Some(
+            store
+                .get_named("secureheads", &profile.group)
+                .map_err(|e| fail(e.code, e.message))?,
+        )
+    } else {
+        None
+    };
+    let head = state
+        .as_ref()
+        .and_then(|s| s.pointer(&["document", "envelope"]));
+    if args.subcommand.as_deref() == Some("status") {
+        return ok(
+            "sync status",
+            0,
+            object([
+                ("adapter", string("age-ssh-v1")),
+                ("group", string(&profile.group)),
+                (
+                    "head",
+                    head.map(|h| string(sha256_text(&canonical_json(h))))
+                        .unwrap_or(Value::Null),
+                ),
+                ("semantic", string("structural-only")),
+                ("runtime_verification", string("not-observed")),
+            ]),
+        );
+    }
+    let input_path = args
+        .from
+        .as_ref()
+        .ok_or_else(|| error("sync.input_required"))?;
+    let input = secure_sync::read_json(input_path).map_err(error)?;
+    if args.subcommand.as_deref() == Some("seal") {
+        let _auth =
+            authorize_store_apply(&store, args.project.as_deref(), "sync.seal", &profile.group)?;
+        let dest = args
+            .dest
+            .as_ref()
+            .ok_or_else(|| error("sync.destination_required"))?;
+        let document = secure_sync::seal(&profile, &input, head).map_err(error)?;
+        crate::tool_process::private_write(dest, canonical_json(&document).as_bytes())
+            .map_err(|_| error("sync.export_failed"))?;
+        return ok(
+            "sync seal",
+            0,
+            object([
+                ("transport", string("encrypted-export")),
+                ("semantic", string("not-verified")),
+                (
+                    "envelope_digest",
+                    string(sha256_text(&canonical_json(&document))),
+                ),
+                ("sender_head_advanced", Value::Bool(false)),
+            ]),
+        );
+    }
+    if !matches!(args.subcommand.as_deref(), Some("preview" | "apply")) {
+        return Err(error("usage.invalid"));
+    }
+    let _auth = if args.subcommand.as_deref() == Some("apply") {
+        Some(authorize_store_apply(
+            &store,
+            args.project.as_deref(),
+            "sync.apply",
+            &profile.group,
+        )?)
+    } else {
+        None
+    };
+    let payload = secure_sync::open(&profile, &input).map_err(error)?;
+    secure_sync::check_chain(&input, head).map_err(error)?;
+    let state_digest = sha256_text(&canonical_json(&state.clone().unwrap_or(Value::Null)));
+    let envelope_digest = sha256_text(&canonical_json(&input));
+    if args.subcommand.as_deref() == Some("preview") {
+        let tx = format!(
+            "sync_{}",
+            &sha256_text(&format!(
+                "{}:{}:{}",
+                envelope_digest,
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos(),
+                std::process::id()
+            ))[..24]
+        );
+        let preview = object([
+            ("profile_digest", string(&profile.digest)),
+            ("state_digest", string(state_digest)),
+            ("envelope_digest", string(envelope_digest)),
+            ("expires_at", Value::Int(now_unix() + 900)),
+            ("consumed", Value::Bool(false)),
+        ]);
+        store
+            .put_named("securepreviews", &tx, &preview)
+            .map_err(|e| fail(e.code, e.message))?;
+        let mut result = secure_sync::preview_summary(&payload, &input);
+        if let Value::Object(m) = &mut result {
+            m.insert("tx_id".into(), string(tx));
+        }
+        return ok("sync preview", 0, result);
+    }
+    let tx = args
+        .tx
+        .as_deref()
+        .ok_or_else(|| error("sync.preview_required"))?;
+    let mut preview = store
+        .get_named("securepreviews", tx)
+        .map_err(|_| error("sync.preview_required"))?;
+    if preview.get("profile_digest").and_then(Value::as_str) != Some(&profile.digest)
+        || preview.get("state_digest").and_then(Value::as_str) != Some(&state_digest)
+        || preview.get("envelope_digest").and_then(Value::as_str) != Some(&envelope_digest)
+        || preview
+            .get("expires_at")
+            .and_then(Value::as_i64)
+            .is_none_or(|t| t <= now_unix())
+        || preview.get("consumed").and_then(Value::as_bool) != Some(false)
+    {
+        return Err(error("sync.preview_changed"));
+    }
+    if let Value::Object(m) = &mut preview {
+        m.insert("consumed".into(), Value::Bool(true));
+    }
+    store
+        .put_named("securepreviews", tx, &preview)
+        .map_err(|e| fail(e.code, e.message))?;
+    // A single atomic local record advances the encrypted head and metadata.
+    // Plaintext remains out of the store; native projection is a separate step.
+    if let Some(previous) = &state {
+        store
+            .put_named("securehistory", &state_digest, previous)
+            .map_err(|e| fail(e.code, e.message))?;
+    }
+    store
+        .put_named(
+            "secureheads",
+            &profile.group,
+            &object([
+                ("document", input.clone()),
+                (
+                    "asset_metadata",
+                    secure_sync::preview_summary(&payload, &input),
+                ),
+                ("previous_state_digest", string(state_digest)),
+            ]),
+        )
+        .map_err(|e| fail(e.code, e.message))?;
+    let mut result = secure_sync::preview_summary(&payload, &input);
+    if let Value::Object(m) = &mut result {
+        m.insert("transport".into(), string("applied-encrypted-local-head"));
+        m.insert("native_projection".into(), string("not-applied"));
+    }
+    ok("sync apply", 0, result)
+}
+
+fn stop_owned_daemon(store: &Store) -> Result<bool, InspectFailure> {
+    use std::io::{Read, Write};
+    use std::time::{Duration, Instant};
+    let control =
+        crate::secure_sync::read_json(&store.root().join("daemon.control")).map_err(|_| {
+            fail(
+                "daemon.control_missing",
+                "no readable local daemon control record".into(),
+            )
+        })?;
+    let address = control
+        .get("address")
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse::<std::net::SocketAddr>().ok())
+        .filter(|a| a.ip().is_loopback())
+        .ok_or_else(|| {
+            fail(
+                "daemon.control_invalid",
+                "daemon address must be loopback".into(),
+            )
+        })?;
+    let token = control
+        .get("token")
+        .and_then(Value::as_str)
+        .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+        .ok_or_else(|| {
+            fail(
+                "daemon.control_invalid",
+                "invalid daemon control record".into(),
+            )
+        })?;
+    let mut stream = std::net::TcpStream::connect_timeout(&address, Duration::from_secs(2))
+        .map_err(|_| {
+            fail(
+                "daemon.unreachable",
+                "daemon control endpoint is unreachable".into(),
+            )
+        })?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .map_err(|_| fail("daemon.io", "cannot set read timeout".into()))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(3)))
+        .map_err(|_| fail("daemon.io", "cannot set write timeout".into()))?;
+    let body = canonical_json(&object([("token", string(token))]));
+    let request = format!(
+        "POST /api/v1/shutdown HTTP/1.1\r\nHost: {address}\r\nX-Ctxpect-Client: desktop\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|_| fail("daemon.io", "shutdown request failed".into()))?;
+    let mut response = String::new();
+    stream
+        .take(65536)
+        .read_to_string(&mut response)
+        .map_err(|_| fail("daemon.io", "shutdown response unavailable".into()))?;
+    if !response.starts_with("HTTP/1.1 200 ") {
+        return Err(fail(
+            "daemon.control_refused",
+            "daemon rejected shutdown".into(),
+        ));
+    }
+    let acknowledged = response
+        .split_once("\r\n\r\n")
+        .and_then(|(_, body)| parse(body).ok())
+        .is_some_and(|body| {
+            body.get("shutdown_accepted").and_then(Value::as_bool) == Some(true)
+                && body.get("control_id").and_then(Value::as_str) == Some(&sha256_text(token))
+        });
+    if !acknowledged {
+        return Err(fail(
+            "daemon.control_refused",
+            "shutdown acknowledgement did not match this daemon".into(),
+        ));
+    }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(store.root().join("daemon.lock"))
+            .map_err(|_| {
+                fail(
+                    "daemon.lock_unavailable",
+                    "cannot verify daemon exit".into(),
+                )
+            })?;
+        if lock.try_lock().is_ok() {
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 #[cfg(test)]

@@ -102,6 +102,10 @@ mod http;
 mod inspect;
 mod jsonutil;
 mod redact;
+mod secure_sync;
+mod effect_runner;
+mod native_oracle;
+mod tool_process;
 
 pub use args::{Cli, InspectArgs, ProductArgs, UsageError, parse_args, parse_cli};
 pub use ctxpect_schema::{Value, canonical_json, parse};

@@ -58,4 +58,8 @@ SQLite/vault 支持完整删除、备份、迁移。backup 遵循与源数据相
 
 ## 本阶段
 
-没有 daemon unit。仓库带一份 CI 工作流模板 `.github/workflows/gates.yml`（ubuntu-24.04 / macos-15 两条 lane 跑 12 条离线门禁 + 零 registry 依赖检查，ubuntu 另跑前端四条）；它从只有 macOS 的机器提交，远端跑绿之前只算「模板已提交」，不算其它 lane 已验。可运行的是 `ctxpect` CLI（含 `ctxpect ci` 的 0/2/3 出码合同与 `daemon start` 的 127.0.0.1 API）以及文档/合同门禁脚本；watcher、scheduler 与通知 adapter 尚未实施（见 [交付状态](../process/2026-09-08-delivery-status.md)）。`daemon stop` 只移除 pid 文件并如实报 `pid_file_removed_only`（不发送信号）；`daemon status` 以对 `daemon.addr` 的健康探测判断是否在运行，不以 pid 文件为据。
+当前未安装 daemon unit。`daemon start --execute --poll-ms 5000` 在同一服务事件循环周期核对静态 instructions，持久化变化快照、Receipt 与去重通知；`GET /api/v1/monitor` 和 Monitor 页展示最新记录。两次轮询之间的短暂变化不保证观察，尚非全 capability watcher，也没有完成 72h 验收。
+
+`daemon stop` 使用 store 内 0600 的 `daemon.control` 向 loopback `/api/v1/shutdown` 发起带本地 token 的请求，并等待 daemon 所有权锁释放后报告停止。缺失 control 时拒绝，不按陈旧 PID 杀进程；第二个 daemon 无法覆盖同 store 的活 control。`daemon status` 使用健康探测，不以 pid 文件为运行证明。
+
+仓库 CI 工作流 `.github/workflows/gates.yml` 的 Ubuntu/macOS lane 与冻结三 OS 矩阵分开记账。全量证据槽位由 `scripts/release_inventory.py` 枚举；缺槽位退出 3。见 [运行与发行接续](../plan/2026-09-12-runtime-and-release-execution.md)。

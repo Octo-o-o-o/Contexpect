@@ -170,3 +170,7 @@ cargo test -p ctxpect-cli --test native_conformance
 ## 当前判定
 
 Foundation 文档与合同在本阶段落地。需求没有第四次独立 GREEN。完整交付仍要求一次全产品集成门禁绿与一次独立 readback 绿。
+
+- [原生运行、加密同步、Effect runner 与发行验收](plan/2026-09-12-runtime-and-release-execution.md)
+
+- [ADR 0007：外部 age / SSH 与 runner adapter](adr/0007-external-age-ssh-and-runner-adapters.md)
