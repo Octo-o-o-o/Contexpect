@@ -135,7 +135,15 @@
       "additionalProperties": true
     },
     "diagnosis_basis": {
-      "const": "receipt-and-current-project-scan"
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "receipt-only",
+        "receipt-and-current-project-scan",
+        null
+      ]
     },
     "staleness": {
       "type": "object",

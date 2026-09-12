@@ -127,13 +127,21 @@ fn cl2_cl3_alternate_location_and_local_file_are_adopted_alongside() {
 }
 
 #[test]
-fn cl4_ignore_excludes_as_product_rule_and_absent_is_absent() {
+fn cl4_ignore_exclusion_is_observation_scope_unknown_not_absent() {
     let scratch = Scratch::new("cl4");
     scratch.write("CLAUDE.md", "body\n");
     scratch.write(".ctxpect-ignore", "CLAUDE.md\n");
     let resolution = resolve_claude(&scratch, "");
     assert!(!resolution.included);
-    assert_eq!(resolution.claims.primary.truth_state, TruthState::Absent);
+    // C-F01: `.ctxpect-ignore` removes the file from Contexpect's observation
+    // scope only; whether Claude Code still loads it is unknown, never absent.
+    assert_eq!(resolution.claims.primary.truth_state, TruthState::Indeterminate);
+    assert_eq!(
+        resolution.claims.primary.unknown_reason,
+        Some(UnknownReason::ObservationScopeExcluded)
+    );
+    assert_eq!(resolution.claims.discoverable.truth_state, TruthState::Indeterminate);
+    assert_eq!(resolution.claims.eligible.truth_state, TruthState::Indeterminate);
     assert!(resolution.edges.iter().any(|edge| {
         edge.kind == EdgeKind::ExcludedBy
             && edge.rule_id == "CL4"
@@ -146,6 +154,16 @@ fn cl4_ignore_excludes_as_product_rule_and_absent_is_absent() {
         .iter()
         .any(|item| item.path == "CLAUDE.md" && item.content_digest.is_none()));
 
+    // Excluding one candidate does not disturb a sibling that is still adopted.
+    let partial = Scratch::new("cl4-partial");
+    partial.write("CLAUDE.md", "body\n");
+    partial.write(".claude/CLAUDE.md", "other\n");
+    partial.write(".ctxpect-ignore", "CLAUDE.md\n");
+    let resolution = resolve_claude(&partial, "");
+    assert!(resolution.included);
+    assert_eq!(resolution.claims.primary.truth_state, TruthState::Present);
+
+    // No candidate at all remains a genuine native absence.
     let empty = Scratch::new("cl4-empty");
     let resolution = resolve_claude(&empty, "");
     assert_eq!(resolution.claims.primary.truth_state, TruthState::Absent);
@@ -359,16 +377,30 @@ fn g3_truncates_aggregate_at_official_spec_cap() {
 }
 
 #[test]
-fn g4_ignore_excludes_as_product_rule_not_native() {
+fn g4_ignore_exclusion_is_observation_scope_unknown_not_absent() {
     let scratch = Scratch::new("g4");
     scratch.write("AGENTS.md", "keep-me-out\n");
     scratch.write(".ctxpect-ignore", "AGENTS.md\n");
 
     let resolution = resolve_at(&scratch, "", None);
     assert!(!resolution.included);
+    // C-F01: the exclusion is a Contexpect observation-scope rule; the harness
+    // may still load the file natively, so the claim is indeterminate.
     assert_eq!(
         resolution.claims.primary.truth_state,
-        ctxpect_core::TruthState::Absent
+        ctxpect_core::TruthState::Indeterminate
+    );
+    assert_eq!(
+        resolution.claims.primary.unknown_reason,
+        Some(UnknownReason::ObservationScopeExcluded)
+    );
+    assert_eq!(
+        resolution.claims.discoverable.truth_state,
+        ctxpect_core::TruthState::Indeterminate
+    );
+    assert_eq!(
+        resolution.claims.eligible.truth_state,
+        ctxpect_core::TruthState::Indeterminate
     );
     assert!(resolution.edges.iter().any(|edge| {
         edge.kind == EdgeKind::ExcludedBy
@@ -396,6 +428,28 @@ fn g4_ignore_excludes_as_product_rule_not_native() {
         .expect("excluded AGENTS.md evidence");
     assert_eq!(ignored.content_digest, None);
     assert!(resolution.ignore_warnings.is_empty());
+
+    // Excluding the override still leaves an adopted AGENTS.md: present.
+    let partial = Scratch::new("g4-partial");
+    partial.write("AGENTS.md", "still-read\n");
+    partial.write("AGENTS.override.md", "excluded\n");
+    partial.write(".ctxpect-ignore", "AGENTS.override.md\n");
+    let resolution = resolve_at(&partial, "", None);
+    assert!(resolution.included);
+    assert_eq!(
+        resolution.claims.primary.truth_state,
+        ctxpect_core::TruthState::Present
+    );
+    assert_eq!(included_paths(&resolution), vec!["AGENTS.md"]);
+
+    // No candidate at all remains a genuine native absence.
+    let empty = Scratch::new("g4-empty");
+    let resolution = resolve_at(&empty, "", None);
+    assert!(!resolution.included);
+    assert_eq!(
+        resolution.claims.primary.truth_state,
+        ctxpect_core::TruthState::Absent
+    );
 }
 
 #[test]

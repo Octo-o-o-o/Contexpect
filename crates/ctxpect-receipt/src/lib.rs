@@ -831,4 +831,58 @@ mod tests {
             "a nested `time` key must not be stripped by name"
         );
     }
+
+    /// C-F04 (2026-09-12): `claim.source` is optional signed content. A Receipt
+    /// whose claims predate it (no `source` key) verifies byte-identically —
+    /// the digest rule did not move — and a Receipt whose claims carry it has
+    /// that metadata covered by the digest, so editing it after signing is
+    /// tampering, not a display-only tweak.
+    #[test]
+    fn claim_source_is_optional_signed_content_and_old_receipts_verify() {
+        let key = ContinuityKey::from_secret(b"k".to_vec());
+
+        // Old shape: no claim carries `source`. Verification is unchanged.
+        let old = migrate_dev_inspect_v0(&snapshot(), "one-shot", Some(&key), "t", "t", "r_old")
+            .expect("migrate old-shape snapshot");
+        verify_local_continuity(&old, &key).expect("old Receipt without claim.source verifies");
+        let old_claims = old.get("claims").and_then(Value::as_array).expect("claims");
+        assert!(old_claims.iter().all(|c| c.get("source").is_none()));
+        // The display-only rule did not grow: still exactly the two clock paths.
+        assert_eq!(display_only_paths().len(), 2, "{:?}", display_only_paths());
+
+        // New shape: claims carry source metadata (round-trip through
+        // collect_claims, including facet claims).
+        let with_source = parse(
+            r#"{"schema":"dev-inspect-v0","receipt_kind":"development-snapshot","snapshot_digest":"abc","scope":{"harness":"codex","version":"0.147.0","surface":"cli","os_lane":"macos-27-arm64","cwd":"<project>/","roots":{"project":"<project>"}},"results":[{"capability_id":"instructions","claim":{"truth_state":"present","claim_kind":"resolved","lifecycle_stage":"eligible","provenance":"official-spec","coverage":"full-declared-surface","precision":"exact","knowledge_status":"current","source":{"producer":"ctxpect-resolve::resolved_claim","basis":null,"evaluated_at":null,"source_domain":"static-resolution"}},"facets":{},"evidence":[],"edges":[],"layers":[]}],"unknown":[],"findings":[],"policy_result":{"verdict":"pass","exit_code":0},"required":["instructions"]}"#,
+        )
+        .expect("snapshot with claim.source");
+        let new = migrate_dev_inspect_v0(&with_source, "one-shot", Some(&key), "t", "t", "r_new")
+            .expect("migrate new-shape snapshot");
+        verify_local_continuity(&new, &key).expect("Receipt with claim.source verifies");
+        let claim = new
+            .pointer(&["claims"])
+            .and_then(Value::as_array)
+            .and_then(|c| c.first())
+            .expect("first claim");
+        assert_eq!(
+            claim.pointer(&["source", "producer"]).and_then(Value::as_str),
+            Some("ctxpect-resolve::resolved_claim"),
+            "claim.source round-trips into the Receipt"
+        );
+
+        // Editing the source after signing is caught by the digest.
+        let mut tampered_claims = new
+            .get("claims")
+            .and_then(Value::as_array)
+            .expect("claims")
+            .to_vec();
+        if let Some(Value::Object(map)) = tampered_claims.first_mut()
+            && let Some(Value::Object(source)) = map.get_mut("source")
+        {
+            source.insert("producer".to_string(), string("a-forged-producer"));
+        }
+        let tampered = with_field(&new, "claims", array(tampered_claims));
+        let err = verify_local_continuity(&tampered, &key).expect_err("tampered claim.source");
+        assert_eq!(err.code, "receipt.manifest_mismatch");
+    }
 }

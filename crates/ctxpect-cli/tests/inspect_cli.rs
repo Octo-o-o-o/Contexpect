@@ -214,12 +214,18 @@ fn g4_ignore_is_product_exclusion_not_native_rule() {
     scratch.write("AGENTS.md", "ignored-body\n");
     scratch.write(".ctxpect-ignore", "AGENTS.md\n");
     let run = run_inspect(&scratch.path, &[]);
-    assert_eq!(run.code, 2, "{}", run.stdout);
+    // C-F01: an observation-scope exclusion is indeterminate (exit 3), never
+    // an absent claim (exit 2); the harness may still load the file natively.
+    assert_eq!(run.code, 3, "{}", run.stdout);
     let result = first_result(&run.json);
-    assert_eq!(result.get("included"), Some(&Value::Bool(false)));
+    assert_eq!(result.get("included"), Some(&Value::Null));
     assert_eq!(
         result.get("truth_state").and_then(Value::as_str),
-        Some("absent")
+        Some("indeterminate")
+    );
+    assert_eq!(
+        result.get("unknown_reason_code").and_then(Value::as_str),
+        Some("observation_scope_excluded")
     );
     let item = explanation_items(&run.json)
         .iter()
@@ -346,10 +352,23 @@ fn exit_codes_present_absent_indeterminate_and_usage() {
     present.write("AGENTS.md", "yes\n");
     assert_eq!(run_inspect(&present.path, &[]).code, 0);
 
+    // Absent means no candidate at all; a `.ctxpect-ignore` exclusion is
+    // observation-scope indeterminate (C-F01), exit 3 like any Unknown.
     let absent = Scratch::new("e2");
-    absent.write("AGENTS.md", "no\n");
-    absent.write(".ctxpect-ignore", "AGENTS.md\n");
+    absent.write("README.md", "unrelated\n");
     assert_eq!(run_inspect(&absent.path, &[]).code, 2);
+
+    let scope_excluded = Scratch::new("e3");
+    scope_excluded.write("AGENTS.md", "no\n");
+    scope_excluded.write(".ctxpect-ignore", "AGENTS.md\n");
+    let scope_run = run_inspect(&scope_excluded.path, &[]);
+    assert_eq!(scope_run.code, 3);
+    assert_eq!(
+        first_result(&scope_run.json)
+            .get("unknown_reason_code")
+            .and_then(Value::as_str),
+        Some("observation_scope_excluded")
+    );
 
     let unsupported = run_inspect(&present.path, &["--version", "0.99.0"]);
     assert_eq!(unsupported.code, 3);
@@ -1222,7 +1241,8 @@ fn ignored_corpus_agents_body_and_digest_are_absent() {
     let body = fs::read_to_string(project.join("AGENTS.md")).expect("fixture body");
     let digest = "845777b9b2d902a75ca9fe1b6f1845b8f76596ee615f833ceb0730da103b904e";
     let json_run = run_inspect(&project, &[]);
-    assert_eq!(json_run.code, 2, "{}", json_run.stdout);
+    // C-F01: excluded from observation scope, so exit 3 (indeterminate).
+    assert_eq!(json_run.code, 3, "{}", json_run.stdout);
     let combined = format!("{}{}", json_run.stdout, json_run.stderr);
     assert!(!combined.contains(digest), "digest leaked: {combined}");
     for line in body.lines() {
@@ -1251,7 +1271,7 @@ fn ignored_corpus_agents_body_and_digest_are_absent() {
         "--project",
         project.to_str().unwrap(),
     ]);
-    assert_eq!(code, 2, "{out}{err}");
+    assert_eq!(code, 3, "{out}{err}");
     let human = format!("{out}{err}");
     assert!(!human.contains(digest), "human digest leaked: {human}");
     for line in body.lines() {
@@ -1384,7 +1404,8 @@ fn ignore_absolute_and_parent_lines_are_skipped_with_line_warnings() {
     scratch.write("AGENTS.md", "keep-visible-body\n");
     scratch.write(".ctxpect-ignore", "/etc/passwd\nAGENTS.md\n../x\n");
     let json_run = run_inspect(&scratch.path, &[]);
-    assert_eq!(json_run.code, 2, "{}", json_run.stdout);
+    // The valid line excludes AGENTS.md from observation scope: exit 3.
+    assert_eq!(json_run.code, 3, "{}", json_run.stdout);
     let combined = combined_text(&json_run);
     assert!(!combined.contains("/etc/passwd"), "{combined}");
     assert!(!combined.contains("../x"), "{combined}");
@@ -1421,7 +1442,7 @@ fn ignore_absolute_and_parent_lines_are_skipped_with_line_warnings() {
         first_result(&json_run.json)
             .get("truth_state")
             .and_then(Value::as_str),
-        Some("absent")
+        Some("indeterminate")
     );
 
     let (code, out, err) = run_inspect_human(&[
@@ -1430,7 +1451,7 @@ fn ignore_absolute_and_parent_lines_are_skipped_with_line_warnings() {
         "--project",
         scratch.path.to_str().unwrap(),
     ]);
-    assert_eq!(code, 2, "{out}{err}");
+    assert_eq!(code, 3, "{out}{err}");
     let human = format!("{out}{err}");
     assert!(!human.contains("/etc/passwd"), "{human}");
     assert!(!human.contains("../x"), "{human}");

@@ -84,18 +84,21 @@ impl NumberLexeme {
         &self.0
     }
 
-    /// Whether the lexeme has the shape `JSON.stringify` gives a double:
-    /// no `+` sign, no leading zeros, no trailing zeros in the fraction, a
-    /// lowercase `e` with a signed exponent and no leading zeros in it, and
-    /// exponent form only where JS would use it (magnitude ≥ 1e21 or
-    /// < 1e-6). A lexeme with this shape is what a JS writer would have
-    /// emitted, so re-emitting it verbatim reproduces that writer's bytes;
-    /// a lexeme without it (`1.0`, `1e-07`, `1.2300`) would be written
-    /// differently by JS and must not be presented as JS-canonical.
+    /// Whether the lexeme has the syntactic shape `JSON.stringify` gives a
+    /// finite double: no redundant fraction zeros, a normalized nonzero
+    /// mantissa, and exponent notation only outside [1e-6, 1e21).
+    /// This is a rejection filter, not a canonical writer or a proof of
+    /// floating-point shortest-round-trip equivalence. Preserving an actual
+    /// JS writer's lexeme retains its bytes; matching this shape alone does
+    /// not establish which writer produced an arbitrary input.
     #[must_use]
     pub fn is_js_shortest_form(&self) -> bool {
         let text = self.0.as_str();
         let unsigned = text.strip_prefix('-').unwrap_or(text);
+        let Ok(value) = text.parse::<f64>() else { return false; };
+        if !value.is_finite() || value == 0.0 && text != "0" {
+            return false;
+        }
         let (mantissa, exponent) = match unsigned.split_once('e') {
             Some((m, e)) => (m, Some(e)),
             None => (unsigned, None),
@@ -104,8 +107,12 @@ impl NumberLexeme {
             return false;
         }
         let Some(exponent) = exponent else {
-            return true;
+            return value == 0.0 || (1e-6..1e21).contains(&value.abs());
         };
+        let integer = mantissa.split('.').next().unwrap_or("");
+        if integer.len() != 1 || integer == "0" {
+            return false;
+        }
         let (sign, digits) = match exponent.as_bytes().first() {
             Some(b'+') => (1i32, &exponent[1..]),
             Some(b'-') => (-1i32, &exponent[1..]),
@@ -712,6 +719,16 @@ mod tests {
             "\"raw \n newline\"",
         ] {
             assert!(parse(bad).is_err(), "expected {bad:?} to be rejected");
+        }
+    }
+
+    #[test]
+    fn js_number_shape_refuses_non_normalized_and_non_finite_forms() {
+        for number in ["0.5", "-0.5", "0.000001", "1e+21", "1.25e-7", "5e-324"] {
+            assert!(NumberLexeme::new(number).unwrap().is_js_shortest_form(), "{number}");
+        }
+        for number in ["10e+21", "0.1e-7", "0e+21", "-0.0", "1e+309", "1e-400", "0.0000001", "1e-6", "1e+20", "1e-07", "1.0"] {
+            assert!(!NumberLexeme::new(number).unwrap().is_js_shortest_form(), "{number}");
         }
     }
 

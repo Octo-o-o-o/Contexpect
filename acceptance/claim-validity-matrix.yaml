@@ -221,7 +221,8 @@
     "configured_model_unsupported",
     "attachment_unavailable",
     "official_distribution_not_captured",
-    "hermetic_fixture_only"
+    "hermetic_fixture_only",
+    "observation_scope_excluded"
   ],
   "use_evidence_kinds": [
     "invocation-observed",

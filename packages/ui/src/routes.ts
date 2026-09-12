@@ -22,6 +22,7 @@ export const ROUTES = [
   { path: "/care-plan/:findingId", id: "V15", nav: "care" },
   { path: "/integrations", id: "V16", nav: "integrations" },
   { path: "/integrations/:id", id: "V16", nav: "integrations" },
+  { path: "/advisor", id: "V17", nav: "advisor" },
 ] as const;
 
 export const NAV = [
@@ -33,6 +34,7 @@ export const NAV = [
   { to: "/sessions", key: "sessions" },
   { to: "/monitor", key: "monitor" },
   { to: "/lab", key: "lab" },
+  { to: "/advisor", key: "advisor" },
   { to: "/assets", key: "assets" },
   { to: "/integrations", key: "integrations" },
   { to: "/sync", key: "sync" },

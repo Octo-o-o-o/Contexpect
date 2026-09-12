@@ -58,10 +58,14 @@
 - [process/2026-09-09-deepseek-harness-review.md](process/2026-09-09-deepseek-harness-review.md) — DeepSeek Harness 建议逐项核验：已修 / 仍成立 / 新发现，与实施交接的映射
 - [process/doctor-rule-map.md](process/doctor-rule-map.md) — Doctor 20 条语料规则的语义、输入合同、实现位置与阻断性；与既有 `D-*` 规则的别名关系
 - [process/2026-09-08-keyboard-and-responsive-verification.md](process/2026-09-08-keyboard-and-responsive-verification.md) — 键盘/焦点/响应式/隐私边界取证；逐项标注取证强度与未覆盖项
+- [process/2026-09-12-visual-evidence.md](process/2026-09-12-visual-evidence.md) — U06 白底黑字主题实机截图取证：27 张 Chromium 截图清单与 sha256、未拍摄状态、WebView lane 未取证原因
 - [process/release.md](process/release.md)
 - [process/dependency-and-provenance.md](process/dependency-and-provenance.md)
 
 - [前端/API 配套收口](plan/2026-09-10-frontend-api-change-proposals.md) — 启动恢复、Sessions 增量元数据、展示真值修复与历史首见边界；未独立验收的候选，不代表完整产品验收
+- [交接包价值裁决与本地候选实施](plan/2026-09-12-handoff-value-implementation.md) — 全包阅读后的 T01–T12/M01–M20 裁决、资产写入与离线闭环修复、当前验收边界
+- [T07–T12 决策材料](plan/2026-09-12-t07-t12-decision-materials.md) — 依赖政策 ADR 候选大纲、外部适配/团队信任/Effect/发行收口的决策点与准入验证表；不是已批准变更
+- [DEMO-01–18 场景落地评估](plan/2026-09-12-demo-01-18-evaluation.md) — U04/U05 切片：18 个 demo 场景的现有 e2e 覆盖、本次新增用例与未覆盖归属；不建平行 demo-data 层的理由
 
 ### ADR
 
@@ -111,6 +115,10 @@ Field-to-claim 草稿：`acceptance/field-to-claim/`。生成夹具：`acceptanc
 - [Doctor 设计包](gpt-img-2-design/20260904-1200-contexpect-doctor/00-brief.md)
 - [实施映射（设计侧）](gpt-img-2-design/20260904-1200-contexpect-doctor/06-implementation-plan.md) — 指向本文档集，不表示已开始开发
 - 最终图：`gpt-img-2-design/20260904-1200-contexpect-doctor/images/10-context-doctor-final.png`
+
+## 交接归档
+
+- [Contexpect 接续资料包 2026-09-11](handoff/contexpect-2026-09-11/00_README.md) — 外部会话的研究/最终建议/视觉方向归档（白底黑字为最终视觉方向）；属咨询建议与历史快照，不是新 ADR、不替代有效合同；originals 两份原文按字节保留，不参与相对链接检查（见 `scripts/check_docs.py` 的 `LINK_CHECK_SKIP_DIRS`）
 
 设计图中的 4/9/5 adapter 分组是 Doctor fixture，不是 live compatibility matrix。
 

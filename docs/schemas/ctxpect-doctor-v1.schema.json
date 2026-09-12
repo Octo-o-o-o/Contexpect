@@ -36,6 +36,7 @@
     "symptom": { "type": "string" },
     "inspect_exit_code": { "type": "integer" },
     "snapshot_schema": { "type": "string" },
+    "as_of": { "type": "string", "description": "civil date the `stale` rule and suppression expiry were judged against (CLI `--as-of` or the wall-clock date; `YYYY-MM-DD`)" },
     "schema_version": { "type": "integer" },
     "command": { "type": "string" },
     "exit_code": { "type": "integer" },
@@ -70,6 +71,19 @@
         "title": { "type": "string" },
         "path": { "type": "string" },
         "blocking": { "type": "boolean" },
+        "declaration": {
+          "type": "object",
+          "description": "C-F04 (2026-09-12): present on findings read from a self-declared file (budget.json/inventory.json/plan.json/...). The finding is a declaration-validation: it validates what the file declares, and records that no trusted producer is connected to the declaration — `approved: true` or `present` in such a file is a product self-declaration, never authorization or presence evidence.",
+          "required": ["kind", "source_file", "producer", "trusted_producer_connected", "declared_at"],
+          "properties": {
+            "kind": { "const": "declaration-validation" },
+            "source_file": { "type": "string" },
+            "producer": { "type": "string" },
+            "trusted_producer_connected": { "const": false },
+            "declared_at": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
         "confirmation": { "type": "string", "enum": ["confirmed", "suspected"] },
         "severity": { "type": "string", "enum": ["confirmed", "suspected"] },
         "unknown_is_severity": { "const": false },

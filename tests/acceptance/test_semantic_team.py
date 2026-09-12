@@ -41,6 +41,7 @@ from contexpect_semantic_team import (  # noqa: E402
     build_semantic_team_files,
     build_st1_pos,
     build_st2_pos,
+    build_st2_same_bytes_pos,
     build_st3_pos,
     build_st4_pos,
     build_st5_pos,
@@ -1579,6 +1580,52 @@ class SemanticTeamC2Review2(unittest.TestCase):
         self.assertEqual(coze["capability_negotiation"]["status"], "not-applicable")
         self.assertEqual(coze["projection_outcome"], "unsupported")
         self.assertIn("instructions", coze["capability_negotiation"]["unsupported"])
+
+
+class SemanticTeamCF02Revision(unittest.TestCase):
+    """C-F02 (2026-09-12): byte identity is neither proof of semantic equivalence
+    nor evidence of non-equivalence. ST2-same-bytes-pos is the minimal
+    counterexample to the former 'bodies must differ' clause."""
+
+    def test_same_bytes_projection_passes(self) -> None:
+        fixture = build_st2_same_bytes_pos()
+        projections = fixture["payload"]["projections"]
+        self.assertEqual(
+            {item["family_id"] for item in projections},
+            {"kimi-code", "zcode"},
+        )
+        self.assertEqual(
+            len({item["native_digest"] for item in projections}),
+            1,
+            "fixture must project byte-identical bodies",
+        )
+        self.assertEqual(_payload_violations(fixture), [])
+        self.assertEqual(fixture["digest"], _case_digest(fixture))
+
+    def test_same_bytes_binding_byte_identical_true_fails(self) -> None:
+        def mutate(obj: dict) -> None:
+            for binding in obj["payload"]["equivalence_bindings"]:
+                binding["byte_identical"] = True
+
+        _assert_codes(
+            _payload_violations(_mutate_fixture(build_st2_same_bytes_pos, mutate)),
+            "byte-copy-as-alignment",
+            "hash-equality-as-equivalence",
+        )
+
+    def test_same_bytes_binding_byte_basis_fails(self) -> None:
+        for bad in ("byte-equality", "hash-equality"):
+            with self.subTest(basis=bad):
+                def mutate(obj: dict, value=bad) -> None:
+                    for binding in obj["payload"]["equivalence_bindings"]:
+                        binding["equivalence_basis"] = value
+
+                _assert_codes(
+                    _payload_violations(_mutate_fixture(build_st2_same_bytes_pos, mutate)),
+                    "byte-copy-as-alignment",
+                    "hash-equality-as-equivalence",
+                    label=bad,
+                )
 
 
 if __name__ == "__main__":

@@ -33,9 +33,11 @@
 //! - A `.ctxpect-ignore` exact relative path excludes that file from
 //!   aggregation and is labelled a product user exclusion, not a Codex native
 //!   rule. The excluded file is not read; its evidence digest is null.
-//!   Lines that are absolute, contain a `..` segment, or include control
-//!   characters are ignored; warnings record only the 1-based line number
-//!   and never echo the original line.
+//!   Exclusion only narrows Contexpect's observation scope: when nothing is
+//!   adopted the claim is indeterminate with `observation_scope_excluded`
+//!   (C-F01), never a native absence. Lines that are absolute, contain a
+//!   `..` segment, or include control characters are ignored; warnings record
+//!   only the 1-based line number and never echo the original line.
 //! - Without an explicit codex-home root, the global layer is indeterminate
 //!   with `permission_not_granted`; the crate never consults `HOME` or
 //!   `CODEX_HOME`. The global layer's root kind is always codex-home.
@@ -85,8 +87,8 @@
 
 use ctxpect_collect::{Entry, Inventory, Withheld};
 use ctxpect_core::{
-    Claim, ClaimKind, Coverage, ExperimentRef, KnowledgeStatus, LifecycleStage, Precision,
-    Provenance, TruthState, UnknownReason,
+    Claim, ClaimKind, ClaimSource, Coverage, ExperimentRef, KnowledgeStatus, LifecycleStage,
+    Precision, Provenance, TruthState, UnknownReason,
 };
 use ctxpect_fs::{EntryKind, Refusal, Root, is_missing, read_contained};
 use std::fmt;
@@ -576,6 +578,7 @@ fn resolve_codex(request: &ResolveRequest<'_>) -> Result<Resolution, ResolveErro
     let mut native_paths: Vec<String> = Vec::new();
     let mut adopted_files: Vec<Adopted> = Vec::new();
     let mut blocking_unknown: Option<UnknownReason> = None;
+    let mut excluded_by_product = false;
 
     if ignore_used {
         push_unique(&mut native_paths, IGNORE_NAME.to_string());
@@ -630,6 +633,7 @@ fn resolve_codex(request: &ResolveRequest<'_>) -> Result<Resolution, ResolveErro
                 native_paths: &mut native_paths,
                 adopted_files: &mut adopted_files,
                 blocking_unknown: &mut blocking_unknown,
+                excluded_by_product: &mut excluded_by_product,
             })?;
             codex_home_inventory = Some(inventory);
         }
@@ -654,6 +658,7 @@ fn resolve_codex(request: &ResolveRequest<'_>) -> Result<Resolution, ResolveErro
             native_paths: &mut native_paths,
             adopted_files: &mut adopted_files,
             blocking_unknown: &mut blocking_unknown,
+            excluded_by_product: &mut excluded_by_product,
         })?;
     }
 
@@ -676,6 +681,11 @@ fn resolve_codex(request: &ResolveRequest<'_>) -> Result<Resolution, ResolveErro
     let claims = if !included {
         if let Some(reason) = blocking_unknown {
             honesty_claims(reason, false)
+        } else if excluded_by_product {
+            // C-F01: `.ctxpect-ignore` only removes the file from Contexpect's
+            // observation scope; it says nothing about the harness's native
+            // load behaviour, so the claim is indeterminate, never absent.
+            honesty_claims(UnknownReason::ObservationScopeExcluded, false)
         } else {
             instruction_claims(false)
         }
@@ -836,6 +846,7 @@ pub(crate) struct LayerWork<'a> {
     pub(crate) native_paths: &'a mut Vec<String>,
     pub(crate) adopted_files: &'a mut Vec<Adopted>,
     pub(crate) blocking_unknown: &'a mut Option<UnknownReason>,
+    pub(crate) excluded_by_product: &'a mut bool,
 }
 
 fn consider_layer(work: &mut LayerWork<'_>) -> Result<(), ResolveError> {
@@ -869,6 +880,7 @@ fn consider_layer(work: &mut LayerWork<'_>) -> Result<(), ResolveError> {
         record_seen(work, &path);
 
         if work.ignore.iter().any(|item| item == &path) {
+            *work.excluded_by_product = true;
             work.edges.push(edge(
                 EdgeKind::ExcludedBy,
                 "G4",
@@ -1222,6 +1234,14 @@ fn resolved_claim(
         has_timeline_events: false,
         contradicted_by_equal_coverage: false,
         filled_from_higher_provenance_outside_coverage: false,
+        // C-F04: name the producer. Every claim this crate emits is a static
+        // resolution over the grammar's declared surface; no clock reading or
+        // single evidence id is wired per claim, so basis/evaluated_at stay
+        // unset rather than invented.
+        source: Some(ClaimSource::produced_by(
+            "ctxpect-resolve::resolved_claim",
+            Provenance::OfficialSpec,
+        )),
     }
 }
 

@@ -1408,7 +1408,9 @@ fn adapter_test_runs_the_family_corpus_and_binds_digests() {
     let (code, json, out) = run(&["adapter", "test", "--json", "--adapter", "codex", "--from", root_s]);
     assert_eq!(code, 0, "{out} {json:?}");
     assert_eq!(json.get("decision").and_then(Value::as_str), Some("pass"));
-    assert!(json.get("implemented_rows").and_then(Value::as_i64).unwrap_or(0) >= 3, "{json:?}");
+    // C-F01: the `.ctxpect-ignore` row is a honesty pass and per the contract
+    // does not count as implemented, so codex instructions is 2 + 1.
+    assert!(json.get("implemented_rows").and_then(Value::as_i64).unwrap_or(0) >= 2, "{json:?}");
     assert_eq!(json.pointer(&["counts", "fail"]).and_then(Value::as_i64), Some(0));
     assert_eq!(
         json.get("matrix_digest").and_then(Value::as_str),
@@ -2044,6 +2046,92 @@ fn ci_and_doctor_block_on_the_same_project_rule() {
     // `--fail-on confirmed` still fails on a confirmed finding; same function.
     let (code, _, _) = run(&["doctor", "--json", "--project", project, "--fail-on", "confirmed"]);
     assert_eq!(code, 2);
+}
+
+/// C-F05: `stale` is judged against an explicit `as_of`. The CLI defaults to
+/// the wall-clock date and `--as-of YYYY-MM-DD` pins it (suppression expiry
+/// follows the pinned date's noon-UTC reading); an impossible date fails
+/// closed at parse.
+#[test]
+fn doctor_stale_is_judged_against_the_explicit_as_of_date() {
+    let scratch = Scratch::new("asof");
+    scratch.write("AGENTS.md", "hello\n");
+    // 359 days before 2026-09-04, 366 days before 2026-09-11.
+    scratch.write("OLD.md", "---\nupdated: 2025-09-10\n---\nold\n");
+    // Stale under any of the dates used here; carries the suppression.
+    scratch.write("STALE.md", "---\nupdated: 2019-01-01\n---\nolder\n");
+    scratch.write(
+        ".ctxpect/doctor-suppressions.json",
+        r#"{"schema":"ctxpect-doctor-suppressions-v1","suppressions":[{"rule_id":"stale","path":"STALE.md","owner":"alice","reason":"accepted legacy doc","expires_at":"2026-09-05T00:00:00Z"}]}"#,
+    );
+    let project = scratch.path.to_str().unwrap();
+
+    // As of the frozen reference date OLD.md is fresh; the suppression on
+    // STALE.md is still valid (expiry is past the date's noon-UTC reading).
+    let (code, json, out) = run(&["doctor", "--json", "--project", project, "--as-of", "2026-09-04"]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("as_of").and_then(Value::as_str), Some("2026-09-04"));
+    let findings = json.get("findings").and_then(Value::as_array).unwrap();
+    assert!(
+        !findings.iter().any(|f| f.get("rule_id").and_then(Value::as_str) == Some("stale")
+            && f.get("path").and_then(Value::as_str) == Some("OLD.md")),
+        "{findings:?}"
+    );
+    let suppressed = findings
+        .iter()
+        .find(|f| f.get("rule_id").and_then(Value::as_str) == Some("stale")
+            && f.get("path").and_then(Value::as_str) == Some("STALE.md"))
+        .expect("STALE.md stale finding");
+    assert_eq!(suppressed.get("suppressed").and_then(Value::as_bool), Some(true), "{suppressed:?}");
+    // 2026-09-04T12:00:00Z: the pinned date's noon-UTC reading.
+    assert_eq!(
+        json.pointer(&["suppressions", "evaluated_at_secs"]).and_then(Value::as_i64),
+        Some(1_788_523_200)
+    );
+
+    // One week later the same bytes cross the 365-day threshold, the finding
+    // names the date it was judged against, and the suppression is expired,
+    // so it suppresses nothing and is itself reported.
+    let (code, json, out) = run(&["doctor", "--json", "--project", project, "--as-of", "2026-09-11"]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    let findings = json.get("findings").and_then(Value::as_array).unwrap();
+    let stale = findings
+        .iter()
+        .find(|f| f.get("rule_id").and_then(Value::as_str) == Some("stale")
+            && f.get("path").and_then(Value::as_str) == Some("OLD.md"))
+        .expect("OLD.md stale finding");
+    assert_eq!(stale.get("blocking").and_then(Value::as_bool), Some(false));
+    assert!(
+        stale.get("title").and_then(Value::as_str).unwrap().contains("2026-09-11"),
+        "{stale:?}"
+    );
+    let revived = findings
+        .iter()
+        .find(|f| f.get("rule_id").and_then(Value::as_str) == Some("stale")
+            && f.get("path").and_then(Value::as_str) == Some("STALE.md"))
+        .expect("STALE.md stale finding");
+    assert_eq!(revived.get("suppressed").and_then(Value::as_bool), Some(false), "{revived:?}");
+    assert!(findings.iter().any(|f| {
+        f.get("rule_id").and_then(Value::as_str) == Some("doctor.suppression_invalid")
+    }), "{findings:?}");
+
+    // Without `--as-of` the wall clock is the reference: 2019-01-01 is stale
+    // whenever this test runs, and the output names the actual date.
+    let (code, json, out) = run(&["doctor", "--json", "--project", project]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    let as_of = json.get("as_of").and_then(Value::as_str).expect("as_of named");
+    assert!(as_of.len() == 10 && as_of.as_bytes()[4] == b'-', "{as_of}");
+    let findings = json.get("findings").and_then(Value::as_array).unwrap();
+    assert!(findings.iter().any(|f| f.get("rule_id").and_then(Value::as_str) == Some("stale")
+        && f.get("path").and_then(Value::as_str) == Some("OLD.md")), "{findings:?}");
+
+    // An impossible date is refused at parse: exit 1, usage.invalid.
+    let (code, json, _) = run(&["doctor", "--json", "--project", project, "--as-of", "2026-02-30"]);
+    assert_eq!(code, 1, "{json:?}");
+    assert_eq!(
+        json.pointer(&["error", "code"]).and_then(Value::as_str),
+        Some("usage.invalid")
+    );
 }
 
 /// D2: a suppression is an owned, time-boxed, evidence-bound acceptance of
@@ -3142,12 +3230,35 @@ fn asset_copy_is_vetted_authorized_and_reversible() {
         Some("not-emitted")
     );
 
+    // A repeated CLI copy owns a new backup. Roll back newest first even
+    // when both copies installed the same bytes, then restore prior provenance.
+    let first_record = fs::read(store.join(format!("apply/{tx}/tx.json"))).unwrap();
+    let (code, second, out) = copy();
+    assert_eq!(code, 0, "{out}");
+    let tx2 = second.pointer(&["transaction", "tx_id"]).and_then(Value::as_str).unwrap();
+    assert_ne!(tx2, tx);
+    assert_eq!(fs::read(store.join(format!("apply/{tx}/tx.json"))).unwrap(), first_record);
+    let (code, refusal, out) = run(&[
+        "assets", "rollback", "--json", "--project", project_s, "--store", store_s, "--id", &tx,
+    ]);
+    assert_eq!(code, 1, "{out}");
+    assert_eq!(err_code(&refusal), Some("assets.lock_conflict"));
+    let (code, _, out) = run(&[
+        "assets", "rollback", "--json", "--project", project_s, "--store", store_s, "--id", tx2,
+    ]);
+    assert_eq!(code, 0, "{out}");
+    let lock = parse(&fs::read_to_string(store.join("assetlock/skill-a.json")).unwrap()).unwrap();
+    assert_eq!(lock.get("tx_id").and_then(Value::as_str), Some(tx.as_str()));
+
     // Rollback removes the file the copy created.
     let (code, json, out) = run(&[
         "assets", "rollback", "--json", "--project", project_s, "--store", store_s, "--id", &tx,
     ]);
     assert_eq!(code, 0, "{out} {json:?}");
     assert!(!scratch.path.join(".ctxpect/skills/skill-a.md").exists());
+    let (code, sbom, out) = run(&["assets", "sbom", "--json", "--store", store_s]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(sbom.get("component_count"), Some(&Value::Int(0)));
 }
 
 /// The same executor over the API, including that no path comes from the
@@ -3192,7 +3303,33 @@ fn asset_api_takes_no_path_from_the_request() {
     fs::create_dir_all(&store).unwrap();
     plant_grants(&store, Some(&scratch.path), &["assets.copy", "assets.rollback"]);
     let (status, raw) = http_call(&listen, "POST", "/api/v1/assets/skill-a/copy", "{}");
+    assert_eq!(status, 400, "{raw}");
+    assert_eq!(err_code(&http_json(&raw)), Some("assets.preview_required"));
+    let preview_id = plan.get("tx_id").and_then(Value::as_str).unwrap();
+    let body = format!(r#"{{"preview_id":"{preview_id}","target_rel":"/etc/passwd"}}"#);
+    // A target edited after the visible preview must survive the API call.
+    scratch.write(".ctxpect/skills/skill-a.md", "user edit after preview\n");
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/assets/skill-a/copy", &body);
+    assert_eq!(status, 400, "{raw}");
+    assert_eq!(err_code(&http_json(&raw)), Some("assets.concurrent_hash"));
+    assert_eq!(fs::read_to_string(scratch.path.join(".ctxpect/skills/skill-a.md")).unwrap(), "user edit after preview\n");
+
+    let (_, fresh) = http_call(&listen, "POST", "/api/v1/assets/skill-a/preview", "{}");
+    let fresh = http_json(&fresh);
+    let tx = fresh.get("tx_id").and_then(Value::as_str).unwrap();
+    assert_ne!(tx, preview_id);
+    let body = format!(r#"{{"preview_id":"{tx}"}}"#);
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/assets/skill-a/copy", &body);
     assert_eq!(status, 200, "{raw}");
+    let copied = http_json(&raw);
+    assert_eq!(copied.get("runtime_verification").and_then(Value::as_str), Some("not-observed"));
+    let post = copied.get("post_receipt_id").and_then(Value::as_str).expect("post Receipt");
+    let (status, _) = get_json(&listen, &format!("/api/v1/receipts/{post}"));
+    assert_eq!(status, 200);
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/assets/skill-a/copy", &body);
+    assert_eq!(status, 400, "{raw}");
+    assert_eq!(err_code(&http_json(&raw)), Some("assets.preview_consumed"));
+    assert_eq!(fs::read_to_string(store.join(format!("apply/{tx}/before"))).unwrap_or_default(), "user edit after preview\n");
     assert!(scratch.path.join(".ctxpect/skills/skill-a.md").exists());
 
     // The overview now reports the executor and the lock rather than a
@@ -3207,7 +3344,77 @@ fn asset_api_takes_no_path_from_the_request() {
         Some(1),
         "{overview:?}"
     );
+    // Rollback cannot overwrite a later external edit, and successful rollback
+    // appends its own observation without changing the copy's old Receipt.
+    let old_receipt = fs::read(store.join(format!("receipts/{post}.json"))).unwrap();
+    scratch.write(".ctxpect/skills/skill-a.md", "later edit\n");
+    let (status, raw) = http_call(&listen, "POST", &format!("/api/v1/assets/{tx}/rollback"), "{}");
+    assert_eq!(status, 400, "{raw}");
+    assert_eq!(err_code(&http_json(&raw)), Some("assets.rollback_conflict"));
+    scratch.write(".ctxpect/skills/skill-a.md", "skill body\n");
+    let (status, raw) = http_call(&listen, "POST", &format!("/api/v1/assets/{tx}/rollback"), "{}");
+    assert_eq!(status, 200, "{raw}");
+    assert!(http_json(&raw).get("post_receipt_id").is_some());
+    assert_eq!(fs::read(store.join(format!("receipts/{post}.json"))).unwrap(), old_receipt);
+    assert_eq!(fs::read_to_string(scratch.path.join(".ctxpect/skills/skill-a.md")).unwrap(), "user edit after preview\n");
+    let (_, overview) = get_json(&listen, "/api/v1/assets");
+    assert_eq!(overview.pointer(&["sbom", "component_count"]), Some(&Value::Int(0)));
+
+    // Metadata changes need a new preview even when the source bytes match.
+    let (_, fresh) = http_call(&listen, "POST", "/api/v1/assets/skill-a/preview", "{}");
+    let fresh = http_json(&fresh);
+    let tx = fresh.get("tx_id").and_then(Value::as_str).unwrap();
+    let body = format!(r#"{{"preview_id":"{tx}"}}"#);
+    let registry_path = scratch.path.join(".ctxpect/assets.json");
+    let registry = fs::read_to_string(&registry_path).unwrap();
+    fs::write(&registry_path, registry.replace("MIT", "Apache-2.0")).unwrap();
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/assets/skill-a/copy", &body);
+    assert_eq!(status, 400, "{raw}");
+    assert_eq!(err_code(&http_json(&raw)), Some("assets.preview_changed"));
+    fs::write(&registry_path, registry).unwrap();
+
+    let preview_path = store.join(format!("assetpreviews/{tx}.json"));
+    let record = parse(&fs::read_to_string(&preview_path).unwrap()).unwrap();
+    for (key, value, reason) in [
+        ("expires_at", Value::Int(1), "assets.preview_expired"),
+        ("project_digest", ctxpect_schema::string("different-project"), "assets.preview_scope"),
+    ] {
+        let mut changed = record.clone();
+        if let Value::Object(ref mut fields) = changed { fields.insert(key.into(), value); }
+        fs::write(&preview_path, canonical_json(&changed)).unwrap();
+        let (status, raw) = http_call(&listen, "POST", "/api/v1/assets/skill-a/copy", &body);
+        assert_eq!(status, 400, "{raw}");
+        assert_eq!(err_code(&http_json(&raw)), Some(reason));
+    }
+    fs::write(&preview_path, canonical_json(&record)).unwrap();
+
+    // A post-observation storage failure is not reported as a failed write:
+    // the caller sees the committed transaction and must not repeat it.
+    fs::rename(store.join("receipts"), store.join("saved-receipts")).unwrap();
+    fs::write(store.join("receipts"), "blocked for fault injection").unwrap();
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/assets/skill-a/copy", &body);
+    assert_eq!(status, 200, "{raw}");
+    let copied = http_json(&raw);
+    assert_eq!(copied.get("static_verification").and_then(Value::as_str), Some("unavailable"));
+    assert!(copied.get("post_receipt_error").is_some());
+    assert_eq!(fs::read_to_string(scratch.path.join(".ctxpect/skills/skill-a.md")).unwrap(), "skill body\n");
+    fs::remove_file(store.join("receipts")).unwrap();
+    fs::rename(store.join("saved-receipts"), store.join("receipts")).unwrap();
+    let (_, fresh) = http_call(&listen, "POST", "/api/v1/assets/skill-a/preview", "{}");
+    let fresh = http_json(&fresh);
+    let tx = fresh.get("tx_id").and_then(Value::as_str).unwrap();
+    let body = format!(r#"{{"preview_id":"{tx}"}}"#);
+    fs::rename(store.join("assetlock"), store.join("saved-assetlock")).unwrap();
+    fs::write(store.join("assetlock"), "blocked for fault injection").unwrap();
+    let before = fs::read(scratch.path.join(".ctxpect/skills/skill-a.md")).unwrap();
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/assets/skill-a/copy", &body);
+    assert_eq!(status, 400, "{raw}");
+    assert_eq!(fs::read(scratch.path.join(".ctxpect/skills/skill-a.md")).unwrap(), before);
+    assert!(!store.join(format!("apply/{tx}")).exists(), "prior lock must be readable before writing");
+    fs::remove_file(store.join("assetlock")).unwrap();
+    fs::rename(store.join("saved-assetlock"), store.join("assetlock")).unwrap();
 }
+
 
 /// Sync over the API: preview is read-only, apply is a mutation, and the
 /// destination is never taken from the request.
@@ -3626,6 +3833,66 @@ fn frontend_bootstrap_is_scoped_read_only_and_preserves_unknown() {
     assert_eq!(get_json(&listen, "/api/v1/status").1.pointer(&["error", "code"]).and_then(Value::as_str), Some("store.index_corrupt"));
 }
 
+/// A tombstoned *current* Receipt is not a 400: status falls back to the
+/// latest matching history, and to an honest empty selection when no
+/// candidate remains.
+#[test]
+fn status_falls_back_to_history_when_the_current_receipt_is_tombstoned() {
+    let scratch = Scratch::new("status-tombstone");
+    scratch.write("AGENTS.md", "v1\n");
+    let store = scratch.path.join("store");
+    let (child, listen) = start_daemon(&scratch, &store);
+    let (code, raw) = http_call(&listen, "POST", "/api/v1/inspect", "{}");
+    assert_eq!(code, 200, "{raw}");
+    let first = http_json(&raw)
+        .pointer(&["receipt", "receipt_id"])
+        .and_then(Value::as_str)
+        .unwrap()
+        .to_string();
+    scratch.write("AGENTS.md", "v2\n");
+    let (code, raw) = http_call(&listen, "POST", "/api/v1/inspect", "{}");
+    assert_eq!(code, 200, "{raw}");
+    let second = http_json(&raw)
+        .pointer(&["receipt", "receipt_id"])
+        .and_then(Value::as_str)
+        .unwrap()
+        .to_string();
+    assert_ne!(first, second);
+    let (code, status) = get_json(&listen, "/api/v1/status");
+    assert_eq!(code, 200, "{status:?}");
+    assert_eq!(status.get("selection").and_then(Value::as_str), Some("session-current"));
+    assert_eq!(
+        status.pointer(&["selected_receipt", "receipt_id"]).and_then(Value::as_str),
+        Some(second.as_str())
+    );
+    assert_eq!(
+        status.get("diagnosis_basis").and_then(Value::as_str),
+        Some("receipt-and-current-project-scan")
+    );
+
+    // Deleting the current Receipt falls back to the latest matching one.
+    let store_handle = Store::open(&store).unwrap();
+    store_handle.delete_receipt(&second, "test").unwrap();
+    let (code, status) = get_json(&listen, "/api/v1/status");
+    assert_eq!(code, 200, "{status:?}");
+    assert_eq!(status.get("selection").and_then(Value::as_str), Some("latest-matching"), "{status:?}");
+    assert_eq!(
+        status.pointer(&["selected_receipt", "receipt_id"]).and_then(Value::as_str),
+        Some(first.as_str())
+    );
+
+    // With no matching history left, the selection is honestly `none` and
+    // no diagnosis basis is claimed.
+    store_handle.delete_receipt(&first, "test").unwrap();
+    let (code, status) = get_json(&listen, "/api/v1/status");
+    assert_eq!(code, 200, "{status:?}");
+    assert_eq!(status.get("selection").and_then(Value::as_str), Some("none"));
+    assert_eq!(status.get("selected_receipt"), Some(&Value::Null));
+    assert_eq!(status.get("diagnosis_basis"), Some(&Value::Null));
+    drop(child);
+    let _ = fs::remove_file(store.join("daemon.addr"));
+}
+
 #[test]
 fn frontend_sessions_metadata_is_additive_and_has_no_bodies() {
     let scratch = Scratch::new("frontend-sessions");
@@ -3648,4 +3915,335 @@ fn frontend_sessions_metadata_is_additive_and_has_no_bodies() {
     assert_eq!(summary.as_object().unwrap().len(), 5);
     assert!(!canonical_json(&data).contains("PRIVATE_SENTINEL"));
     assert!(!canonical_json(&data).contains("timeline"));
+}
+
+/// The Codex-anchored vertical loop, end to end: a real-shaped project
+/// (multi-layer AGENTS.md chain, a `.ctxpect-ignore` exclusion, frontmatter)
+/// goes inspect -> doctor -> intent preview -> authorized apply -> rollback,
+/// and each stage's honesty boundary is asserted rather than assumed.
+///
+/// Run evidence is stated, not staged. The only declared Codex native oracle
+/// is `codex debug prompt-input`, whose pinned recording lives at
+/// `acceptance/corpus/development/oracle/codex__debug-prompt-input.jsonl`
+/// (`live_tested: false`); it is *named* by the inspect explanation as the
+/// next evidence and is not executed here, so the runtime facets stay
+/// indeterminate with `runtime_snapshot_missing` and this test asserts
+/// exactly that instead of a fabricated runtime claim.
+#[test]
+fn codex_static_to_safe_write_loop_closes_end_to_end() {
+    let scratch = Scratch::new("e2e");
+    // `updated: 2025-01-01` is >365 days before the pinned as-of below; the
+    // static fix is a frontmatter date bump on the same observed file.
+    let original = "---\nupdated: 2025-01-01\n---\nroot rules\n";
+    let fixed = "---\nupdated: 2026-09-01\n---\nroot rules\n";
+    scratch.write("AGENTS.md", original);
+    scratch.write("sub/AGENTS.md", "sub rules\n");
+    scratch.write(".ctxpect-ignore", "sub/AGENTS.md\n");
+    scratch.write("codex-home/AGENTS.md", "global rules\n");
+    let project = scratch.path.to_str().unwrap().to_string();
+    let cwd = scratch.path.join("sub").to_str().unwrap().to_string();
+    let home = scratch.path.join("codex-home").to_str().unwrap().to_string();
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap().to_string();
+
+    // (a) inspect: static resolution over the declared roots only.
+    let (code, json, out) = run(&[
+        "inspect", "--json", "--project", &project, "--cwd", &cwd, "--codex-home", &home,
+        "--store", &store_s,
+    ]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    let result = &json.get("results").and_then(Value::as_array).unwrap()[0];
+    assert_eq!(result.get("truth_state").and_then(Value::as_str), Some("present"));
+    assert_eq!(result.pointer(&["parse", "included"]), Some(&Value::Bool(true)));
+    let edges = result.get("edges").and_then(Value::as_array).unwrap();
+    // The nested chain: the global (codex-home) and project-root files are
+    // adopted; the cwd layer's file is excluded by the product-side ignore.
+    assert!(
+        edges.iter().any(|e| e.get("kind").and_then(Value::as_str) == Some("included-by")
+            && e.get("rule_id").and_then(Value::as_str) == Some("G5")),
+        "{edges:?}"
+    );
+    assert!(
+        edges.iter().any(|e| e.get("kind").and_then(Value::as_str) == Some("included-by")
+            && e.get("rule_id").and_then(Value::as_str) == Some("G1")
+            && e.get("path").and_then(Value::as_str) == Some("AGENTS.md")),
+        "{edges:?}"
+    );
+    let excluded = edges
+        .iter()
+        .find(|e| e.get("kind").and_then(Value::as_str) == Some("excluded-by"))
+        .expect("G4 exclusion edge");
+    assert_eq!(excluded.get("rule_id").and_then(Value::as_str), Some("G4"));
+    assert_eq!(excluded.get("path").and_then(Value::as_str), Some("sub/AGENTS.md"));
+    assert_eq!(
+        excluded.get("note").and_then(Value::as_str),
+        Some("product-user-exclusion")
+    );
+    let layers = result.get("layers").and_then(Value::as_array).unwrap();
+    assert_eq!(layers.len(), 3, "{layers:?}");
+    assert_eq!(layers[2].get("id").and_then(Value::as_str), Some("sub"));
+    assert_eq!(layers[2].get("adopted"), Some(&Value::Null));
+    // The explanation shows the T02a semantics: the exclusion narrows
+    // Contexpect's observation scope; the native load state stays unknown.
+    let explanation = json.get("explanation").and_then(Value::as_array).unwrap();
+    let shown = explanation
+        .iter()
+        .find(|e| e.get("kind").and_then(Value::as_str) == Some("excluded"))
+        .expect("excluded explanation");
+    let why = shown.get("why").and_then(Value::as_str).unwrap_or("");
+    assert!(
+        why.contains("observation_scope_excluded") && why.contains("not a Codex native rule"),
+        "{why}"
+    );
+    // The recorded native oracle is named as the next evidence — only named.
+    let i04 = explanation
+        .iter()
+        .find(|e| e.get("rule_id").and_then(Value::as_str) == Some("I04"))
+        .expect("I04 runtime-facet explanation");
+    assert!(
+        i04.get("next_evidence")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .contains("codex debug prompt-input"),
+        "{i04:?}"
+    );
+    // No runtime evidence was collected: every runtime facet stays
+    // indeterminate with its reason code, and installed is not inferred.
+    let facets = result.get("facets").expect("facets");
+    for facet in ["model-visible", "use-evidence", "outcome-affecting"] {
+        let claim = facets.get(facet).unwrap_or(&Value::Null);
+        assert_eq!(
+            claim.get("truth_state").and_then(Value::as_str),
+            Some("indeterminate"),
+            "{facet}"
+        );
+        assert_eq!(
+            claim.get("unknown_reason_code").and_then(Value::as_str),
+            Some("runtime_snapshot_missing"),
+            "{facet}"
+        );
+    }
+    assert_eq!(
+        facets
+            .pointer(&["installed", "unknown_reason_code"])
+            .and_then(Value::as_str),
+        Some("not_installed")
+    );
+    let old_receipt_id = json
+        .get("formal_receipt_id")
+        .and_then(Value::as_str)
+        .expect("formal_receipt_id")
+        .to_string();
+    let old_receipt_path = store.join(format!("receipts/{old_receipt_id}.json"));
+    assert!(old_receipt_path.is_file());
+
+    // T02a at the claim level: when the exclusion removes the only candidate
+    // on the chain, the claim is indeterminate/observation_scope_excluded
+    // (exit 3) — never absent.
+    let excluded_only = Scratch::new("e2e-excluded");
+    excluded_only.write("pkg/AGENTS.md", "only\n");
+    excluded_only.write(".ctxpect-ignore", "pkg/AGENTS.md\n");
+    let (code, json, out) = run(&[
+        "inspect",
+        "--json",
+        "--project",
+        excluded_only.path.to_str().unwrap(),
+        "--cwd",
+        excluded_only.path.join("pkg").to_str().unwrap(),
+    ]);
+    assert_eq!(code, 3, "{out} {json:?}");
+    let result = &json.get("results").and_then(Value::as_array).unwrap()[0];
+    assert_eq!(
+        result.get("truth_state").and_then(Value::as_str),
+        Some("indeterminate")
+    );
+    assert_eq!(
+        result.get("unknown_reason_code").and_then(Value::as_str),
+        Some("observation_scope_excluded")
+    );
+    assert_eq!(result.pointer(&["parse", "included"]), Some(&Value::Null));
+
+    // (b) doctor against the pinned as-of date: the stale frontmatter is a
+    // real, non-blocking, statically fixable finding.
+    let (code, json, out) = run(&[
+        "doctor", "--json", "--project", &project, "--cwd", &cwd, "--codex-home", &home,
+        "--as-of", "2026-09-04",
+    ]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(json.get("as_of").and_then(Value::as_str), Some("2026-09-04"));
+    let findings = json.get("findings").and_then(Value::as_array).unwrap();
+    let stale = findings
+        .iter()
+        .find(|f| f.get("rule_id").and_then(Value::as_str) == Some("stale"))
+        .expect("stale finding");
+    assert_eq!(stale.get("path").and_then(Value::as_str), Some("AGENTS.md"));
+    assert_eq!(stale.get("blocking").and_then(Value::as_bool), Some(false));
+    assert!(
+        stale
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .contains("2026-09-04"),
+        "{stale:?}"
+    );
+    // The exclusion is reported for what it is (observation scope), unlocked.
+    let ignored = findings
+        .iter()
+        .find(|f| f.get("rule_id").and_then(Value::as_str) == Some("D-IGNORE-G4"))
+        .expect("D-IGNORE-G4 finding");
+    assert_eq!(
+        ignored.pointer(&["treatment", "locked"]).and_then(Value::as_bool),
+        Some(false)
+    );
+    // C-F03: indeterminate runtime-surface and outcome facets do not lock a
+    // limited static fix; the evidence gap is still reported as indeterminate.
+    for facet in ["D-FACET-MODEL-VISIBLE", "D-FACET-USE-EVIDENCE", "D-FACET-OUTCOME-AFFECTING"] {
+        let finding = findings
+            .iter()
+            .find(|f| f.get("rule_id").and_then(Value::as_str) == Some(facet))
+            .unwrap_or_else(|| panic!("{facet} missing: {findings:?}"));
+        assert_eq!(
+            finding.pointer(&["treatment", "locked"]).and_then(Value::as_bool),
+            Some(false),
+            "{facet}"
+        );
+        assert_eq!(
+            finding.pointer(&["treatment", "lock_reason"]).and_then(Value::as_str),
+            Some("none"),
+            "{facet}"
+        );
+        assert_eq!(
+            finding.get("evidence_state").and_then(Value::as_str),
+            Some("indeterminate"),
+            "{facet}"
+        );
+        assert_eq!(
+            finding.get("confirmation").and_then(Value::as_str),
+            Some("suspected"),
+            "{facet}"
+        );
+    }
+    assert_eq!(json.pointer(&["counts", "blocking"]).and_then(Value::as_i64), Some(0));
+
+    // (c) intent preview: the fix is frozen into a persisted, digested plan.
+    // There is no doctor->preview bridge yet; target/desired are explicit.
+    // The desired bytes begin with `---`, so they must go inline: a separate
+    // token starting with `--` is refused as a flag.
+    let desired_arg = format!("--desired={fixed}");
+    let (code, preview, out) = run(&[
+        "intent", "preview", "--json", "--project", &project, "--store", &store_s, "--target",
+        "AGENTS.md", &desired_arg,
+    ]);
+    assert_eq!(code, 0, "{out} {preview:?}");
+    assert_eq!(preview.get("persisted").and_then(Value::as_bool), Some(true));
+    let tx = preview.get("tx_id").and_then(Value::as_str).expect("tx_id").to_string();
+    let original_digest = ctxpect_schema::sha256_hex(original.as_bytes());
+    let fixed_digest = ctxpect_schema::sha256_hex(fixed.as_bytes());
+    assert_eq!(
+        preview.get("current_digest").and_then(Value::as_str),
+        Some(original_digest.as_str())
+    );
+    assert_eq!(
+        preview.get("desired_digest").and_then(Value::as_str),
+        Some(fixed_digest.as_str())
+    );
+    let persisted =
+        parse(&fs::read_to_string(store.join(format!("previews/{tx}.json"))).unwrap()).unwrap();
+    assert_eq!(
+        persisted.get("desired_digest").and_then(Value::as_str),
+        Some(fixed_digest.as_str())
+    );
+
+    // (d) Authorized apply: the frozen bytes land, a backup and the audit
+    // trail exist, and a new Receipt observes the written state.
+    plant_grants(&store, Some(&scratch.path), &["apply", "rollback"]);
+    let old_receipt_bytes = fs::read(&old_receipt_path).unwrap();
+    let (code, applied, out) = run(&[
+        "apply", "--json", "--project", &project, "--store", &store_s, "--cwd", &cwd,
+        "--codex-home", &home, "--tx", &tx,
+    ]);
+    assert_eq!(code, 0, "{out} {applied:?}");
+    assert_eq!(
+        applied.pointer(&["transaction", "state"]).and_then(Value::as_str),
+        Some("committed")
+    );
+    assert_eq!(fs::read_to_string(scratch.path.join("AGENTS.md")).unwrap(), fixed);
+    let tx_dir = store.join("apply").join(&tx);
+    assert_eq!(fs::read(tx_dir.join("before")).unwrap(), original.as_bytes());
+    let record = parse(&fs::read_to_string(tx_dir.join("tx.json")).unwrap()).unwrap();
+    assert_eq!(record.get("state").and_then(Value::as_str), Some("committed"));
+    let post_id = applied
+        .get("post_receipt_id")
+        .and_then(Value::as_str)
+        .expect("post_receipt_id")
+        .to_string();
+    assert!(store.join(format!("receipts/{post_id}.json")).is_file());
+    assert_ne!(post_id, old_receipt_id);
+    let audit = fs::read_to_string(store.join("audit/events.jsonl")).unwrap();
+    assert!(
+        audit
+            .lines()
+            .any(|line| line.contains("\"action\":\"projection.apply\"") && line.contains(&tx)),
+        "{audit}"
+    );
+    assert!(
+        audit
+            .lines()
+            .any(|line| line.contains("\"action\":\"receipt.put\"") && line.contains(&post_id)),
+        "{audit}"
+    );
+    // The pre-apply Receipt is byte-identical afterwards.
+    assert_eq!(fs::read(&old_receipt_path).unwrap(), old_receipt_bytes);
+    // The new Receipt is exactly what a fresh inspect of the written state
+    // produces: it reflects the write, not a re-issued old observation.
+    let (code, json, out) = run(&[
+        "inspect", "--json", "--project", &project, "--cwd", &cwd, "--codex-home", &home,
+        "--store", &store_s,
+    ]);
+    assert_eq!(code, 0, "{out} {json:?}");
+    assert_eq!(
+        json.get("formal_receipt_id").and_then(Value::as_str),
+        Some(post_id.as_str())
+    );
+
+    // (e) Rollback restores the original bytes, and the observation after the
+    // undo is again the pre-apply Receipt: the instruction evidence is back
+    // to what it was, so the id comes back too.
+    let (code, undone, out) = run(&[
+        "rollback", "--json", "--project", &project, "--store", &store_s, "--cwd", &cwd,
+        "--codex-home", &home, "--id", &tx,
+    ]);
+    assert_eq!(code, 0, "{out} {undone:?}");
+    assert_eq!(
+        undone.get("action").and_then(Value::as_str),
+        Some("restored-previous-bytes")
+    );
+    assert_eq!(fs::read_to_string(scratch.path.join("AGENTS.md")).unwrap(), original);
+    assert_eq!(
+        undone.get("post_receipt_id").and_then(Value::as_str),
+        Some(old_receipt_id.as_str())
+    );
+    assert_eq!(fs::read(&old_receipt_path).unwrap(), old_receipt_bytes);
+
+    // (f) Negative half: a target edited after preview is refused
+    // (projection.concurrent_hash), and a consumed transaction cannot be
+    // re-applied.
+    let (code, preview2, out) = run(&[
+        "intent", "preview", "--json", "--project", &project, "--store", &store_s, "--target",
+        "AGENTS.md", &desired_arg,
+    ]);
+    assert_eq!(code, 0, "{out} {preview2:?}");
+    let tx2 = preview2.get("tx_id").and_then(Value::as_str).unwrap().to_string();
+    assert_ne!(tx2, tx);
+    scratch.write("AGENTS.md", "edited between preview and apply\n");
+    let (code, json, out) = run(&["apply", "--json", "--project", &project, "--store", &store_s, "--tx", &tx2]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("projection.concurrent_hash"));
+    assert_eq!(
+        fs::read_to_string(scratch.path.join("AGENTS.md")).unwrap(),
+        "edited between preview and apply\n"
+    );
+    let (code, json, out) = run(&["apply", "--json", "--project", &project, "--store", &store_s, "--tx", &tx]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("projection.tx_consumed"));
 }

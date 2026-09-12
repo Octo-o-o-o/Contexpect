@@ -9,7 +9,9 @@
 //!   layer from the project root toward cwd are **additive**: every regular,
 //!   non-excluded candidate is adopted. Nothing overrides anything.
 //! - CL4 a `.ctxpect-ignore` exact relative path excludes a candidate; this is
-//!   a Contexpect product rule, not a Claude Code native rule.
+//!   a Contexpect product rule, not a Claude Code native rule. When nothing
+//!   remains adopted the claim is indeterminate with
+//!   `observation_scope_excluded` (C-F01), never a native absence.
 //! - CL5 the user memory root (`~/.claude/CLAUDE.md`) is not read in this
 //!   slice; the global layer is `permission_not_granted` and does not block.
 //! - CL6 there is no official hard byte cap; a Contexpect `budget.json`
@@ -126,6 +128,7 @@ pub(crate) fn resolve_claude_code(request: &ResolveRequest<'_>) -> Result<Resolu
     let mut native_paths: Vec<String> = Vec::new();
     let mut adopted_files: Vec<Adopted> = Vec::new();
     let mut blocking_unknown: Option<UnknownReason> = None;
+    let mut excluded_by_product = false;
 
     if loaded_ignore.used {
         push_unique(&mut native_paths, IGNORE_NAME.to_string());
@@ -185,6 +188,7 @@ pub(crate) fn resolve_claude_code(request: &ResolveRequest<'_>) -> Result<Resolu
             };
             push_unique(&mut native_paths, path.clone());
             if ignore.iter().any(|item| item == &path) {
+                excluded_by_product = true;
                 edges.push(edge(
                     EdgeKind::ExcludedBy,
                     "CL4",
@@ -333,6 +337,11 @@ pub(crate) fn resolve_claude_code(request: &ResolveRequest<'_>) -> Result<Resolu
     let claims = if !included {
         if let Some(reason) = blocking_unknown {
             honesty_claims(reason, false)
+        } else if excluded_by_product {
+            // C-F01: `.ctxpect-ignore` only removes the file from Contexpect's
+            // observation scope; it says nothing about the harness's native
+            // load behaviour, so the claim is indeterminate, never absent.
+            honesty_claims(UnknownReason::ObservationScopeExcluded, false)
         } else {
             instruction_claims(false)
         }

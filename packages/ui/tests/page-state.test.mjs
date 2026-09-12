@@ -30,6 +30,7 @@ test("refusals are permission-denied and faults are error", () => {
     "exception.approver_role_required",
     "api.identity_required",
     "advisor.consent_required",
+    "advisor.preview_required",
   ]) {
     assert.equal(classifyFailure("envelope", code).state, "permission-denied", code);
   }
@@ -90,11 +91,20 @@ test("unknown cells make an answer partial rather than ok", () => {
     classifyPayload({ facets: [{ reason_code: "runtime_snapshot_missing" }] }).state,
     "partial",
   );
+  // A product exclusion (T02a) is missing information, not an error.
+  assert.equal(
+    classifyPayload({ findings: [{ reason_code: "observation_scope_excluded" }] }).state,
+    "partial",
+  );
+  assert.equal(
+    classifyPayload({ findings: [{ reason_code: "observation_scope_excluded" }] }).reasonCode,
+    "observation_scope_excluded",
+  );
   // A clean answer stays ok.
   assert.equal(classifyPayload({ counts: { unknown: 0, confirmed: 1 } }).state, "ok");
 });
 
-test("every V01-V16 route has a contract covering all C04 states", () => {
+test("every V01-V17 route has a contract covering all C04 states", () => {
   for (const route of ROUTE_PATHS) {
     const contract = contractFor(route);
     assert.ok(contract, `no contract for ${route}`);
@@ -242,6 +252,7 @@ test("declared actions correspond to controls that exist in the UI", () => {
   // Guards against a contract promising an action the page never renders.
   const withActions = PAGE_CONTRACTS.filter((c) => c.actions.length > 0).map((c) => c.route);
   assert.deepEqual(withActions.sort(), [
+    "/advisor",
     "/assets",
     "/compare",
     "/doctor",
@@ -250,6 +261,7 @@ test("declared actions correspond to controls that exist in the UI", () => {
     "/sync",
   ]);
   for (const marker of [
+    "advisorSend",
     "receiptVerify",
     "receiptDelete",
     "syncPreview",

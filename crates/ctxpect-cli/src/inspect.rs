@@ -432,7 +432,7 @@ fn evidence_to_json(item: &Evidence) -> Value {
 }
 
 fn claim_to_json(claim: &Claim) -> Value {
-    obj([
+    let mut value = obj([
         ("claim_kind", s(claim.claim_kind.as_str())),
         ("coverage", s(claim.coverage.as_str())),
         ("knowledge_status", s(claim.knowledge_status.as_str())),
@@ -447,7 +447,23 @@ fn claim_to_json(claim: &Claim) -> Value {
                 None => Value::Null,
             },
         ),
-    ])
+    ]);
+    // C-F04: source metadata is emitted only when the producer recorded it;
+    // the key stays absent (never null-invented) when it was not.
+    if let Some(source) = &claim.source
+        && let Value::Object(map) = &mut value
+    {
+        map.insert(
+            "source".to_string(),
+            obj([
+                ("producer", opt_s(source.producer.as_deref())),
+                ("basis", opt_s(source.basis.as_deref())),
+                ("evaluated_at", opt_s(source.evaluated_at.as_deref())),
+                ("source_domain", opt_s(source.source_domain.as_deref())),
+            ]),
+        );
+    }
+    value
 }
 
 fn edge_to_json(edge: &Edge) -> Value {
@@ -604,11 +620,15 @@ fn supporting_fields(
                         ("exclusion_class", s("product-user-exclusion")),
                         (
                             "why",
-                            s("Listed in .ctxpect-ignore (exact relative path). This is a Contexpect product user exclusion, not a Codex native rule."),
+                            s(format!(
+                                "Listed in .ctxpect-ignore (exact relative path). This is a Contexpect product user exclusion, not a {} native rule. The file only leaves Contexpect's observation scope: whether {} still loads it natively is unknown (observation_scope_excluded), never absent.",
+                                anchor_display(anchor),
+                                anchor_display(anchor)
+                            )),
                         ),
                         (
                             "next_evidence",
-                            s("remove the ignore line if this file should be included"),
+                            s("remove the ignore line if Contexpect should read this file; the harness's native load state needs native harness evidence"),
                         ),
                     ]));
                 }

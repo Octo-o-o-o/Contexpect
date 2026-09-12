@@ -74,13 +74,51 @@ pub const NON_BLOCKING_RULES: &[&str] = &[
     "placement_recommendation",
 ];
 
-/// The acceptance cutoff the `stale` rule measures against (PRD invariant 6).
-/// A frontmatter `updated:` date more than a year before it is stale.
+/// The frozen corpus reference date for the `stale` rule (PRD invariant 6,
+/// the acceptance cutoff). The rule itself takes an explicit `as_of`; corpus
+/// and fixture runs pass this constant so golden output stays reproducible,
+/// while a production run passes the wall-clock date (or the CLI `--as-of`
+/// override). An old date only proves the file crossed a maintenance
+/// threshold, not that its content is wrong.
 pub const STALE_CUTOFF: (i64, u32, u32) = (2026, 9, 4);
 
 #[must_use]
 pub fn is_blocking_rule(rule_id: &str) -> bool {
     BLOCKING_RULES.contains(&rule_id)
+}
+
+/// C-F04 (2026-09-12): a finding produced by reading a self-declared file
+/// (`budget.json` / `inventory.json` / `plan.json` / …) is a
+/// **declaration-validation**, not an observed fact. The declaration files
+/// have no product-side writer wired to a trusted producer, so `producer` is
+/// `"unknown"` and `trusted_producer_connected` is `false` — a declaration
+/// that says `approved: true` or `present: [...]` is the product's own
+/// statement about itself, not authorization or presence evidence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Declaration {
+    /// The declaration file the finding was read from.
+    pub source_file: String,
+    /// Who produced the declaration. Always `"unknown"` in this slice: no
+    /// trusted producer is connected to any declaration file.
+    pub producer: String,
+    /// The declaration's own `declared_at`, when it carries one — itself a
+    /// self-declared string, not a trusted timestamp.
+    pub declared_at: Option<String>,
+}
+
+impl Declaration {
+    /// Read the source metadata a declaration file offers. The producer is
+    /// never taken from the file: a declaration cannot attest its own origin.
+    fn of(source_file: &str, declaration: Option<&Value>) -> Self {
+        Declaration {
+            source_file: source_file.to_string(),
+            producer: "unknown".to_string(),
+            declared_at: declaration
+                .and_then(|value| value.get("declared_at"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        }
+    }
 }
 
 /// A project finding before it is rendered.
@@ -89,6 +127,8 @@ pub struct ProjectFinding {
     pub rule_id: &'static str,
     pub path: String,
     pub message: String,
+    /// Set when the finding validates a declaration file's claims (C-F04).
+    pub declaration: Option<Declaration>,
 }
 
 impl ProjectFinding {
@@ -97,6 +137,22 @@ impl ProjectFinding {
             rule_id,
             path: path.into(),
             message: message.into(),
+            declaration: None,
+        }
+    }
+
+    /// A finding read from a declaration file: it validates what the file
+    /// declares, carrying the declaration's source metadata with it.
+    fn declared(
+        rule_id: &'static str,
+        path: impl Into<String>,
+        message: impl Into<String>,
+        source_file: &str,
+        declaration: &Value,
+    ) -> Self {
+        Self {
+            declaration: Some(Declaration::of(source_file, Some(declaration))),
+            ..Self::new(rule_id, path, message)
         }
     }
 }
@@ -178,7 +234,10 @@ fn declaration_problems(files: &[ScannedFile]) -> Vec<ProjectFinding> {
         let path = namespaced(name);
         let Some(file) = files.iter().find(|file| file.path == path) else { continue };
         let Some(text) = text_of(file) else {
-            out.push(ProjectFinding::new("declaration_unreadable", &path, "namespaced declaration could not be read"));
+            out.push(ProjectFinding {
+                declaration: Some(Declaration::of(&path, None)),
+                ..ProjectFinding::new("declaration_unreadable", &path, "namespaced declaration could not be read")
+            });
             continue;
         };
         let problem = match parse(&text) {
@@ -190,7 +249,10 @@ fn declaration_problems(files: &[ScannedFile]) -> Vec<ProjectFinding> {
             },
         };
         if let Some(problem) = problem {
-            out.push(ProjectFinding::new("declaration_unreadable", &path, problem));
+            out.push(ProjectFinding {
+                declaration: Some(Declaration::of(&path, None)),
+                ..ProjectFinding::new("declaration_unreadable", &path, problem)
+            });
         }
     }
     out
@@ -349,8 +411,10 @@ fn parse_date(text: &str) -> Option<(i64, u32, u32)> {
     Some((year, month, day))
 }
 
-fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
-    // Howard Hinnant's days-from-civil, valid for the proleptic Gregorian calendar.
+/// Days since the Unix epoch for a civil date (Howard Hinnant's
+/// days-from-civil, proleptic Gregorian calendar).
+#[must_use]
+pub fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     let y = if month <= 2 { year - 1 } else { year };
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = y - era * 400;
@@ -358,6 +422,56 @@ fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + i64::from(day) - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146_097 + doe - 719_468
+}
+
+/// Days in `month` of `year` in the proleptic Gregorian calendar.
+fn days_in_month(year: i64, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
+/// A strict `YYYY-MM-DD` calendar date: every digit fixed in place and the
+/// day real for its month (`2026-02-30` is not a date). Callers that take a
+/// civil date from a user (CLI `--as-of`) go through this, never through the
+/// lenient frontmatter parser above.
+#[must_use]
+pub fn parse_civil_date(text: &str) -> Option<(i64, u32, u32)> {
+    let bytes = text.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return None;
+    }
+    let num = |from: usize, to: usize| -> Option<i64> {
+        let slice = text.get(from..to)?;
+        if slice.bytes().all(|b| b.is_ascii_digit()) { slice.parse().ok() } else { None }
+    };
+    let year = num(0, 4)?;
+    let month = u32::try_from(num(5, 7)?).ok()?;
+    let day = u32::try_from(num(8, 10)?).ok()?;
+    if !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
+        return None;
+    }
+    Some((year, month, day))
+}
+
+/// The inverse of [`days_from_civil`]: the civil date `days` after the
+/// Unix epoch (Hinnant's civil-from-days).
+#[must_use]
+pub fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (if m <= 2 { y + 1 } else { y }, m as u32, d as u32)
 }
 
 fn package_manager(text: &str) -> Option<&'static str> {
@@ -392,15 +506,19 @@ fn str_list(value: Option<&Value>) -> Vec<String> {
 /// Evaluate every project rule without knowing the project's absolute
 /// location: an absolute symlink target is then always read as leaving the
 /// workspace. Callers that know the root use [`project_findings_in`].
+///
+/// `as_of` is the civil date the `stale` rule is judged against; it is an
+/// explicit input, never read from the clock inside this crate.
 #[must_use]
-pub fn project_findings(files: &[ScannedFile]) -> Vec<ProjectFinding> {
-    project_findings_in(files, None)
+pub fn project_findings(files: &[ScannedFile], as_of: (i64, u32, u32)) -> Vec<ProjectFinding> {
+    project_findings_in(files, None, as_of)
 }
 
 /// Evaluate every project rule. With `root`, an absolute symlink target that
-/// lies inside the root (`ln -s "$(pwd)/x" y`) is not an escape.
+/// lies inside the root (`ln -s "$(pwd)/x" y`) is not an escape. `as_of` is
+/// the civil date `stale` is judged against (see [`project_findings`]).
 #[must_use]
-pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>) -> Vec<ProjectFinding> {
+pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>, as_of: (i64, u32, u32)) -> Vec<ProjectFinding> {
     let inside_root = |target: &str| {
         root.is_some_and(|root| {
             let target = std::path::Path::new(target);
@@ -497,10 +615,12 @@ pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>
                 let from = link.get("from").and_then(Value::as_str).unwrap_or("");
                 let to = link.get("to").and_then(Value::as_str).unwrap_or("");
                 if !to.is_empty() && escapes_lexically(parent_dir(from), to) && !inside_root(to) {
-                    add(ProjectFinding::new(
+                    add(ProjectFinding::declared(
                         "symlink_escape",
                         &decl_path,
                         "declared symlink target leaves the workspace",
+                        &decl_path,
+                        &layout,
                     ));
                 }
             }
@@ -509,10 +629,12 @@ pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>
             for item in items {
                 let path = item.get("path").and_then(Value::as_str).unwrap_or("");
                 if path.starts_with("..") || path.starts_with('/') {
-                    add(ProjectFinding::new(
+                    add(ProjectFinding::declared(
                         "undiscoverable_path",
                         &decl_path,
                         "declared instruction path is outside the discoverable tree",
+                        &decl_path,
+                        &layout,
                     ));
                 }
             }
@@ -530,10 +652,12 @@ pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>
             .iter()
             .any(|item| !present.contains(item) && !has_file(files, item));
         if missing {
-            add(ProjectFinding::new(
+            add(ProjectFinding::declared(
                 "required_asset_missing",
                 &decl_path,
                 "a declared required asset is neither present nor on disk",
+                &decl_path,
+                &inventory,
             ));
         }
     }
@@ -541,20 +665,28 @@ pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>
         let drops = str_list(plan.get("drops"));
         let approved = plan.get("approved").and_then(Value::as_bool) == Some(true);
         if !drops.is_empty() && !approved {
-            add(ProjectFinding::new(
+            // C-F04: plan.json's `approved` is a product self-declaration, not
+            // authorization evidence — authorization evidence is only the
+            // policy/exception chain. This finding validates the declaration;
+            // it does not and cannot read an approval out of it.
+            add(ProjectFinding::declared(
                 "unapproved_lossy_projection",
                 &decl_path,
-                "a projection plan drops semantics without a recorded approval",
+                "plan.json declares drops with no `approved: true` declaration; even `approved: true` here would be a product self-declaration, not authorization evidence (only the policy/exception chain authorizes)",
+                &decl_path,
+                &plan,
             ));
         }
     }
     for (decl_path, archive) in declarations(files, "archive-manifest.json") {
         for entry in str_list(archive.get("entries")) {
             if has_parent_segment(&entry) || entry.starts_with('/') {
-                add(ProjectFinding::new(
+                add(ProjectFinding::declared(
                     "archive_traversal",
                     &decl_path,
                     "a declared archive entry escapes its destination",
+                    &decl_path,
+                    &archive,
                 ));
             }
         }
@@ -564,10 +696,12 @@ pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>
             .iter()
             .any(|cmd| !cmd.trim().is_empty())
         {
-            add(ProjectFinding::new(
+            add(ProjectFinding::declared(
                 "passive_scan_exec",
                 &decl_path,
                 "a scan hook is declared; passive scanning executes nothing",
+                &decl_path,
+                &hooks,
             ));
         }
     }
@@ -618,7 +752,7 @@ pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>
     }
 
     // --- stale / bad_frontmatter: frontmatter-driven ---
-    let cutoff_days = days_from_civil(STALE_CUTOFF.0, STALE_CUTOFF.1, STALE_CUTOFF.2);
+    let as_of_days = days_from_civil(as_of.0, as_of.1, as_of.2);
     for file in files {
         if !is_markdown(&file.path) {
             continue;
@@ -639,12 +773,15 @@ pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>
         for line in &lines {
             if let Some(value) = line.trim_start().strip_prefix("updated:")
                 && let Some((y, m, d)) = parse_date(value)
-                && cutoff_days - days_from_civil(y, m, d) > 365
+                && as_of_days - days_from_civil(y, m, d) > 365
             {
                 add(ProjectFinding::new(
                     "stale",
                     &file.path,
-                    "frontmatter `updated:` is more than a year before the acceptance cutoff",
+                    format!(
+                        "frontmatter `updated:` is more than 365 days before the as-of date {:04}-{:02}-{:02}",
+                        as_of.0, as_of.1, as_of.2
+                    ),
                 ));
             }
         }
@@ -664,23 +801,29 @@ pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>
         match (max_bytes, actual) {
             (Some(max), Some(actual)) if actual > max => {
                 if truncated {
-                    add(ProjectFinding::new(
+                    add(ProjectFinding::declared(
                         "cap_truncation",
                         if path.is_empty() { decl_path.clone() } else { path.clone() },
                         "instruction bytes exceed the declared cap and are truncated",
+                        &decl_path,
+                        &budget,
                     ));
                 } else {
-                    add(ProjectFinding::new(
+                    add(ProjectFinding::declared(
                         "oversized_resident",
                         if path.is_empty() { decl_path.clone() } else { path.clone() },
                         "resident asset exceeds its declared byte cap",
+                        &decl_path,
+                        &budget,
                     ));
                 }
             }
-            _ if truncated => add(ProjectFinding::new(
+            _ if truncated => add(ProjectFinding::declared(
                 "cap_truncation",
                 if path.is_empty() { "AGENTS.md".to_string() } else { path.clone() },
                 "instruction is declared truncated by a cap",
+                &decl_path,
+                &budget,
             )),
             _ => {}
         }
@@ -720,14 +863,16 @@ pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>
                 .and_then(Value::as_str)
                 .is_some_and(|id| !id.is_empty() && id != "*");
         if single {
-            add(ProjectFinding::new(
+            add(ProjectFinding::declared(
                 "single_device_only",
                 &decl_path,
                 "asset is locked to one device and excluded from sync",
+                &decl_path,
+                &lock,
             ));
         }
     }
-    for (_, provenance) in declarations(files, "provenance.json") {
+    for (decl_path, provenance) in declarations(files, "provenance.json") {
         let source_missing = provenance
             .get("source")
             .is_none_or(|source| source.as_str().is_none_or(str::is_empty));
@@ -737,30 +882,36 @@ pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>
                 .and_then(Value::as_str)
                 .filter(|p| !p.is_empty())
                 .unwrap_or("imported.md");
-            add(ProjectFinding::new(
+            add(ProjectFinding::declared(
                 "unknown_source",
                 path,
                 "imported asset declares no source provenance",
+                &decl_path,
+                &provenance,
             ));
         }
     }
     for (decl_path, adapter) in declarations(files, "adapter-version.json") {
         if adapter.get("required") != adapter.get("actual") {
-            add(ProjectFinding::new(
+            add(ProjectFinding::declared(
                 "version_incompatible",
                 &decl_path,
                 "declared adapter version does not match the required one",
+                &decl_path,
+                &adapter,
             ));
         }
     }
-    for (_, placement) in declarations(files, "placement.json") {
+    for (decl_path, placement) in declarations(files, "placement.json") {
         let path = placement.get("path").and_then(Value::as_str).unwrap_or("");
         let recommended = placement.get("recommended").and_then(Value::as_str).unwrap_or("");
         if !path.is_empty() && !recommended.is_empty() && path != recommended && has_file(files, path) {
-            add(ProjectFinding::new(
+            add(ProjectFinding::declared(
                 "placement_recommendation",
                 path,
                 "asset sits on a non-recommended path",
+                &decl_path,
+                &placement,
             ));
         }
     }
@@ -780,7 +931,7 @@ pub fn render_project_findings(findings: &[ProjectFinding]) -> Vec<Value> {
                 "f_{}",
                 &ctxpect_schema::sha256_text(&format!("{}|{}|{}", item.rule_id, item.message, item.path))[..12]
             );
-            object([
+            let mut rendered = object([
                 ("finding_id", string(id)),
                 ("rule_id", string(item.rule_id)),
                 (
@@ -825,7 +976,31 @@ pub fn render_project_findings(findings: &[ProjectFinding]) -> Vec<Value> {
                         ("loss", string("unknown")),
                     ]),
                 ),
-            ])
+            ]);
+            // C-F04: a finding read from a declaration file says so, and says
+            // that the declaration's producer was never connected — the
+            // finding validates the declaration text, not its origin.
+            if let Some(declaration) = &item.declaration
+                && let Value::Object(map) = &mut rendered
+            {
+                map.insert(
+                    "declaration".to_string(),
+                    object([
+                        ("kind", string("declaration-validation")),
+                        ("source_file", string(&declaration.source_file)),
+                        ("producer", string(&declaration.producer)),
+                        ("trusted_producer_connected", Value::Bool(false)),
+                        (
+                            "declared_at",
+                            match &declaration.declared_at {
+                                Some(at) => string(at),
+                                None => Value::Null,
+                            },
+                        ),
+                    ]),
+                );
+            }
+            rendered
         })
         .collect()
 }
@@ -843,8 +1018,14 @@ mod tests {
         }
     }
 
+    /// Tests that do not exercise the `stale` boundary run against the frozen
+    /// corpus reference date so they stay reproducible.
     fn rules(files: &[ScannedFile]) -> Vec<(&'static str, String)> {
-        project_findings(files)
+        rules_as_of(files, STALE_CUTOFF)
+    }
+
+    fn rules_as_of(files: &[ScannedFile], as_of: (i64, u32, u32)) -> Vec<(&'static str, String)> {
+        project_findings(files, as_of)
             .into_iter()
             .map(|f| (f.rule_id, f.path))
             .collect()
@@ -965,6 +1146,45 @@ mod tests {
     }
 
     #[test]
+    fn stale_is_judged_against_the_explicit_as_of_not_a_hidden_clock() {
+        // `updated: 2025-09-10` crosses the 365-day threshold between
+        // as_of 2026-09-04 (359 days: fresh) and 2026-09-11 (366 days: stale).
+        let docs = [file("AGENTS.md", "---\nupdated: 2025-09-10\n---\nbody\n")];
+        assert!(rules_as_of(&docs, (2026, 9, 4)).is_empty());
+        assert_eq!(
+            rules_as_of(&docs, (2026, 9, 11)),
+            vec![("stale", "AGENTS.md".to_string())]
+        );
+        // The finding names the date it was judged against, so a re-analysis
+        // of old evidence cannot be mistaken for a fresh observation.
+        let found = project_findings(&docs, (2026, 9, 11));
+        assert_eq!(
+            found.first().map(|f| f.message.as_str()),
+            Some("frontmatter `updated:` is more than 365 days before the as-of date 2026-09-11")
+        );
+        // The frozen corpus reference date reproduces the golden rows.
+        assert_eq!(
+            rules_as_of(&[file("OLD.md", "---\nupdated: 2019-01-01\n---\nold\n")], STALE_CUTOFF),
+            vec![("stale", "OLD.md".to_string())]
+        );
+    }
+
+    #[test]
+    fn civil_date_conversion_round_trips_and_strict_parse_rejects_impossible_dates() {
+        for date in [(1970, 1, 1), (2026, 9, 4), (2026, 9, 11), (2000, 2, 29), (2024, 2, 29)] {
+            let days = days_from_civil(date.0, date.1, date.2);
+            assert_eq!(civil_from_days(days), date, "{date:?}");
+        }
+        assert_eq!(days_from_civil(1970, 1, 1), 0);
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        assert_eq!(parse_civil_date("2026-09-04"), Some((2026, 9, 4)));
+        assert_eq!(parse_civil_date("2024-02-29"), Some((2024, 2, 29)));
+        for bad in ["2026-13-01", "2026-02-30", "2025-02-29", "2026-9-4", "2026/09/04", "abcd-09-04", "2026-09-04 ", "2026-09-04T00:00:00Z"] {
+            assert_eq!(parse_civil_date(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
     fn duplicate_and_conflict_name_the_second_file() {
         assert_eq!(
             rules(&[file("AGENTS.md", "same\n"), file("AGENTS.copy.md", "same\n")]),
@@ -983,5 +1203,59 @@ mod tests {
         ])
         .iter()
         .all(|(rule, _)| *rule != "conflict"));
+    }
+
+    /// C-F04: a finding read from a self-declared file is marked as
+    /// declaration-validation, names the source file, records that no trusted
+    /// producer is connected, and never reads `approved: true` as
+    /// authorization evidence. Content findings carry no such marker.
+    #[test]
+    fn declaration_findings_carry_declaration_validation_metadata() {
+        let found = project_findings(
+            &[file(
+                ".ctxpect/plan.json",
+                r#"{"drops":["scoped-rule"],"declared_at":"2026-09-01T00:00:00Z"}"#,
+            )],
+            STALE_CUTOFF,
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        let declaration = found[0].declaration.as_ref().expect("declaration metadata");
+        assert_eq!(declaration.source_file, ".ctxpect/plan.json");
+        assert_eq!(declaration.producer, "unknown");
+        assert_eq!(declaration.declared_at.as_deref(), Some("2026-09-01T00:00:00Z"));
+        assert!(
+            found[0].message.contains("self-declaration, not authorization evidence"),
+            "{}",
+            found[0].message
+        );
+
+        let rendered = render_project_findings(&found);
+        let declaration = rendered[0].get("declaration").expect("declaration in output");
+        assert_eq!(
+            declaration.get("kind").and_then(Value::as_str),
+            Some("declaration-validation")
+        );
+        assert_eq!(
+            declaration.get("trusted_producer_connected").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            declaration.get("declared_at").and_then(Value::as_str),
+            Some("2026-09-01T00:00:00Z")
+        );
+
+        // A declaration with no declared_at reports null, not an invented time.
+        let found = project_findings(&[file(".ctxpect/plan.json", r#"{"drops":["x"]}"#)], STALE_CUTOFF);
+        let rendered = render_project_findings(&found);
+        assert_eq!(
+            rendered[0].pointer(&["declaration", "declared_at"]),
+            Some(&Value::Null)
+        );
+
+        // Content findings are not declaration-validation.
+        let content = project_findings(&[file("AGENTS.md", "over\u{200D}ride\n")], STALE_CUTOFF);
+        assert_eq!(content.len(), 1);
+        assert!(content[0].declaration.is_none());
+        assert!(render_project_findings(&content)[0].get("declaration").is_none());
     }
 }

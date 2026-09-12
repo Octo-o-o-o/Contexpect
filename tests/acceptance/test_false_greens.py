@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Negative tests that reproduce prior foundation false greens.
 
-Mutates in-memory snapshots only. Does not write the worktree or TMPDIR.
+Mutates in-memory snapshots only. Does not write the worktree; the one
+snapshot_paths regression test uses a TemporaryDirectory (honouring TMPDIR).
 """
 
 from __future__ import annotations
 
+import contextlib
 import csv
+import io
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -1374,6 +1378,15 @@ class DocsNegatives(unittest.TestCase):
         check_markdown_links(errors, root)
         self.assertTrue(any("broken relative link" in item for item in errors))
 
+    def test_handoff_archive_is_exempt_from_link_check(self) -> None:
+        root = memory_root({})
+        md = root / "docs" / "handoff" / "pack" / "notes.md"
+        md.parent.mkdir(parents=True)
+        md.write_text("# t\n\n[missing](./no-such-file.md)\n", encoding="utf-8")
+        errors: list[str] = []
+        check_markdown_links(errors, root)
+        self.assertFalse(any("notes.md" in item for item in errors))
+
     def test_missing_private_reporting_url_fails(self) -> None:
         root = memory_root({})
         (root / "SECURITY.md").write_text("# Security\n\n> 状态：规范（尚未实施产品运行时）\n\nNo channel.\n", encoding="utf-8")
@@ -1382,6 +1395,28 @@ class DocsNegatives(unittest.TestCase):
         errors: list[str] = []
         check_security_channel(errors, root)
         self.assertTrue(any("private vulnerability reporting URL" in item for item in errors))
+
+
+class MemoryfsSnapshot(unittest.TestCase):
+    def test_snapshot_paths_skips_non_utf8_files(self) -> None:
+        # Regression: a stray non-UTF-8 file (a .DS_Store landing under
+        # acceptance/) used to kill the whole snapshot with
+        # UnicodeDecodeError, taking every negative test down with it.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "keep.md").write_text("ok\n", encoding="utf-8")
+            (root / ".DS_Store").write_bytes(b"\xff\xfe\x00binary\x80")
+            store = snapshot_paths(root, ["keep.md", ".DS_Store"])
+            self.assertEqual(store, {"keep.md": "ok\n"})
+            # The directory-recursion path skips it too, with a stderr note
+            # rather than a crash or a silent errors="replace" decode.
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                store = snapshot_paths(root, ["."])
+            self.assertNotIn(".DS_Store", store)
+            self.assertEqual(store.get("keep.md"), "ok\n")
+            self.assertIn(".DS_Store", err.getvalue())
+            self.assertIn("non-UTF-8", err.getvalue())
 
 
 if __name__ == "__main__":

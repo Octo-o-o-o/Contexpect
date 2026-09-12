@@ -103,6 +103,7 @@ REQUIRED_SCENARIOS = [
     "ST1-neg",
     "ST2-pos",
     "ST2-neg",
+    "ST2-same-bytes-pos",
     "ST3-pos",
     "ST3-neg",
     "ST4-pos",
@@ -1214,6 +1215,28 @@ FAMILY_NATIVE_BODIES: dict[str, tuple[tuple[str, str], ...]] = {
             "# DeepSeek Harness\n\nVitest is required for JavaScript tests. Native model-visible prompt is unknown.\n",
         ),
     ),
+    # C-F02 (2026-09-12): kimi-code and zcode both read AGENTS.md markdown project
+    # instructions, and no native mechanism is known to require different bodies, so
+    # their authoritative bodies are byte-identical on purpose. Byte identity is
+    # neither proof of semantic equivalence nor evidence against it.
+    "kimi-code": (
+        (
+            "AGENTS.md",
+            "# AGENTS.md\n\n"
+            "## Testing\n\n"
+            "This repository's JavaScript tests must use Vitest.\n"
+            "Do not add Jest as the project test runner.\n",
+        ),
+    ),
+    "zcode": (
+        (
+            "AGENTS.md",
+            "# AGENTS.md\n\n"
+            "## Testing\n\n"
+            "This repository's JavaScript tests must use Vitest.\n"
+            "Do not add Jest as the project test runner.\n",
+        ),
+    ),
 }
 
 
@@ -1984,6 +2007,37 @@ def build_st2_neg() -> dict[str, Any]:
     )
 
 
+def build_st2_same_bytes_pos() -> dict[str, Any]:
+    projections = [
+        make_projection("kimi-code", family_native_content("kimi-code"), "native-equivalent"),
+        make_projection("zcode", family_native_content("zcode"), "native-equivalent"),
+    ]
+    binding = {
+        "intent_id": INTENT_ID,
+        "family_ids": ["kimi-code", "zcode"],
+        "equivalent": True,
+        "byte_identical": False,
+        "equivalence_basis": "canonical-intent-semantics",
+        "text_hash_equality_is_not_semantic_equivalence": True,
+        "native_digests": [item["native_digest"] for item in projections],
+    }
+    return finalize_fixture(
+        "ST2-same-bytes-pos",
+        "positive",
+        with_payload(
+            canonical_intents=[vitest_intent()],
+            projections=projections,
+            equivalence_bindings=[binding],
+            receipts=[bound_receipt(projections)],
+        ),
+        [],
+        "C-F02 minimal counterexample: kimi-code and zcode share the AGENTS.md path glob and "
+        "project byte-identical bodies. Byte identity is not evidence for or against semantic "
+        "equivalence; the binding rests on canonical-intent-semantics, and byte_identical=False "
+        "records that byte identity is not asserted as the equivalence evidence.",
+    )
+
+
 def build_st3_pos() -> dict[str, Any]:
     projections = four_projections()
     overlay = overlay_ok()
@@ -2585,6 +2639,7 @@ def all_fixtures() -> list[dict[str, Any]]:
         build_st1_neg(),
         build_st2_pos(),
         build_st2_neg(),
+        build_st2_same_bytes_pos(),
         build_st3_pos(),
         build_st3_neg(),
         build_st4_pos(),
@@ -4295,12 +4350,10 @@ def collect_violations(payload: dict[str, Any], scenario: str | None = None) -> 
         if binding.get("equivalent") and not binding.get("text_hash_equality_is_not_semantic_equivalence", True):
             found.append("hash-equality-as-equivalence")
         families = binding.get("family_ids") or []
-        if binding.get("equivalent") and len(families) >= 2:
-            related = [item for item in projections if isinstance(item, dict) and item.get("family_id") in families]
-            fps = [_native_fingerprint(item) for item in related]
-            if related and len(set(fps)) == 1:
-                found.append("byte-copy-as-alignment")
-                found.append("hash-equality-as-equivalence")
+        # C-F02 (2026-09-12): byte-identical projections under an equivalent binding
+        # are not a violation. Byte identity is not evidence of non-equivalence; the
+        # prohibitions above (byte_identical claim, byte/hash equivalence_basis)
+        # already forbid using byte identity *as* the equivalence basis.
         bound_families = set(families) if families else set()
         for proj in projections:
             if not isinstance(proj, dict):
@@ -4321,11 +4374,9 @@ def collect_violations(payload: dict[str, Any], scenario: str | None = None) -> 
             if binding.get("equivalent") and negotiation.get("dropped") and outcome in {"exact", "native-equivalent", "transformed"}:
                 found.append("lossy-without-exception-marked-equivalent")
 
-    four = [item for item in projections if isinstance(item, dict) and item.get("family_id") in REQUIRED_FOUR]
-    if len(four) >= 4:
-        fps = [_native_fingerprint(item) for item in four]
-        if len(set(fps)) == 1:
-            found.append("byte-copy-as-alignment")
+    # C-F02 (2026-09-12): the former "all four anchor projections byte-identical =>
+    # byte-copy-as-alignment" assertion was removed. Byte identity across harnesses is
+    # permitted; only claiming byte/hash identity *as* the equivalence basis fails.
 
     overlays = payload.get("overlays") or []
     for overlay in overlays:
@@ -4655,7 +4706,7 @@ def validate_contract_object(contract: dict[str, Any], errors: list[str]) -> Non
         # all families required, including expansion
         pass
     if contract.get("required_scenarios") != REQUIRED_SCENARIOS:
-        errors.append("required_scenarios must be ST1-pos..ST8-neg in locked order")
+        errors.append("required_scenarios must match the locked order (ST1-pos..ST8-neg plus ST2-same-bytes-pos)")
     if contract.get("required_malformed_fixtures") != REQUIRED_MALFORMED:
         errors.append("required_malformed_fixtures missing dedicated forged/partial/malformed cases")
     if contract.get("family_native_target_fields") != FAMILY_NATIVE_TARGET_FIELDS:

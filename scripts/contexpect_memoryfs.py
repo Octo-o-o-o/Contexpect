@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import fnmatch
 import io
+import sys
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
@@ -207,14 +208,26 @@ class MemoryPath:
 
 def snapshot_paths(repo: Path, rels: list[str]) -> dict[str, str]:
     store: dict[str, str] = {}
+
+    def _read(path: Path, rel: str) -> None:
+        # A non-UTF-8 file (e.g. a stray .DS_Store under acceptance/) must
+        # not take down the whole snapshot. It is skipped with a note on
+        # stderr — never decoded with errors="replace", because callers
+        # recompute sha256 digests from the decoded text and a replaced
+        # character would silently corrupt them.
+        try:
+            store[rel] = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            print(f"snapshot_paths: skipping non-UTF-8 file {rel}", file=sys.stderr)
+
     for rel in rels:
         path = repo / rel
         if path.is_file():
-            store[rel] = path.read_text(encoding="utf-8")
+            _read(path, rel)
         elif path.is_dir():
             for child in path.rglob("*"):
                 if child.is_file():
-                    store[child.relative_to(repo).as_posix()] = child.read_text(encoding="utf-8")
+                    _read(child, child.relative_to(repo).as_posix())
     return store
 
 

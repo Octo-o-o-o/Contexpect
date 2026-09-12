@@ -1,0 +1,299 @@
+{
+  "covers": [
+    "ST2-same-bytes-pos"
+  ],
+  "cutoff": "2026-09-04T23:59:59+08:00",
+  "digest": "f600bb889d2d9f27006d77efcddb5cad5091e3a60a7f10d36c1c4cececdc9bc2",
+  "expected_gate_result": "pass",
+  "expected_violations": [],
+  "id": "ST2-same-bytes-pos",
+  "kind": "semantic-team-fixture",
+  "license": "Apache-2.0",
+  "live_tested": false,
+  "notes": "C-F02 minimal counterexample: kimi-code and zcode share the AGENTS.md path glob and project byte-identical bodies. Byte identity is not evidence for or against semantic equivalence; the binding rests on canonical-intent-semantics, and byte_identical=False records that byte identity is not asserted as the equivalence evidence.",
+  "payload": {
+    "canonical_intents": [
+      {
+        "activation": {
+          "mode": "required-instruction",
+          "trigger": "javascript-test-paths"
+        },
+        "authority": {
+          "id": "contexpect-native",
+          "kind": "contexpect-native"
+        },
+        "dependencies": [],
+        "desired_outcome": "Each target harness encodes the Vitest requirement in its native instruction/rule primitive",
+        "id": "intent.tests-must-use-vitest",
+        "lifecycle": "active",
+        "meaning": {
+          "constraints": [
+            "Do not introduce Jest as the project test runner"
+          ],
+          "goal": "JavaScript unit and component tests must use Vitest",
+          "non_goals": [
+            "Do not rewrite existing non-JavaScript tests"
+          ]
+        },
+        "owner": "syn-publisher-team-lead",
+        "permission_security_boundary": "instructions-are-not-sandbox-policy",
+        "precedence": {
+          "policy": "team-required-over-personal-recommended",
+          "rank": "team",
+          "shadows_lower": true
+        },
+        "provenance": {
+          "digest_sha256": "daf468fb9bb08e61cd55dae67d9018916862606ccb72178f33fdc424990ab149",
+          "recorded_at": "2026-09-04T12:00:00+08:00",
+          "source": "synthetic-acceptance-fixture"
+        },
+        "required_capability": "instructions",
+        "scope": {
+          "kind": "project",
+          "paths": [
+            "packages/**",
+            "apps/**"
+          ],
+          "target": "javascript-tests"
+        }
+      }
+    ],
+    "claimed_alignment": null,
+    "documentation_only": false,
+    "effective_policies": [],
+    "equivalence_bindings": [
+      {
+        "byte_identical": false,
+        "equivalence_basis": "canonical-intent-semantics",
+        "equivalent": true,
+        "family_ids": [
+          "kimi-code",
+          "zcode"
+        ],
+        "intent_id": "intent.tests-must-use-vitest",
+        "native_digests": [
+          "d54436071069b86e5f3f75bab5e09572eb4b0a50de1979ab3da83c62d0234922",
+          "d54436071069b86e5f3f75bab5e09572eb4b0a50de1979ab3da83c62d0234922"
+        ],
+        "text_hash_equality_is_not_semantic_equivalence": true
+      }
+    ],
+    "exceptions": [],
+    "expected_violations": [],
+    "layer_assignments": [],
+    "leader_view": null,
+    "lifecycle": null,
+    "loss_reports": [],
+    "member_disclosure": null,
+    "overlays": [],
+    "policy_evals": [],
+    "projections": [
+      {
+        "authority": "contexpect-native",
+        "capability_negotiation": {
+          "dropped": [],
+          "required_capability": "instructions",
+          "status": "required-supported",
+          "unknown": [],
+          "unsupported": []
+        },
+        "coordinate": "kimi-code/0.40.1/cli/macos-27-arm64",
+        "equivalence_basis": "canonical-intent-semantics",
+        "family_id": "kimi-code",
+        "lifecycle": "preview-apply-rollback",
+        "managed_channel": true,
+        "native_digest": "d54436071069b86e5f3f75bab5e09572eb4b0a50de1979ab3da83c62d0234922",
+        "native_files": [
+          {
+            "content": "# AGENTS.md\n\n## Testing\n\nThis repository's JavaScript tests must use Vitest.\nDo not add Jest as the project test runner.\n",
+            "digest_sha256": "8460b4aae81616f3a13118fc436522c24d35026d05d0f80f77d5c456b57670dc",
+            "path": "AGENTS.md"
+          }
+        ],
+        "native_path": "AGENTS.md",
+        "oracle": {
+          "command": null,
+          "honesty": "no-declared-repeatable-oracle-unknown-or-static-only",
+          "kind": "static-resolver",
+          "live_tested": false,
+          "native_result_captured": false
+        },
+        "os_lane": "macos-27-arm64",
+        "pipeline": [
+          {
+            "order": 1,
+            "status": "recorded",
+            "step": "canonical-intent"
+          },
+          {
+            "order": 2,
+            "status": "recorded",
+            "step": "target-coordinate"
+          },
+          {
+            "order": 3,
+            "status": "recorded",
+            "step": "capability-negotiation"
+          },
+          {
+            "order": 4,
+            "status": "recorded",
+            "step": "authority-selection"
+          },
+          {
+            "order": 5,
+            "status": "recorded",
+            "step": "harness-native-projection"
+          },
+          {
+            "order": 6,
+            "status": "recorded",
+            "step": "preview-apply-rollback"
+          },
+          {
+            "order": 7,
+            "status": "recorded",
+            "step": "target-resolver-oracle"
+          },
+          {
+            "order": 8,
+            "status": "recorded",
+            "step": "reconciliation-receipt"
+          }
+        ],
+        "precedence": "harness-native-document-order",
+        "primitives": [
+          "instructions",
+          "rules",
+          "memory",
+          "skills",
+          "plugins",
+          "commands",
+          "agents",
+          "mcp-declarations",
+          "environment-metadata"
+        ],
+        "projection_outcome": "native-equivalent",
+        "scope": "project",
+        "surface": "cli",
+        "syntax": "kimi-code-markdown"
+      },
+      {
+        "authority": "contexpect-native",
+        "capability_negotiation": {
+          "dropped": [],
+          "required_capability": "instructions",
+          "status": "required-supported",
+          "unknown": [],
+          "unsupported": []
+        },
+        "coordinate": "zcode/3.10.2/app/macos-27-arm64",
+        "equivalence_basis": "canonical-intent-semantics",
+        "family_id": "zcode",
+        "lifecycle": "preview-apply-rollback",
+        "managed_channel": true,
+        "native_digest": "d54436071069b86e5f3f75bab5e09572eb4b0a50de1979ab3da83c62d0234922",
+        "native_files": [
+          {
+            "content": "# AGENTS.md\n\n## Testing\n\nThis repository's JavaScript tests must use Vitest.\nDo not add Jest as the project test runner.\n",
+            "digest_sha256": "8460b4aae81616f3a13118fc436522c24d35026d05d0f80f77d5c456b57670dc",
+            "path": "AGENTS.md"
+          }
+        ],
+        "native_path": "AGENTS.md",
+        "oracle": {
+          "command": null,
+          "honesty": "no-declared-repeatable-oracle-unknown-or-static-only",
+          "kind": "static-resolver",
+          "live_tested": false,
+          "native_result_captured": false
+        },
+        "os_lane": "macos-27-arm64",
+        "pipeline": [
+          {
+            "order": 1,
+            "status": "recorded",
+            "step": "canonical-intent"
+          },
+          {
+            "order": 2,
+            "status": "recorded",
+            "step": "target-coordinate"
+          },
+          {
+            "order": 3,
+            "status": "recorded",
+            "step": "capability-negotiation"
+          },
+          {
+            "order": 4,
+            "status": "recorded",
+            "step": "authority-selection"
+          },
+          {
+            "order": 5,
+            "status": "recorded",
+            "step": "harness-native-projection"
+          },
+          {
+            "order": 6,
+            "status": "recorded",
+            "step": "preview-apply-rollback"
+          },
+          {
+            "order": 7,
+            "status": "recorded",
+            "step": "target-resolver-oracle"
+          },
+          {
+            "order": 8,
+            "status": "recorded",
+            "step": "reconciliation-receipt"
+          }
+        ],
+        "precedence": "harness-native-document-order",
+        "primitives": [
+          "instructions",
+          "rules",
+          "memory",
+          "skills",
+          "plugins",
+          "commands",
+          "agents",
+          "mcp-declarations",
+          "environment-metadata"
+        ],
+        "projection_outcome": "native-equivalent",
+        "scope": "project",
+        "surface": "app",
+        "syntax": "zcode-markdown"
+      }
+    ],
+    "receipts": [
+      {
+        "bound_digest_manifest": "0f10fb459b1039b0c86d31e667d1dcb6a7cd2a8dc555ca622826e4094425ffaf",
+        "bound_digests": {
+          "authority": "66382e8535c56e10f6d4ccf9030f54838f0143dc3bbcc543ce676ffe7b424b3b",
+          "exception": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+          "intent": "917851f908b1fe3278547b25a591ab6279e4d5e699940aaab43bea7381254600",
+          "native_artifact": "cb97b22cd1e27e8eeb4b4b4f887367f593228662c8edab1422516750bf17d877",
+          "plan": "9c0c094238dd150df1f1276487fe4cc386cfc2b48bd6d1ca0efbcb3da5db043f",
+          "policy": "10bbca2f5a52cec1bd86df9d7b6af83d2c5731da2957e9e8942ca4dbe6e63a2c",
+          "resolver_oracle": "c7ad507b068b7e456837b3e93e079a3073fa2eade3811f25fd58ec21bdd838bf",
+          "transaction": "a9ecf7092bf43824f3fe41c92fa38017b0ab5be82754b25061111c75af8b818a"
+        },
+        "id": "receipt.semantic-team-roundtrip",
+        "native_result_captured": false,
+        "reconciliation_state": "structural-only"
+      }
+    ],
+    "rollback_plan": null,
+    "scenario": "ST2-same-bytes-pos",
+    "team_standard": null,
+    "trust_state": null,
+    "variants": []
+  },
+  "polarity": "positive",
+  "scenario": "ST2-same-bytes-pos",
+  "schema_version": 1
+}

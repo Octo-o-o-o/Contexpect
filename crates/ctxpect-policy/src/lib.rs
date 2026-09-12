@@ -2,8 +2,13 @@
 
 use ctxpect_schema::{array, object, string, Value};
 
+pub mod precondition;
 pub mod principal;
 
+pub use precondition::{
+    evaluate as evaluate_preconditions, requires as precondition_required, ActionClass,
+    Precondition, PreconditionReport,
+};
 pub use principal::{enrollment_digest, verify_principal, PrincipalProof, REGISTRY_SCHEMA};
 
 pub const LAYERS: &[&str] = &[

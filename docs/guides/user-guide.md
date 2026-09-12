@@ -33,6 +33,26 @@ python3 scripts/check_ui_routes.py
 
 忽略示例请用 `__instructions__negative`（含 `.ctxpect-ignore` / G4），不要把 `__ignore__04` 当成 instructions 排除示例。默认不扫描 HOME。未知版本 fail-closed（exit 3）。
 
+## 纵向闭环（Codex 锚点，当前可复制）
+
+从真实形态静态输入到新 Receipt 的整条链已可按顺序实跑（阶段实现；`tests/product_loops.rs` 的 `codex_static_to_safe_write_loop_closes_end_to_end` 是它的可执行契约）：
+
+```bash
+# "$PROJ" 为隔离临时项目（含多层 AGENTS.md、.ctxpect-ignore、frontmatter）
+ctxpect inspect --json --project "$PROJ" --cwd "$PROJ/sub" --codex-home "$PROJ/codex-home" --store "$STORE"
+ctxpect doctor --json --project "$PROJ" --cwd "$PROJ/sub" --codex-home "$PROJ/codex-home" --as-of 2026-09-04
+ctxpect intent preview --json --project "$PROJ" --store "$STORE" --target AGENTS.md --desired='<修复后全文>'
+ctxpect apply --json --project "$PROJ" --store "$STORE" --tx <tx-id>
+ctxpect rollback --json --project "$PROJ" --store "$STORE" --id <tx-id>
+```
+
+各环节的诚实边界：
+
+- `inspect` 只做静态解析：读声明的 project/cwd/`--codex-home` 根下的具名文件，不读 HOME/CODEX_HOME，不执行 harness。`.ctxpect-ignore` 排除是观测范围收窄（`observation_scope_excluded`，Indeterminate，不是 absent，exit 3），不代表 harness 不再原生加载。
+- 运行面（model-visible / use-evidence / outcome-affecting）保持 `runtime_snapshot_missing` 的 Indeterminate。Codex 唯一声明的原生 oracle 是 `codex debug prompt-input`，只有 pinned 录制语料（`acceptance/corpus/development/oracle/codex__debug-prompt-input.jsonl`，`live_tested: false`）；录制语料不是本机执行证据。
+- `doctor` 的 `stale` 判定以 `--as-of` 的显式日期为准；按 C-F03，outcome 与运行面未知**不锁**安全静态修复（identity/permission/coordinate 未知仍锁）。doctor → preview 的自动桥未实施，修复内容用 `--target`/`--desired` 显式给出。
+- `apply` 只消费持久化 preview（digest 冻结；目标在 preview 后被改动则以 `projection.concurrent_hash` 拒绝；tx 一次性消费），且必须先有 policy/exception 授权。每次变更（含 `rollback`）落备份 + journal/audit，并重 inspect 产生 post-Receipt；旧 Receipt 字节不变。
+
 ## 第一次打开（计划行为）
 
 1. 产品解释 local-first 与数据边界

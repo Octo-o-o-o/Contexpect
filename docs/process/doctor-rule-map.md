@@ -10,6 +10,26 @@
 - **规则集之外的两条产品 finding**：`declaration_unreadable`（`rule_namespace: "doctor-declarations"`，非阻断：`.ctxpect/<name>` 存在但不是 JSON 对象，或根目录同名文件带了 `schema` 却不可解析）与 `doctor.suppression_invalid`（非阻断、`suspected`：suppression 条目缺字段、已过期、`evidence_digest` 不匹配或整份文件不可读）。两者不在语料里，不参与 precision/recall。
 - 语义相同者只做别名：`D-TRUNCATED`（G3 聚合截断）与 `cap_truncation`（声明的 cap 截断）语义相同，`D-TRUNCATED` finding 带 `aliases: ["cap_truncation"]`。`D-UNSUPPORTED-VERSION` 是 harness 坐标版本，`version_incompatible` 是 adapter 声明版本，不是同一语义，不做别名。其余 `D-*` 无对应语料规则。
 
+## 声明类 finding 的「声明校验」标注（C-F04，2026-09-12）
+
+凡读取自有声明文件（`layout.json` / `inventory.json` / `plan.json` / `archive-manifest.json` / `hooks.json` / `budget.json` / `device-lock.json` / `provenance.json` / `adapter-version.json` / `placement.json`，含 `declaration_unreadable`）产生的 finding，输出中带 `declaration` 对象：
+
+- `kind: "declaration-validation"` —— 该 finding 校验的是声明文本，不是被声明对象的真实行为；
+- `source_file` —— 实际命中的声明文件路径；
+- `producer: "unknown"` 且 `trusted_producer_connected: false` —— 十个声明文件**没有任何产品侧可信写入者**（见「诚实边界」），声明不能自证其来源；
+- `declared_at` —— 仅当声明文件自己带了 `declared_at` 时原样引用（本身也是自声明字符串），否则为 `null`，不编造时间。
+
+**`approved: true` 不是授权证据。** `unapproved_lossy_projection` 的触发条件不变（`drops` 非空且 `approved != true`，语料答案一行未动），但 finding 文案明确：plan.json 的 `approved` 是产品自声明，即使写了 `approved: true` 也不构成授权——授权证据只认 policy/exception 链（`ctxpect_policy` 的决策与例外记录）。同理，`inventory.json.present`、`budget.json.truncated` 等自有声明只作为「声明原文」被校验，不创造事实。
+
+## `D-*` finding 的 treatment lock（C-F03，2026-09-12）
+
+Doctor 的 treatment 是**有限静态修复**；某条 indeterminate 证据是否锁定它，按 policy 前置证据表（`ctxpect_policy::precondition`，`ActionClass::LimitedStaticFix`）判定，不再按 facet 名一刀切：
+
+- `D-FACET-MODEL-VISIBLE` / `D-FACET-USE-EVIDENCE`（runtime-surface 证据）与 `D-FACET-OUTCOME-AFFECTING`（outcome，表中显式「仍可未知」列）indeterminate 时：finding 仍输出、`confirmation`/`severity` 为 `suspected`、`evidence_state: "indeterminate"`、计入 `counts.unknown`，但 `treatment.locked: false`、`lock_reason: "none"`——缺效果或运行面证据不阻止安全静态修复。`--fail-on confirmed` 因此对纯 facet-indeterminate 诊断不再 exit 2。
+- 目标归属/权限/坐标类未知仍锁：`D-UNKNOWN-SURFACE`（`lock_reason` = 该 unknown 的 reason code，如 `permission_not_granted`）与 `D-UNSUPPORTED-VERSION`（`lock_reason: "unsupported_harness_version"`）保持 `treatment.locked: true`、`suspected`。它们不标 `confirmed`，所以也不单独触发 `--fail-on confirmed`。
+- 语料命名空间 20 条规则的 finding 与 8 条阻断规则不受影响（下表与 `BLOCKING_RULES` 未动）。
+
+
 ## 阻断判定（`ci` 与 `doctor` 共用）
 
 唯一判定函数：`ctxpect_doctor::blocking_exit(diagnosis, fail_on)`。
@@ -29,7 +49,7 @@
 
 **声明文件的双轨识别（2026-09-09 contract revision）**：一个文件只在两种拼法之一下才是 Contexpect 声明——`.ctxpect/<name>`（无需 `schema` 字段），或根目录 `<name>` 且顶层 `"schema": "ctxpect-<name 去掉 .json>-v1"`（例如 `plan.json` → `ctxpect-plan-v1`）。根目录同名文件没有该 `schema` 就是别人的文件，不判读、不报；两种拼法同时存在时**都**判读，finding 的 `path` 是实际命中的那份。`crates/ctxpect-resolve` 的 Claude Code resolver 读 `budget.json` 时遵守同一规则（`native_paths_used` 与 evidence 记实际路径）。语料生成器 `scripts/contexpect_fixtures.py` 的 `_declarations` 是同一规则的参考实现。
 
-**suppressions**：`.ctxpect/doctor-suppressions.json`（`schema: ctxpect-doctor-suppressions-v1`，`suppressions[]` 每条 `rule_id` / `path`（精确的项目相对路径）/ `owner` / `reason` / `expires_at`（store 时钟 `secs.msZ`、RFC 3339 或整数秒）；阻断规则必须带 `evidence_digest` = 被评审文件字节的 sha256（symlink 取 target 文本））。命中的 finding **仍然输出**，保留真实 `confirmation`，加 `suppressed: true` 与 `suppression{owner, reason, expires_at, evidence_digest}`；`counts` 保留事实计数 `confirmed` / `blocking`，另加 `active_confirmed` / `active_blocking` / `suppressed`，`blocking_exit` 只看 active。诊断带 `suppressions{file, present, file_digest, evaluated_at_secs, applied, unmatched, invalid, entries, scope}`。过期按评估时的墙钟判定；内容改一个字节即 `evidence_digest` 不匹配、条目失效并作为 `doctor.suppression_invalid` 报出。文件在 `.ctxpect/` 控制路径下，`apply` 例外写不了它。suppression 是项目级接受风险，不放宽 projection 的 secret 门、路径包含与被动扫描规则。
+**suppressions**：`.ctxpect/doctor-suppressions.json`（`schema: ctxpect-doctor-suppressions-v1`，`suppressions[]` 每条 `rule_id` / `path`（精确的项目相对路径）/ `owner` / `reason` / `expires_at`（store 时钟 `secs.msZ`、RFC 3339 或整数秒）；阻断规则必须带 `evidence_digest` = 被评审文件字节的 sha256（symlink 取 target 文本））。命中的 finding **仍然输出**，保留真实 `confirmation`，加 `suppressed: true` 与 `suppression{owner, reason, expires_at, evidence_digest}`；`counts` 保留事实计数 `confirmed` / `blocking`，另加 `active_confirmed` / `active_blocking` / `suppressed`，`blocking_exit` 只看 active。诊断带 `suppressions{file, present, file_digest, evaluated_at_secs, applied, unmatched, invalid, entries, scope}`。过期按评估时钟判定（默认墙钟；`doctor --as-of` 指定时以该日 UTC 正午为评估时刻，输出 `suppressions.evaluated_at_secs` 记录实际读数）；内容改一个字节即 `evidence_digest` 不匹配、条目失效并作为 `doctor.suppression_invalid` 报出。文件在 `.ctxpect/` 控制路径下，`apply` 例外写不了它。suppression 是项目级接受风险，不放宽 projection 的 secret 门、路径包含与被动扫描规则。
 
 ## 规则表
 
@@ -42,12 +62,12 @@
 | `path_containment_escape` | 指令 `read:` 路径逃出根 | 内容 | 行首 `read: <path>`（大小写不敏感，允许 `- ` / `* ` / `+ ` 列表前缀），path 绝对或按所在目录词法解析后越过根 | `read: ./inside/key` 不算；`@../x`、URL 编码形式不在文法内 | 是 | `rules.rs` | 23 / 22 |
 | `symlink_escape` | 符号链接目标离开工作区 | 采集 + 声明 | (a) 采集到的 symlink，target 词法逃出根；(b) `layout.json.symlinks[].to` 同判；产品入口传入项目根（`project_findings_in`），绝对 target 词法落在根内的不算 | 指向根内文件（相对或绝对）不算；`~`、Windows 盘符 target 不判 | 是 | `rules.rs` | 25 / 23 |
 | `required_asset_missing` | 声明必需的资产缺失 | 声明 | `inventory.json.required` 中既不在 `present` 也不在磁盘的项 | 在 present 或磁盘上存在不算 | 是 | `rules.rs` | 25 / 23 |
-| `unapproved_lossy_projection` | 有损投影未获批准 | 声明 | `plan.json.drops` 非空且 `approved != true`（缺失即未批准） | `drops: []` 或 `approved: true` | 是 | `rules.rs` | 25 / 23 |
+| `unapproved_lossy_projection` | 有损投影未获批准（声明校验：plan.json 的 `approved` 是自声明，授权证据只认 policy/exception 链） | 声明 | `plan.json.drops` 非空且 `approved != true`（缺失即未批准） | `drops: []` 或 `approved: true` | 是 | `rules.rs` | 25 / 23 |
 | `archive_traversal` | 归档条目逃出目的地 | 声明 | `archive-manifest.json.entries[]` 含 `..` 段或绝对路径 | 普通相对文件名 | 是 | `rules.rs` | 25 / 23 |
 | `passive_scan_exec` | 被动扫描被声明执行 hook | 声明 | `hooks.json.on_scan` 含非空命令 | `on_scan: []` | 是 | `rules.rs` | 25 / 23 |
 | `duplicate` | 指令正文字节相同 | 采集（摘要） | ≥2 个 `.md` 内容摘要相同；报告组内排序最后的路径 | 正文不同 | 否 | `rules.rs` | 10 / 6 |
 | `conflict` | 指令文件间包管理器指令冲突 | 内容 | `.md` 中 `must be (npm\|pnpm\|yarn\|bun)` 指令出现 ≥2 种；报告首个与基线不同的文件 | 同一种管理器 | 否 | `rules.rs` | 10 / 6 |
-| `stale` | frontmatter `updated:` 过旧 | 内容 | 日期比 acceptance cutoff（2026-09-04）早 365 天以上 | 一年内 | 否 | `rules.rs` | 10 / 6 |
+| `stale` | frontmatter `updated:` 过旧 | 内容 | 日期比评估日 `as_of` 早 365 天以上；`as_of` 是显式输入：CLI 默认系统当日、`--as-of YYYY-MM-DD` 覆盖，corpus 门禁与测试固定注入 acceptance cutoff（2026-09-04，即 `STALE_CUTOFF`） | 一年内 | 否 | `rules.rs` | 10 / 6 |
 | `oversized_resident` | 常驻资产超过声明 cap | 声明 | `budget.json`：实际字节 > `max_bytes` 且未声明 `truncated` | 未超 | 否 | `rules.rs` | 11 / 7 |
 | `cap_truncation` | 指令被 cap 截断 | 声明 | `budget.json`：实际字节 > `max_bytes` 且 `truncated: true`，或 `truncated: true` | `truncated: false` 且未超 | 否 | `rules.rs`（别名 `D-TRUNCATED`） | 11 / 7 |
 | `bad_frontmatter` | frontmatter 不是合法 key/value YAML | 内容 | `---` 块未闭合、行非 `key: value`、`[`/`{`/引号未闭合 | 合法块 | 否 | `rules.rs` | 10 / 6 |
@@ -73,8 +93,8 @@
 
 ## 诚实边界
 
-- 声明类规则判定的是**声明**，不是被声明对象的真实行为：`archive_traversal` 不证明解压安全，`passive_scan_exec` 不证明 hook 未被别处执行。真实归档/执行安全合同独立实施（缺口分析 B16）。
+- 声明类规则判定的是**声明**，不是被声明对象的真实行为：`archive_traversal` 不证明解压安全，`passive_scan_exec` 不证明 hook 未被别处执行。真实归档/执行安全合同独立实施（缺口分析 B16）。2026-09-12 起（C-F04）这类 finding 在输出中带 `declaration{kind: "declaration-validation", source_file, producer: "unknown", trusted_producer_connected: false, declared_at}`，显式表达「该声明未接通可信生产者」。
 - `conflict` 只识别语料冻结的 `must be <manager>` 指令形式；其它形式的矛盾不在本规则内，不报 Unknown 也不报通过——它们不是本规则的输入。
-- `stale` 以 cutoff 为参照而非当前时钟，因此结果可复现；它不是「文件内容过时」的语义判断。
+- `stale` 对照显式 `as_of` 判定（C-F05）：crate 内不读时钟，corpus/测试注入固定 `STALE_CUTOFF`（2026-09-04）保持 golden 可复现，CLI 生产路径用系统当日或 `--as-of` 覆盖；finding 文案写出实际对照的日期。日期久只证明越过 365 天维护阈值，不是「文件内容错误」的语义判断。
 - 所有 20 条规则的 finding 均为 `confirmation: confirmed`（对字节确定性判定）；Unknown 不是 severity（C03）。
 - `doctor` 与 `ci` 的项目规则扫描读取项目内文件（经 collect 的排除清单：`.env`、密钥文件等不读），不读取 `$HOME`。

@@ -2,6 +2,10 @@
 // what the SSR render tests cannot: data flow, navigation between ids, the
 // generation guard's visible effect, and a real inspect round trip.
 import { expect, test } from "@playwright/test";
+// Boolean cells render the i18n tables' values, not literal true/false; the
+// assertion reads the same table the app does, so a wording change lands in
+// both places at once.
+import { zh } from "../../src/i18n-tables.js";
 
 const base = () => process.env.E2E_BASE_URL ?? "";
 const project = () => process.env.E2E_PROJECT ?? "";
@@ -12,6 +16,8 @@ test.beforeEach(({}, testInfo) => {
 });
 
 test("cold Doctor shows unmeasured counts and the actual daemon address", async ({ page }) => {
+  // Runs first in this file on purpose: it asserts the cold-start state, so
+  // it depends on no earlier test having produced a session-current Receipt.
   await page.goto(`${base()}/doctor`);
   await expect(page.locator('[data-testid="startup-coordinate"]')).toContainText("none");
   await expect(page.locator(".stat-num")).toHaveText(["—", "—", "—"]);
@@ -90,7 +96,10 @@ test("a late answer for the session the user left is dropped, not applied", asyn
 test("cancel stops a self-fetching page's request and says so", async ({ page }) => {
   // The receipts list is held back; the user cancels while it loads.
   await page.route("**/api/v1/receipts", async (route) => {
-    await new Promise((r) => setTimeout(r, 5000));
+    // Held just long enough for the cancel to land first; the wait below
+    // outlasts the hold, so a response that was not actually cancelled would
+    // visibly arrive and fail the final assertion.
+    await new Promise((r) => setTimeout(r, 600));
     await route.continue();
   });
   await page.goto(`${base()}/receipts`);
@@ -99,7 +108,7 @@ test("cancel stops a self-fetching page's request and says so", async ({ page })
   await expect(page.locator('[data-state="cancelled"]')).toHaveCount(1);
   await expect(page.locator('[data-state="cancelled"]')).toContainText("api.cancelled");
   // The cancelled request never lands on the page.
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(1200);
   await expect(page.locator('[data-state="cancelled"]')).toHaveCount(1);
 });
 
@@ -132,7 +141,8 @@ test("session summaries show metadata while keeping the detail links", async ({ 
   const table = page.getByTestId("session-list");
   await expect(table).toContainText("deepseek-harness-cli");
   await expect(table.getByRole("link", { name: "s-alpha", exact: true })).toHaveAttribute("href", "/sessions/s-alpha");
-  await expect(table.locator("tbody tr").first().locator("td").nth(4)).toHaveText("false");
+  await expect(table.locator("tbody tr").first().locator("td").nth(4)).toHaveText(zh.boolNo);
+  await expect(table.locator("tbody tr").first().locator("td").nth(4)).not.toHaveText("false");
   await expect(table).not.toContainText("List the files");
 });
 
@@ -149,7 +159,11 @@ test("reloading all diagnostic routes restores one explicit Receipt", async ({ p
   }
   await page.goto(`${base()}/doctor`);
   await expect(page.locator(".stat-num").first()).not.toHaveText("—");
-  await expect(page.locator(".chain-glyph")).toHaveCount(0);
+  // The old stepper chain is gone for good; what must render is the drawer's
+  // fact table. It appears only with a selected finding, and the restored
+  // Receipt's diagnosis provides findings for this fixture (the facet cells
+  // a fresh synthetic project cannot evidence stay indeterminate, each of
+  // which is a finding).
   await expect(page.getByTestId("evidence-facts")).toBeVisible();
 });
 
@@ -158,11 +172,18 @@ test("a delayed bootstrap cannot overwrite a newer manual inspect", async ({ pag
   const held = new Promise<void>((resolve) => { release = resolve; });
   let captured!: () => void;
   const ready = new Promise<void>((resolve) => { captured = resolve; });
+  // The manual inspect aborts the in-flight bootstrap request
+  // (inspectAbort), so the late fulfill may land on an already-aborted
+  // fetch. `settled` resolves either way: it marks the moment the late
+  // answer was given its chance, with no fixed-timeout guess.
+  let delivered!: () => void;
+  const settled = new Promise<void>((resolve) => { delivered = resolve; });
   await page.route("**/api/v1/status", async (route) => {
     const response = await route.fetch();
     captured();
     await held;
     await route.fulfill({ response }).catch(() => undefined);
+    delivered();
   });
   await page.goto(`${base()}/checkup`);
   await ready;
@@ -172,8 +193,10 @@ test("a delayed bootstrap cannot overwrite a newer manual inspect", async ({ pag
   const receipt = (await (await inspecting).json()).receipt;
   await expect(page.getByTestId("startup-coordinate")).toContainText(receipt.receipt_id);
   release();
-  await page.waitForTimeout(150);
-  await expect(page.getByTestId("startup-coordinate")).toContainText(receipt.receipt_id);
+  await settled;
+  await expect
+    .poll(() => page.getByTestId("startup-coordinate").textContent())
+    .toContain(receipt.receipt_id);
   await expect(page.locator('[data-state="error"]')).toHaveCount(0);
 });
 

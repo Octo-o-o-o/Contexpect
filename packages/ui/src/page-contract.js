@@ -165,9 +165,9 @@ export const PAGE_CONTRACTS = [
     route: "/monitor",
     entry: "从导航进入；也常从 stale 横幅的下一步指引跳来",
     back: "/checkup",
-    selection: "无可选项：本页始终针对当前会话的那一份 Receipt",
+    selection: "携带当前显示 Receipt 的 id（?receipt_id=）；还没有 Receipt 时不带参数，由 daemon 回答当前会话选择",
     query: [
-      { method: "GET", path: "/api/v1/monitor", purpose: "对当前 Receipt 的 evidence 重算摘要判定新鲜度" },
+      { method: "GET", path: "/api/v1/monitor", purpose: "对当前 Receipt 的 evidence 重算摘要判定新鲜度；携带 ?receipt_id= 绑定当前显示的 Receipt" },
     ],
     actions: [],
     persistence: "不持久化；判定每次请求重算",
@@ -353,9 +353,9 @@ export const PAGE_CONTRACTS = [
     route: "/team/compliance",
     entry: "从导航进入；面向需要看合规汇总的人",
     back: "/standards",
-    selection: "无可选项：统计范围固定为本地 store",
+    selection: "统计范围固定为本地 store；携带当前显示 Receipt 的 id（?receipt_id=）让 drift/unknown 有观测对象，没有时它们显示 —",
     query: [
-      { method: "GET", path: "/api/v1/team/compliance", purpose: "本地 store 的合规统计" },
+      { method: "GET", path: "/api/v1/team/compliance", purpose: "本地 store 的合规统计；携带 ?receipt_id= 时 drift/unknown 针对该 Receipt" },
     ],
     actions: [],
     persistence: "不持久化；每次读取重新验签与统计",
@@ -376,7 +376,7 @@ export const PAGE_CONTRACTS = [
     back: "/doctor",
     selection: "finding id 在 URL 路径里，可分享可刷新",
     query: [
-      { method: "GET", path: "/api/v1/care-plan/:id", purpose: "该 finding 自身的处置与落点" },
+      { method: "GET", path: "/api/v1/care-plan/:id", purpose: "该 finding 自身的处置与落点；携带 ?receipt_id= 绑定当前显示的 Receipt" },
     ],
     actions: [],
     persistence: "不持久化；计划是预览，应用走 apply/rollback",
@@ -406,6 +406,28 @@ export const PAGE_CONTRACTS = [
     notApplicable: {
       "permission-denied": R.readOnlyGet,
       stale: "catalog 来自冻结的 family 清单，不是 Receipt 观测。",
+    },
+  },
+  {
+    id: "V17",
+    route: "/advisor",
+    entry: "从导航「操作」组进入；本页是 Advisor 建议的唯一界面入口（F-13/F-14）",
+    back: "/doctor",
+    selection: "无可选项：发送对象固定为 daemon 组装的已脱敏预览，界面不接受自由文本或路径",
+    query: [
+      { method: "POST", path: "/api/v1/advisor", purpose: "在 consent 与 preview_ack 都确认后获取建议候选" },
+    ],
+    actions: [
+      { id: "send", label: "获取建议", effect: "只发送 redacted 预览与两个确认位；不写 store，不产生模型请求", lands: "就地展示 candidates 与全部 false 标志；被拒绝时展示 reason code 与本页的下一步" },
+    ],
+    persistence: "不持久化；建议候选不落盘，离开页面即消失",
+    sensitive: "payload_preview 恒为 redacted 的本地启发式摘要；会话正文与主目录路径从不进入请求",
+    applicable: [...ALWAYS, "permission-denied"],
+    notApplicable: {
+      stale: "本页不读 Receipt 快照；候选由当次请求产生，没有可过期的观测。",
+      partial: "结果是完整候选或明确拒绝，没有 Unknown 真值单元。",
+      "unsupported-version": "本页不展示 harness family，版本状态不在本页数据里。",
+      "connector-missing": "adapter 恒为 local-heuristic-not-llm，不存在需要 connector 的分析路径。",
     },
   },
 ];

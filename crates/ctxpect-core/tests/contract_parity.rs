@@ -228,6 +228,7 @@ fn claim_from_example(row: &Value) -> Claim {
         has_timeline_events: flag("has_timeline_events"),
         contradicted_by_equal_coverage: flag("contradictory") || flag("two_current_same_coverage"),
         filled_from_higher_provenance_outside_coverage: flag("higher_provenance_partial"),
+        source: None,
     }
 }
 
@@ -418,6 +419,7 @@ fn honest() -> Claim {
         has_timeline_events: false,
         contradicted_by_equal_coverage: false,
         filled_from_higher_provenance_outside_coverage: false,
+        source: None,
     }
 }
 

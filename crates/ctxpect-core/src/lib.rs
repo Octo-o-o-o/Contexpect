@@ -17,5 +17,5 @@ pub use axes::{
     ClaimKind, Coverage, EffectDecision, KnowledgeStatus, LifecycleStage, Precision, Provenance,
     ReconciliationState, TruthState, UseEvidenceKind,
 };
-pub use claim::{Claim, ExperimentRef, InvariantId, Violation};
+pub use claim::{Claim, ClaimSource, ExperimentRef, InvariantId, Violation, source_domain_of};
 pub use reason::UnknownReason;

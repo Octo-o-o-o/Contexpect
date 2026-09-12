@@ -122,6 +122,52 @@ impl ExperimentRef {
     }
 }
 
+/// Optional source metadata: who produced this claim, on what basis, when,
+/// and from which source domain (C-F04: a claim must not manufacture its own
+/// facts). Every field is optional; an absent `source` means the producer was
+/// never recorded, which is itself honest — the claim must not invent one.
+/// `source_domain` is derived from [`Provenance`] at the production site, not
+/// asserted independently.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ClaimSource {
+    /// The rule/module that produced the claim (e.g. a resolver function).
+    pub producer: Option<String>,
+    /// The basis the claim rests on (an edge rule id, an evidence id).
+    pub basis: Option<String>,
+    /// When the claim was evaluated, when an explicit clock reading exists.
+    pub evaluated_at: Option<String>,
+    /// The trust domain the claim was produced in, derived from `provenance`.
+    pub source_domain: Option<String>,
+}
+
+impl ClaimSource {
+    /// Source metadata naming a producer, with the domain derived from the
+    /// claim's provenance. Basis and evaluation time stay unset unless the
+    /// production site can cite them.
+    #[must_use]
+    pub fn produced_by(producer: impl Into<String>, provenance: Provenance) -> Self {
+        ClaimSource {
+            producer: Some(producer.into()),
+            basis: None,
+            evaluated_at: None,
+            source_domain: Some(source_domain_of(provenance).to_string()),
+        }
+    }
+}
+
+/// The trust domain a provenance axis belongs to (C-F04): native evidence,
+/// static resolution, user attestation or a heuristic guess are different
+/// domains and one never implies another.
+#[must_use]
+pub const fn source_domain_of(provenance: Provenance) -> &'static str {
+    match provenance {
+        Provenance::NativeRuntime | Provenance::NativeLog => "native",
+        Provenance::HarnessSource | Provenance::OfficialSpec => "static-resolution",
+        Provenance::UserAttested => "user-attested",
+        Provenance::Heuristic => "heuristic",
+    }
+}
+
 /// One assertion about one coordinate, with everything needed to judge honesty.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Claim {
@@ -149,6 +195,9 @@ pub struct Claim {
     /// This claim's fields were filled from a stronger but only partially
     /// covering source.
     pub filled_from_higher_provenance_outside_coverage: bool,
+    /// Who produced this claim and on what basis (C-F04). `None` is the
+    /// honest answer when no producer was recorded.
+    pub source: Option<ClaimSource>,
 }
 
 impl Claim {
@@ -175,6 +224,7 @@ impl Claim {
             has_timeline_events: false,
             contradicted_by_equal_coverage: false,
             filled_from_higher_provenance_outside_coverage: false,
+            source: None,
         }
     }
 
@@ -370,6 +420,7 @@ mod tests {
             has_timeline_events: false,
             contradicted_by_equal_coverage: false,
             filled_from_higher_provenance_outside_coverage: false,
+            source: None,
         }
     }
 
@@ -713,5 +764,40 @@ mod tests {
             assert_eq!(InvariantId::from_wire(id.as_str()), Some(*id));
         }
         assert_eq!(InvariantId::from_wire("not-an-invariant"), None);
+    }
+
+    /// C-F04: source metadata is optional, never manufactured, and orthogonal
+    /// to the honesty invariants; the domain is derived from provenance, not
+    /// asserted independently.
+    #[test]
+    fn claim_source_is_optional_and_derives_its_domain_from_provenance() {
+        let claim = base();
+        assert_eq!(claim.source, None, "no producer was recorded; none is invented");
+
+        let sourced = Claim {
+            source: Some(ClaimSource::produced_by(
+                "ctxpect-resolve::resolved_claim",
+                Provenance::OfficialSpec,
+            )),
+            ..base()
+        };
+        let source = sourced.source.as_ref().expect("source");
+        assert_eq!(source.producer.as_deref(), Some("ctxpect-resolve::resolved_claim"));
+        assert_eq!(source.source_domain.as_deref(), Some("static-resolution"));
+        assert_eq!(source.basis, None);
+        assert_eq!(source.evaluated_at, None);
+        // Presence or absence of source metadata changes no invariant verdict.
+        assert_eq!(claim.violations(), sourced.violations());
+
+        for (provenance, domain) in [
+            (Provenance::NativeRuntime, "native"),
+            (Provenance::NativeLog, "native"),
+            (Provenance::HarnessSource, "static-resolution"),
+            (Provenance::OfficialSpec, "static-resolution"),
+            (Provenance::UserAttested, "user-attested"),
+            (Provenance::Heuristic, "heuristic"),
+        ] {
+            assert_eq!(source_domain_of(provenance), domain, "{provenance}");
+        }
     }
 }

@@ -18,8 +18,10 @@
 //! content that was reviewed, and one changed byte revives the finding. The
 //! file lives at `.ctxpect/doctor-suppressions.json`, under a control path
 //! projection cannot write, so an `apply` exception cannot mint its own
-//! suppressions. Expiry is judged against the wall clock at evaluation, never
-//! against the acceptance cutoff. A suppression is a project-level
+//! suppressions. Expiry is judged against the evaluation clock handed in as
+//! `now_secs` (the wall clock, or the `--as-of` date's noon-UTC reading when
+//! the CLI flag is given), never against the frozen corpus reference date
+//! [`crate::STALE_CUTOFF`]. A suppression is a project-level
 //! acceptance of risk; it does not relax any policy layer above the project,
 //! the projection secret gate, path containment or the passive-scan rules.
 
@@ -69,6 +71,12 @@ fn text(value: &Value, key: &str) -> Option<String> {
 
 /// Seconds since the epoch for `<secs>.<ms>Z` (store clock) or RFC 3339
 /// (`YYYY-MM-DDTHH:MM:SS[.frac](Z|±HH:MM)`), or a plain integer.
+///
+/// Intentionally copied from `ctxpect-effect`'s `epoch_seconds` (plus the
+/// plain-integer form `expires_at` allows): `ctxpect-doctor` must not depend
+/// on `ctxpect-effect` (experiment decisions are not Doctor's concern), and
+/// both crates share only `ctxpect-schema`. Keep the two implementations in
+/// sync; do not let them drift.
 fn epoch_seconds(text: &str) -> Option<i64> {
     let text = text.trim();
     if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) {
@@ -285,10 +293,17 @@ pub fn apply_suppressions(diagnosis: Value, input: &SuppressionInput<'_>) -> Val
                     .unwrap_or_default(),
             )
             .collect();
-        let hit = valid
-            .iter()
-            .enumerate()
-            .find(|(_, entry)| entry.rule_id == rule && paths.contains(&entry.path));
+        // `doctor.suppression_invalid` findings are excluded from matching:
+        // a suppression entry must never be able to hide the report that a
+        // suppression is broken — a configuration defect stays visible.
+        let hit = if rule == SUPPRESSION_INVALID_RULE {
+            None
+        } else {
+            valid
+                .iter()
+                .enumerate()
+                .find(|(_, entry)| entry.rule_id == rule && paths.contains(&entry.path))
+        };
         let Value::Object(item) = finding else { continue };
         match hit {
             Some((index, entry)) => {
@@ -477,5 +492,33 @@ mod tests {
         assert_eq!(out.pointer(&["counts", "active_confirmed"]).and_then(Value::as_i64), Some(1));
         assert_eq!(out.pointer(&["suppressions", "unmatched"]).and_then(Value::as_i64), Some(1));
         assert_eq!(epoch_seconds("2026-09-09T08:00:00+09:00"), Some(1_788_912_000 - 3600));
+    }
+
+    #[test]
+    fn a_suppression_cannot_hide_the_invalid_suppression_report_itself() {
+        // Entry 0 is expired (hence reported as `doctor.suppression_invalid`);
+        // entry 1 is a valid entry aimed at exactly that finding's rule and
+        // path. It must match nothing: the defect report stays visible.
+        let entries = format!(
+            r#"{{"rule_id":"stale","path":"OLD.md","owner":"a","reason":"r","expires_at":"2020-01-01T00:00:00Z"}},
+               {{"rule_id":"{SUPPRESSION_INVALID_RULE}","path":"{SUPPRESSIONS_PATH}","owner":"a","reason":"hide the defect","expires_at":"2030-01-01T00:00:00Z"}}"#
+        );
+        let out = run(Some(&doc(&entries)), 1_800_000_000);
+        let findings = out.get("findings").and_then(Value::as_array).unwrap();
+        let invalid = findings
+            .iter()
+            .find(|f| f.get("rule_id").and_then(Value::as_str) == Some(SUPPRESSION_INVALID_RULE))
+            .expect("the expired entry is itself reported");
+        assert_eq!(
+            invalid.get("suppressed"),
+            Some(&Value::Bool(false)),
+            "a configuration-defect report is never suppressible"
+        );
+        assert!(invalid.get("suppression").is_none(), "no suppression metadata is attached to it");
+        assert_eq!(
+            out.pointer(&["suppressions", "unmatched"]).and_then(Value::as_i64),
+            Some(1),
+            "the self-targeting entry is reported as unmatched, not applied"
+        );
     }
 }

@@ -7,12 +7,12 @@
       "schema_id": "compatibility-matrix"
     },
     {
-      "digest_sha256": "6a7064aa342e2ee40a29b79c4b9b0152c772092207d6e31a53fdc0ad0a5b570b",
+      "digest_sha256": "62487df843f020563eca85c9dc3ee716dcf5f2869053173643d399f5f27bde5f",
       "path": "acceptance/corpus-manifest.json",
       "schema_id": "corpus-manifest"
     },
     {
-      "digest_sha256": "b4c2a92a88a28425bf4c0f573012b7cf271d33a78fb9d7ccdc62e7aa8ac2f95d",
+      "digest_sha256": "f85d0f5567bc1906cf9389ac27658a16b5e8648f22d495e122aad64f69993ae3",
       "path": "acceptance/claim-validity-matrix.yaml",
       "schema_id": "claim-validity-matrix"
     },
@@ -42,7 +42,7 @@
       "schema_id": "integration-contracts"
     },
     {
-      "digest_sha256": "e54d75809db325a1396ab4cda8183c9daaffde2f5998de5983c0305437f71457",
+      "digest_sha256": "b90d2329b91cc896f54c9a26cb6af14ef82992c40718662c52f4f3e0e0a919f1",
       "path": "acceptance/semantic-team-contract.yaml",
       "schema_id": "semantic-team-contract"
     }

@@ -57,6 +57,7 @@ fn honest() -> Claim {
         has_timeline_events: false,
         contradicted_by_equal_coverage: false,
         filled_from_higher_provenance_outside_coverage: false,
+        source: None,
     }
 }
 

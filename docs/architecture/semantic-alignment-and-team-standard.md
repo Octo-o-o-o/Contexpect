@@ -3,6 +3,7 @@
 > 状态：规范（尚未实施完整产品运行时）
 > 本文冻结 CanonicalIntent、harness-native projection、TeamContextStandard 与分层执行的机器可读合同。产品运行时尚未完成全矩阵验收。
 > PRD 给出产品要求；长 JSON/字段表以本文为准，避免并行 Intent/Policy/Receipt 体系。
+> 修订：2026-09-12 C-F02（证据：[02_FINAL_DECISIONS_AND_CORRECTIONS](../handoff/contexpect-2026-09-11/02_FINAL_DECISIONS_AND_CORRECTIONS.md) C-F02 与 [Contexpect_Final_Recommendations_2026-09-11](../handoff/contexpect-2026-09-11/originals/Contexpect_Final_Recommendations_2026-09-11.md) §4.2）：ST2 旧条款"Codex/Grok native syntax/正文不得相同"过强——它与本文"不得要求字节相同""text/hash 不相等是预期"的反向条款自相矛盾，且强制制造无意义差异。ST2 条款、`scripts/check_semantic_team.py` 断言与生成器夹具（新场景 `ST2-same-bytes-pos`）已同步修订；独立复核待 owner 流程确认。
 
 Acceptance cutoff：`2026-09-04T23:59:59+08:00`。
 
@@ -63,7 +64,7 @@ Acceptance cutoff：`2026-09-04T23:59:59+08:00`。
 | Cursor | `.cursor/rules/**` | cursor-mdc-project-rules |
 | Grok Build | `AGENTS.md` | grok-project-instructions |
 
-Codex 与 Grok 可以共享 path glob，但 native syntax/正文不得相同，也不得因此被判等价。OpenCode、Kimi Code、ZCode、DeepSeek Harness、Coze 及其他已声明 family 同样走各自 native primitive；无独立 primitive 时必须 loss/Unknown，不得静默删除。
+Codex 与 Grok 可以共享 path glob；不同工具可以产生相同或不同的文件内容。是否满足同一受限意图，取决于各自版本、scope、precedence、activation、能力与证据：字节相同既不充分证明语义等价，也不是语义不等价的证据。OpenCode、Kimi Code、ZCode、DeepSeek Harness、Coze 及其他已声明 family 同样走各自 native primitive；无独立 primitive 时必须 loss/Unknown，不得静默删除。
 
 投影结果枚举与核对状态正交，**不得**把 `verified` 当作 projection outcome：
 

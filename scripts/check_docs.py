@@ -39,6 +39,12 @@ SKIP_MD_DIRS = {
     "__pycache__",
     "node_modules",
 }
+
+# Archived handoff packages (docs/handoff/*) are byte-preserved snapshots of
+# external research; their footnote style must not be rewritten to satisfy the
+# link checker. Only the relative-link check skips them — home-path and
+# placeholder scans still apply.
+LINK_CHECK_SKIP_DIRS = {"handoff"}
 HOME_UNIX_RE = re.compile(r"(?:^|[\s`\"'(=:,])(/(?:Users|home)/)([^/\s`\"')]+)")
 HOME_WIN_RE = re.compile(r"(?:^|[\s`\"'(=:,])([A-Za-z]:\\Users\\)([^\\\s`\"')]+)")
 ALLOWED_HOME_USERS = {
@@ -167,7 +173,7 @@ def publishable_markdown(root: Path) -> list[Path]:
     files = []
     for path in root.rglob("*.md"):
         rel_parts = path.relative_to(root).parts
-        if any(part in SKIP_MD_DIRS for part in rel_parts):
+        if any(part in SKIP_MD_DIRS or part in LINK_CHECK_SKIP_DIRS for part in rel_parts):
             continue
         if path.name.endswith(".log"):
             continue

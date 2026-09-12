@@ -3,11 +3,12 @@
 //! The runner lives in `ctxpect_cli::conformance` and is shared with
 //! `ctxpect adapter test`; this test runs it over the whole development
 //! static corpus and holds the frozen assertions: 1,924 rows, every row in
-//! exactly one bucket, codex `instructions` 3/3, claude-code `instructions`
-//! 6/6 with its other 54 rows unimplemented, and no pass without an
-//! implementation. The report separates implemented passes from
-//! unknown-honesty passes and states what was not executed (sealed, live,
-//! oracle).
+//! exactly one bucket, codex `instructions` 3/3 (two implemented passes plus
+//! one observation-scope honesty pass, C-F01), claude-code `instructions`
+//! 6/6 (four implemented plus two honesty) with its other 54 rows
+//! unimplemented, and no pass without an implementation. The report separates
+//! implemented passes from unknown-honesty passes and states what was not
+//! executed (sealed, live, oracle).
 
 use ctxpect_cli::conformance::run_static_corpus;
 use ctxpect_resolve::implemented_capabilities;
@@ -45,21 +46,33 @@ fn every_static_corpus_row_is_counted_and_no_implemented_cell_fails() {
     assert!(report.not_executed.sealed > 0 && report.not_executed.live > 0 && report.not_executed.oracle > 0, "{:?}", report.not_executed);
     assert!(!report.corpus_digest.is_empty() && !report.matrix_digest.is_empty());
 
-    // Codex instructions at its anchor coordinate: 3/3, all implemented passes.
+    // Codex instructions at its anchor coordinate: 3/3, of which the
+    // `.ctxpect-ignore` negative row is an observation-scope honesty pass
+    // (C-F01), not an implemented pass and never an absent claim.
     let codex = report
         .cells
         .get(&("codex/0.147.0/cli/macos-27-arm64".to_string(), "instructions".to_string()))
         .expect("codex instructions cell");
     assert_eq!((codex.total, codex.pass(), codex.unimplemented), (3, 3, 0), "{codex:?}");
-    assert_eq!(codex.unknown_honesty_pass, 0, "anchor rows are not honesty rows");
+    assert_eq!(
+        (codex.implemented_pass, codex.unknown_honesty_pass),
+        (2, 1),
+        "codex anchor: positive rows implemented, ignore row honesty"
+    );
 
-    // Claude Code instructions at its anchor coordinate: 6/6, and the other
-    // 54 rows of that coordinate are unimplemented, not passed.
+    // Claude Code instructions at its anchor coordinate: 6/6 (two ignore
+    // rows land in honesty), and the other 54 rows of that coordinate are
+    // unimplemented, not passed.
     let claude = report
         .cells
         .get(&("claude-code/2.1.259/cli/macos-27-arm64".to_string(), "instructions".to_string()))
         .expect("claude-code instructions cell");
     assert_eq!((claude.total, claude.pass(), claude.unimplemented), (6, 6, 0), "{claude:?}");
+    assert_eq!(
+        (claude.implemented_pass, claude.unknown_honesty_pass),
+        (4, 2),
+        "claude-code anchor: ignore rows are honesty passes"
+    );
     let claude_other: usize = report
         .cells
         .iter()

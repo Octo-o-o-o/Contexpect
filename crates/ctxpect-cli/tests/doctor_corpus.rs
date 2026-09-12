@@ -21,7 +21,7 @@
 use ctxpect_cli::{parse, scan_project_for_doctor, Value};
 use ctxpect_doctor::{
     blocking_exit, project_findings, render_project_findings, with_project_findings,
-    BLOCKING_RULES, NON_BLOCKING_RULES,
+    BLOCKING_RULES, NON_BLOCKING_RULES, STALE_CUTOFF,
 };
 use ctxpect_fs::Root;
 use ctxpect_schema::object;
@@ -79,7 +79,9 @@ fn every_doctor_corpus_row_is_scored_and_blocking_rules_have_no_false_positive()
         let input = root.join(row.get("input_path").and_then(Value::as_str).expect("input_path"));
         let project = Root::new(&input).expect("input dir");
         let files = scan_project_for_doctor(&project).unwrap_or_else(|err| panic!("scan {id}: {} {}", err.code(), err.message()));
-        let found = project_findings(&files);
+        // The corpus runs against the frozen reference date (the acceptance
+        // cutoff), not the wall clock, so the golden rows stay reproducible.
+        let found = project_findings(&files, STALE_CUTOFF);
         let got: BTreeSet<(String, String)> = found
             .iter()
             .map(|f| (f.rule_id.to_string(), f.path.clone()))

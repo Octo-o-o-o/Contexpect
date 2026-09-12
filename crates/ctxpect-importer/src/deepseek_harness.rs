@@ -204,15 +204,10 @@ fn decode_seq_ranges(value: &Value, max_entries: usize) -> Result<Vec<usize>, St
     Ok(out)
 }
 
-/// Parse one DSH line. A DSH log is written by `JSON.stringify`, whose
-/// numbers may be non-integers (`config.temperature`), so the number-
-/// preserving parser is used and every preserved lexeme must have the
-/// shape `JSON.stringify` gives a double. That shape is what makes
-/// re-emitting the lexeme verbatim reproduce the JS writer's bytes — and
-/// therefore makes `header_digest` equal to what DSH itself would hash. A
-/// number JS would never write (`1.0`, `1E5`, `1e-07`) means the line was
-/// not written by DSH's serializer, and the line is refused as a parse
-/// failure rather than digested under a false equivalence.
+/// Parse one DSH line, retaining non-integer lexemes from the native JS
+/// writer. Refuse forms JS cannot emit before computing header digests.
+/// The shape filter does not prove shortest-round-trip equivalence for
+/// arbitrary numeric input; conformance binds the supported native fixture.
 fn parse_line(line: &str) -> Result<Value, ()> {
     let value = parse_preserving_numbers(line).map_err(|_| ())?;
     fn js_shaped(value: &Value) -> bool {
@@ -533,6 +528,17 @@ pub fn import_deepseek_harness(bytes: &[u8], session_id: &str) -> Result<Value, 
             surface_op: value.get("surfaceOp").cloned(),
             source_event_seqs,
         });
+    }
+
+    // A header-only log without a trailing newline is torn too: `body_lines`
+    // is empty then, so the in-loop torn check never fires for it.
+    if torn_tail && body_lines.is_empty() {
+        unknown.push(object([
+            ("reason_code", string("import_parse_failed")),
+            ("line", int(1)),
+            ("detail", string("the log ends at the header with no trailing newline: a torn tail from an unfinished append, not a complete log")),
+        ]));
+        stopped_at = Some(0);
     }
 
     // ---- Fold: surface, headers, dispatch evidence, tail ----
@@ -1050,5 +1056,17 @@ fn claim(seq: usize, stage: &str, truth: &str, reason: Option<&str>, evidence_id
         ("unknown_reason_code", reason.map_or(Value::Null, string)),
         ("evidence_id", string(evidence_id)),
         ("note", string(note)),
+        // C-F04: name the producer and the basis. This claim is reconstructed
+        // by the importer from a native log; `collected_at` is "unknown", so
+        // `evaluated_at` stays null rather than inventing a clock reading.
+        (
+            "source",
+            object([
+                ("producer", string(format!("ctxpect-importer/{MAPPING_ID}"))),
+                ("basis", string(evidence_id)),
+                ("evaluated_at", Value::Null),
+                ("source_domain", string("native")),
+            ]),
+        ),
     ])
 }

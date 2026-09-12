@@ -106,7 +106,19 @@
         "truth_state": { "type": "string", "enum": ["present", "absent", "indeterminate", "not-applicable"] },
         "unknown_reason_code": { "type": ["string", "null"] },
         "facet": { "type": "string" },
-        "capability_id": { "type": "string" }
+        "capability_id": { "type": "string" },
+        "source": {
+          "type": "object",
+          "description": "C-F04 (2026-09-12): optional source metadata — who produced the claim, on what basis, when, from which domain. Signed content: NOT display-only, so it is covered by manifest.digest; old Receipts without it verify unchanged.",
+          "required": ["producer", "basis", "evaluated_at", "source_domain"],
+          "properties": {
+            "producer": { "type": ["string", "null"] },
+            "basis": { "type": ["string", "null"] },
+            "evaluated_at": { "type": ["string", "null"] },
+            "source_domain": { "type": ["string", "null"], "enum": ["native", "static-resolution", "user-attested", "heuristic", null] }
+          },
+          "additionalProperties": false
+        }
       }
     },
     "evidence": {

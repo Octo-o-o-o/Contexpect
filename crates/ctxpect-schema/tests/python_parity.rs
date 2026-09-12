@@ -182,7 +182,8 @@ fn frozen_fixture_digests_reproduce() {
         );
         checked += 1;
     }
-    // The fixture tree is 8 scenarios x 2 polarities plus 5 malformed cases.
+    // The fixture tree is 8 scenarios x 2 polarities plus 1 extra positive
+    // (ST2-same-bytes-pos, 2026-09-12 C-F02 ST2 revision) plus 5 malformed cases.
     // A loose floor would let a silently deleted fixture pass.
-    assert_eq!(checked, 21, "the semantic-team fixture tree changed size");
+    assert_eq!(checked, 22, "the semantic-team fixture tree changed size");
 }

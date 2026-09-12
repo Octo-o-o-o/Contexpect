@@ -1,5 +1,6 @@
 //! Deterministic Doctor. LLM output is never a finding.
 
+use ctxpect_policy::precondition::{self, ActionClass};
 use ctxpect_schema::{array, object, sha256_text, string, Value};
 
 pub mod rules;
@@ -7,9 +8,9 @@ pub mod secrets;
 pub mod suppressions;
 
 pub use rules::{
-    is_blocking_rule, project_findings, project_findings_in, render_project_findings, ProjectFinding,
-    ScannedFile,
-    BLOCKING_RULES, NON_BLOCKING_RULES,
+    Declaration, civil_from_days, days_from_civil, is_blocking_rule, parse_civil_date,
+    project_findings, project_findings_in, render_project_findings, ProjectFinding, ScannedFile,
+    BLOCKING_RULES, NON_BLOCKING_RULES, STALE_CUTOFF,
 };
 pub use secrets::{contains_secret, secret_literal, SecretClass};
 pub use suppressions::{
@@ -76,6 +77,10 @@ pub fn diagnose(receipt: &Value) -> Value {
                 impact: "unknown",
                 next: "Collect the next evidence named on this claim; do not guess present/absent.",
                 treatment_locked: true,
+                // The unknown surface is the lock reason (target identity,
+                // permission or coordinate class evidence is missing).
+                lock_reason: code,
+                evidence_state: "indeterminate",
                 reason_code: code,
                 facet: "unknown-reason",
             }));
@@ -99,27 +104,28 @@ pub fn diagnose(receipt: &Value) -> Value {
                 .unwrap_or("");
             if truth == Some("indeterminate") {
                 unknown_count += 1;
-                let locked = matches!(
-                    name.as_str(),
-                    "model-visible" | "use-evidence" | "outcome-affecting"
-                );
+                // C-F03 (Final Recommendations §4.3): a Doctor treatment is a
+                // limited static fix, and whether an indeterminate facet locks
+                // it is decided by the policy precondition table, not by a
+                // blanket lock. model-visible / use-evidence map to
+                // runtime-surface evidence and outcome-affecting to the
+                // outcome question; neither is required pre-evidence for a
+                // static fix, so these facets are reported and counted as
+                // Unknown but stay suspected and unlocked. Unknown target
+                // identity, permission or policy still locks, via
+                // D-UNKNOWN-SURFACE / D-UNSUPPORTED-VERSION.
+                let locked = static_fix_locks(name);
                 findings.push(finding(FindingSpec {
                     rule_id: &format!("D-FACET-{}", name.to_ascii_uppercase()),
-                    confirmation: if locked {
-                        Confirmation::Confirmed
-                    } else {
-                        Confirmation::Suspected
-                    },
-                    severity: if locked {
-                        Severity::Confirmed
-                    } else {
-                        Severity::Suspected
-                    },
+                    confirmation: Confirmation::Suspected,
+                    severity: Severity::Suspected,
                     title: &format!("Facet `{name}` is indeterminate"),
                     affected: name,
                     impact: "indeterminate",
                     next: next_for_reason(reason),
                     treatment_locked: locked,
+                    lock_reason: if locked { reason } else { "none" },
+                    evidence_state: "indeterminate",
                     reason_code: reason,
                     facet: name,
                 }));
@@ -141,6 +147,8 @@ pub fn diagnose(receipt: &Value) -> Value {
                     impact: "truncated",
                     next: "Inspect the truncated-after offset; a config.toml override is not read in this slice.",
                     treatment_locked: false,
+                    lock_reason: "none",
+                    evidence_state: "static-resolution",
                     reason_code: "G3",
                     facet: "instructions",
                 }), &["cap_truncation"]));
@@ -155,11 +163,15 @@ pub fn diagnose(receipt: &Value) -> Value {
                     rule_id: "D-IGNORE-G4",
                     confirmation: Confirmation::Confirmed,
                     severity: Severity::Confirmed,
-                    title: "A required instruction file was excluded by .ctxpect-ignore",
+                    // C-F01: an observation-scope exclusion; the harness's
+                    // native load state stays unknown, it is not absent.
+                    title: "A required instruction file was excluded from Contexpect's observation scope by .ctxpect-ignore",
                     affected: "instructions",
                     impact: "excluded",
-                    next: "Remove the ignore line if this file should be included.",
+                    next: "Remove the ignore line if Contexpect should read this file. Whether the harness still loads it natively is unknown (observation_scope_excluded) until native evidence exists.",
                     treatment_locked: false,
+                    lock_reason: "none",
+                    evidence_state: "static-resolution",
                     reason_code: "G4",
                     facet: "instructions",
                 })),
@@ -176,6 +188,8 @@ pub fn diagnose(receipt: &Value) -> Value {
                         impact: "permission",
                         next: "Pass an explicit --codex-home directory. HOME/CODEX_HOME are not consulted.",
                         treatment_locked: false,
+                        lock_reason: "none",
+                        evidence_state: "static-resolution",
                         reason_code: "permission_not_granted",
                         facet: "instructions",
                     }));
@@ -193,6 +207,8 @@ pub fn diagnose(receipt: &Value) -> Value {
                         impact: "unsupported-version",
                         next: "Inspect with a frozen version. Unknown versions fail closed and do not borrow the latest grammar.",
                         treatment_locked: true,
+                        lock_reason: "unsupported_harness_version",
+                        evidence_state: "indeterminate",
                         reason_code: "unsupported_harness_version",
                         facet: "coordinate",
                     }));
@@ -298,8 +314,28 @@ struct FindingSpec<'a> {
     impact: &'a str,
     next: &'a str,
     treatment_locked: bool,
+    /// Why treatment is locked; `"none"` when it is not. Locks name the
+    /// missing precondition evidence, per the policy precondition table.
+    lock_reason: &'a str,
+    /// `indeterminate` when the finding's own evidence is indeterminate;
+    /// independent of whether treatment is locked.
+    evidence_state: &'a str,
     reason_code: &'a str,
     facet: &'a str,
+}
+
+/// Whether an indeterminate facet is required pre-evidence for a limited
+/// static fix — the action a Doctor treatment is. Routed through the policy
+/// precondition table (C-F03): runtime-surface (`model-visible`,
+/// `use-evidence`) and outcome (`outcome-affecting`) evidence are not
+/// required for that class, so they do not lock treatment.
+fn static_fix_locks(facet: &str) -> bool {
+    let evidence = match facet {
+        "model-visible" | "use-evidence" => "runtime-surface",
+        "outcome-affecting" => "outcome",
+        other => other,
+    };
+    precondition::requires(ActionClass::LimitedStaticFix, evidence)
 }
 
 fn finding(spec: FindingSpec<'_>) -> Value {
@@ -312,6 +348,8 @@ fn finding(spec: FindingSpec<'_>) -> Value {
         impact,
         next,
         treatment_locked,
+        lock_reason,
+        evidence_state,
         reason_code,
         facet,
     } = spec;
@@ -324,7 +362,7 @@ fn finding(spec: FindingSpec<'_>) -> Value {
         ("severity", string(severity.as_str())),
         ("unknown_is_severity", Value::Bool(false)),
         ("affected_surfaces", array([string(affected)])),
-        ("evidence_state", string(if treatment_locked { "indeterminate" } else { "static-resolution" })),
+        ("evidence_state", string(evidence_state)),
         ("impact", string(impact)),
         ("first_seen", string("current-receipt")),
         ("reason_code", string(reason_code)),
@@ -333,14 +371,7 @@ fn finding(spec: FindingSpec<'_>) -> Value {
             "treatment",
             object([
                 ("locked", Value::Bool(treatment_locked)),
-                (
-                    "lock_reason",
-                    if treatment_locked {
-                        string("indeterminate-visibility-or-unsupported-version")
-                    } else {
-                        string("none")
-                    },
-                ),
+                ("lock_reason", string(lock_reason)),
                 (
                     "unlocks_via_export",
                     Value::Bool(false),
@@ -441,7 +472,7 @@ mod tests {
     use ctxpect_schema::parse;
 
     #[test]
-    fn unknown_is_not_a_severity_and_visibility_locks_treatment() {
+    fn unknown_is_not_a_severity_and_unknown_surface_locks_treatment() {
         let receipt = parse(
             r#"{"facets":{"model-visible":{"truth_state":"indeterminate","unknown_reason_code":"runtime_snapshot_missing"}},"unknown":[{"reason_code":"not_installed","family":"cline"}],"explanation":[],"findings":[]}"#,
         )
@@ -450,6 +481,7 @@ mod tests {
         let counts = report.get("counts").unwrap();
         assert!(counts.get("unknown").and_then(Value::as_i64).unwrap() >= 1);
         let findings = report.get("findings").and_then(Value::as_array).unwrap();
+        // An unknown surface (target identity / permission class) still locks.
         assert!(findings.iter().any(|item| {
             item.pointer(&["treatment", "locked"])
                 .and_then(Value::as_bool)
@@ -467,5 +499,108 @@ mod tests {
             let sev = item.get("severity").and_then(Value::as_str).unwrap();
             assert!(sev == "confirmed" || sev == "suspected", "{sev}");
         }
+    }
+
+    /// C-F03: indeterminate runtime-surface and outcome facets are not
+    /// required pre-evidence for a limited static fix, so they no longer
+    /// lock treatment nor read as confirmed; the finding and the Unknown
+    /// count stay.
+    #[test]
+    fn outcome_and_runtime_surface_unknowns_do_not_lock_a_static_fix() {
+        let receipt = parse(
+            r#"{"facets":{
+                "model-visible":{"truth_state":"indeterminate","unknown_reason_code":"runtime_snapshot_missing"},
+                "use-evidence":{"truth_state":"indeterminate","unknown_reason_code":"runtime_snapshot_missing"},
+                "outcome-affecting":{"truth_state":"indeterminate","unknown_reason_code":"runtime_snapshot_missing"}
+            },"unknown":[],"explanation":[],"findings":[]}"#,
+        )
+        .unwrap();
+        let report = diagnose(&receipt);
+        assert_eq!(
+            report.pointer(&["counts", "unknown"]).and_then(Value::as_i64),
+            Some(3)
+        );
+        assert_eq!(
+            report.pointer(&["counts", "confirmed"]).and_then(Value::as_i64),
+            Some(0)
+        );
+        let findings = report.get("findings").and_then(Value::as_array).unwrap();
+        assert_eq!(findings.len(), 3, "{findings:?}");
+        for item in findings {
+            assert!(item
+                .get("rule_id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| id.starts_with("D-FACET-")), "{item:?}");
+            assert_eq!(
+                item.get("confirmation").and_then(Value::as_str),
+                Some("suspected")
+            );
+            assert_eq!(
+                item.get("severity").and_then(Value::as_str),
+                Some("suspected")
+            );
+            assert_eq!(
+                item.pointer(&["treatment", "locked"]).and_then(Value::as_bool),
+                Some(false)
+            );
+            assert_eq!(
+                item.pointer(&["treatment", "lock_reason"]).and_then(Value::as_str),
+                Some("none")
+            );
+            // The evidence gap is still reported as indeterminate; only the
+            // lock and the confirmation label changed.
+            assert_eq!(
+                item.get("evidence_state").and_then(Value::as_str),
+                Some("indeterminate")
+            );
+        }
+        // `--fail-on confirmed` does not fire on outcome/visibility unknowns.
+        assert_eq!(blocking_exit(&report, Some("confirmed")), 0);
+    }
+
+    /// C-F03 the other way: identity/permission/coordinate unknowns keep
+    /// locking treatment, and a genuinely confirmed finding still fails
+    /// `--fail-on confirmed`.
+    #[test]
+    fn identity_permission_and_coordinate_unknowns_still_lock() {
+        let receipt = parse(
+            r#"{"facets":{},"unknown":[{"reason_code":"permission_not_granted","family":"codex"}],
+                "explanation":[
+                    {"kind":"unknown","unknown_reason_code":"unsupported_harness_version"},
+                    {"kind":"excluded"}
+                ],"findings":[]}"#,
+        )
+        .unwrap();
+        let report = diagnose(&receipt);
+        let findings = report.get("findings").and_then(Value::as_array).unwrap();
+        let by_rule = |rule: &str| {
+            findings
+                .iter()
+                .find(|item| item.get("rule_id").and_then(Value::as_str) == Some(rule))
+                .unwrap_or_else(|| panic!("{rule} missing: {findings:?}"))
+        };
+        let surface = by_rule("D-UNKNOWN-SURFACE");
+        assert_eq!(
+            surface.pointer(&["treatment", "locked"]).and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            surface.pointer(&["treatment", "lock_reason"]).and_then(Value::as_str),
+            Some("permission_not_granted")
+        );
+        let version = by_rule("D-UNSUPPORTED-VERSION");
+        assert_eq!(
+            version.pointer(&["treatment", "locked"]).and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            version.pointer(&["treatment", "lock_reason"]).and_then(Value::as_str),
+            Some("unsupported_harness_version")
+        );
+        // A confirmed finding (the excluded instruction file) still blocks
+        // under `--fail-on confirmed`; the locked unknowns are suspected and
+        // do not decide it.
+        assert_eq!(blocking_exit(&report, Some("confirmed")), 2);
+        assert_eq!(blocking_exit(&report, None), 0);
     }
 }

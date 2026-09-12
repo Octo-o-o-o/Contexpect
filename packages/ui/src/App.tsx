@@ -1,5 +1,5 @@
-import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Fragment, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createGeneration } from "./generation";
 import { NAV, navKeyForPath } from "./routes";
 import { t, type Locale } from "./i18n";
@@ -28,7 +28,7 @@ const FACETS = [
 const NAV_GROUPS: { key: string; items: string[] }[] = [
   { key: "navGroupDiagnose", items: ["doctor", "checkup", "inspector", "compare"] },
   { key: "navGroupRecords", items: ["receipts", "sessions", "monitor", "assets"] },
-  { key: "navGroupActions", items: ["lab", "sync", "integrations"] },
+  { key: "navGroupActions", items: ["lab", "advisor", "sync", "integrations"] },
   { key: "navGroupGovernance", items: ["policy", "standards", "exceptions", "team", "settings"] },
 ];
 
@@ -63,6 +63,9 @@ export function App() {
 
   useEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent) => {
+      // Below 768px the app renders NarrowReadOnly instead of the shell, so
+      // the palette has no pages to drive; ignore the shortcut there.
+      if (window.matchMedia(NARROW_QUERY).matches) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setPaletteOpen((open) => !open);
@@ -122,6 +125,7 @@ export function App() {
       const id = asObj(data.selected_receipt).receipt_id;
       if (typeof id !== "string") {
         setStatus("idle");
+        setError("");
         setVerdict({ state: "empty", reasonCode: "api.no_matching_receipt", retryable: true });
         return;
       }
@@ -145,6 +149,9 @@ export function App() {
         }
         setReceipt(asObj(saved.data));
         setDoctor(doc);
+        // A manual inspect that failed while this bootstrap was in flight
+        // left its error behind; the restored state replaces it.
+        setError("");
         setStatus(asObj(data.staleness).status === "stale" ? "stale" : "idle");
         setVerdict(classifyPayload({ ...doc, staleness: data.staleness }));
       }
@@ -153,8 +160,8 @@ export function App() {
   }, []);
 
   async function runInspect(symptom?: string) {
-    if (!project && bootstrap.project !== "<project>") {
-      setError(t(locale, "projectRequired"));
+    if (!project && !daemonHasProject) {
+      setError(t(locale, daemonNoProject ? "daemonNoProject" : "projectRequired"));
       setStatus("error");
       setVerdict({ state: "error", reasonCode: "ui.project_required", retryable: false });
       return;
@@ -241,6 +248,14 @@ export function App() {
     return Array.isArray(list) ? (list as Json[]) : [];
   }, [doctor]);
 
+  // The daemon reports its project root only as the redacted marker
+  // "<project>"; "unset" means it was started without --project and refuses
+  // any project the UI could name (api.project_scope), so the action row is
+  // disabled rather than inviting an input that cannot work.
+  const daemonProject = typeof bootstrap.project === "string" ? bootstrap.project : "";
+  const daemonHasProject = daemonProject === "<project>";
+  const daemonNoProject = daemonProject === "unset";
+
   const receiptQuery = typeof receipt.receipt_id === "string"
     ? `?receipt_id=${encodeURIComponent(receipt.receipt_id)}` : "";
 
@@ -322,7 +337,12 @@ export function App() {
               placeholder="<project>"
             />
           </label>
-          <button className="primary" onClick={() => void runInspect()}>
+          <button
+            className="primary"
+            disabled={daemonNoProject}
+            title={daemonNoProject ? t(locale, "daemonNoProject") : undefined}
+            onClick={() => void runInspect()}
+          >
             {t(locale, "inspect")}
           </button>
           <span className="pill">
@@ -392,7 +412,8 @@ export function App() {
               element={
                 <DoctorPage
                   locale={locale}
-                  project={project || (bootstrap.project === "<project>" ? "<project>" : "")}
+                  daemonHasProject={daemonHasProject}
+                  daemonNoProject={daemonNoProject}
                   findings={findings}
                   doctor={doctor}
                   receipt={receipt}
@@ -462,6 +483,7 @@ export function App() {
               )} />}
             />
             <Route path="/sync" element={<SyncPage locale={locale} />} />
+            <Route path="/advisor" element={<AdvisorPage locale={locale} />} />
             <Route path="/policy" element={<StateView path="/api/v1/policy" route="/policy" title={t(locale, "policy")} locale={locale} render={(data) => <PolicyView data={data} locale={locale} />} />} />
             <Route path="/standards" element={<StateView path="/api/v1/standards" route="/standards" title={t(locale, "standards")} locale={locale} />} />
             <Route path="/standards/:id" element={<EntityPage folder="standards" locale={locale} />} />
@@ -644,7 +666,8 @@ function MaskedText({
 
 function DoctorPage({
   locale,
-  project,
+  daemonHasProject,
+  daemonNoProject,
   findings,
   doctor,
   receipt,
@@ -657,7 +680,10 @@ function DoctorPage({
   onCopy,
 }: {
   locale: Locale;
-  project: string;
+  /** The daemon was started with --project, so inspect/collect can run. */
+  daemonHasProject: boolean;
+  /** The daemon declared "unset": no project exists and none can be named. */
+  daemonNoProject: boolean;
   findings: Json[];
   doctor: Json;
   receipt: Json;
@@ -689,15 +715,19 @@ function DoctorPage({
     setSelected(index);
   }
   const facets = asObj(receipt.facets);
-  const canAct = project.trim().length > 0;
+  const canAct = daemonHasProject;
   const diagnosing = status === "loading";
+  const actHint = daemonNoProject ? "daemonNoProject" : "diagnoseDisabled";
+  const collectHint = daemonNoProject ? "daemonNoProject" : "collectDisabled";
 
   async function collectEvidence() {
     if (!canAct) return;
     setCollectStatus("loading");
     setCollectError("");
     try {
-      const out = asObj(await postJson("/api/v1/collect", { project }));
+      // The daemon collects from the root it was started with; no project
+      // value travels in this body.
+      const out = asObj(await postJson("/api/v1/collect", {}));
       setCollectResult(out);
       setCollectStatus("idle");
     } catch (err) {
@@ -724,12 +754,12 @@ function DoctorPage({
             className="primary"
             disabled={!canAct || diagnosing}
             onClick={() => onDiagnose(symptom)}
-            title={canAct ? undefined : t(locale, "diagnoseDisabled")}
+            title={canAct ? undefined : t(locale, actHint)}
           >
             {diagnosing ? t(locale, "loading") : t(locale, "diagnose")}
           </button>
         </div>
-        {!canAct ? <p className="muted">{t(locale, "diagnoseDisabled")}</p> : null}
+        {!canAct ? <p className="muted">{t(locale, actHint)}</p> : null}
         <SharedStateBanner route="/doctor" verdict={verdict} locale={locale} onRetry={onRetry} />
         {error ? <p role="alert">{error}</p> : null}
         {doctor.symptom ? (
@@ -761,6 +791,9 @@ function DoctorPage({
         {findings.length === 0 ? (
           <p>{t(locale, Object.keys(counts).length === 0 ? "diagnosisNotRun" : "emptyFindings")}</p>
         ) : (
+          // The panel caps at the viewport; a table whose min-content is
+          // wider scrolls inside this box instead of pushing the page wide.
+          <div className="table-scroll">
           <table>
             {/* The table needs a name of its own; the surrounding heading is
                 not attached to it. */}
@@ -801,10 +834,14 @@ function DoctorPage({
                     }}
                   >
                     <td>
-                      <span className={`sev ${severity}`}>
-                        <span className="sev-mark" aria-hidden="true" />
-                        {severity ? t(locale, severity) : "—"}
-                      </span>
+                      {severity ? (
+                        <span className={`sev ${severity}`}>
+                          <span className="sev-mark" aria-hidden="true" />
+                          {t(locale, severity)}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td>
                       <div className="f-title">{String(item.title)}</div>
@@ -839,6 +876,7 @@ function DoctorPage({
               })}
             </tbody>
           </table>
+          </div>
         )}
         <div className="sec-head">
           <h2>{t(locale, "adapterCoverage")}</h2>
@@ -894,11 +932,11 @@ function DoctorPage({
                 className="primary"
                 disabled={!canAct || collectStatus === "loading"}
                 onClick={() => void collectEvidence()}
-                title={canAct ? undefined : t(locale, "collectDisabled")}
+                title={canAct ? undefined : t(locale, collectHint)}
               >
                 {collectStatus === "loading" ? t(locale, "loading") : t(locale, "collectEvidence")}
               </button>
-              {!canAct ? <p className="muted">{t(locale, "collectDisabled")}</p> : null}
+              {!canAct ? <p className="muted">{t(locale, collectHint)}</p> : null}
             </div>
             {collectError ? <p role="alert">{collectError}</p> : null}
             {collectResult.inventory_digest ? (
@@ -980,7 +1018,7 @@ function AdapterCoverage({ locale }: { locale: Locale }) {
             <i className="unknown" style={{ width: `${(unknownCount / total) * 100}%` }} />
           </div>
           <div className="cov-legend">
-            {unknownCount > 0 ? <span>{t(locale, "unknown")} <b>{unknownCount}</b></span> : null}
+            {unknownCount > 0 ? <span><span className="dot" style={{ background: "var(--unknown)" }} />{t(locale, "unknown")} <b>{unknownCount}</b></span> : null}
             <span>
               <span className="dot" style={{ background: "var(--verified)" }} />
               {t(locale, "covNative")} <b>{nativeCount}</b>
@@ -990,7 +1028,7 @@ function AdapterCoverage({ locale }: { locale: Locale }) {
               {t(locale, "covStaticOnly")} <b>{staticCount}</b>
             </span>
             <span>
-              <span className="dot" style={{ background: "#C7CDD8" }} />
+              <span className="dot c" />
               {t(locale, "covNeedsConnector")} <b>{connectorCount}</b>
             </span>
             {unsupportedCount > 0 ? (
@@ -1113,7 +1151,10 @@ function InspectorPage({
 }
 
 function ComparePage({ locale }: { locale: Locale }) {
-  const [receipts, setReceipts] = useState<Json[]>([]);
+  const list = useResource("/api/v1/receipts");
+  const receipts = asObj(list.data).receipts;
+  const generation = useRef(createGeneration());
+  const controller = useRef<AbortController | null>(null);
   const [a, setA] = useState("");
   const [b, setB] = useState("");
   const [diff, setDiff] = useState<unknown>(null);
@@ -1121,25 +1162,33 @@ function ComparePage({ locale }: { locale: Locale }) {
   const [loading, setLoading] = useState(false);
   const [verdict, setVerdict] = useState<StateVerdict | null>(null);
 
-  useEffect(() => {
-    void requestJson("/api/v1/receipts").then((result) => {
-      if (!result.ok) {
-        setErr(result.message || result.code);
-        setVerdict(classifyFailure(result.kind, result.code));
-        return;
-      }
-      const list = asObj(result.data).receipts;
-      setReceipts(Array.isArray(list) ? (list as Json[]) : []);
-      // Fewer than two Receipts is an empty compare, not a broken one.
-      setVerdict(classifyPayload(result.data));
-    });
+  useEffect(() => () => {
+    generation.current.next();
+    controller.current?.abort();
   }, []);
+
+  function selectReceipt(side: "a" | "b", id: string) {
+    generation.current.next();
+    controller.current?.abort();
+    if (side === "a") setA(id); else setB(id);
+    setDiff(null);
+    setErr("");
+    setVerdict(null);
+    setLoading(false);
+  }
 
   async function runDiff() {
     if (!a || !b) return;
+    controller.current?.abort();
+    const ctrl = new AbortController();
+    controller.current = ctrl;
+    const mine = generation.current.next();
     setLoading(true);
+    setDiff(null);
+    setVerdict(null);
     setErr("");
-    const result = await requestJson(`/api/v1/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
+    const result = await requestJson(`/api/v1/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`, { signal: ctrl.signal });
+    if (!generation.current.isCurrent(mine)) return;
     if (result.ok) {
       setDiff(result.data);
       setVerdict(classifyPayload(result.data));
@@ -1149,7 +1198,7 @@ function ComparePage({ locale }: { locale: Locale }) {
     }
     setLoading(false);
   }
-  const ids = receipts
+  const ids = (Array.isArray(receipts) ? receipts as Json[] : [])
     .map((item) => String(item.receipt_id ?? ""))
     .filter((id) => id.length > 0);
   return (
@@ -1159,16 +1208,16 @@ function ComparePage({ locale }: { locale: Locale }) {
       {ids.length < 2 ? <p className="muted">{t(locale, "compareNeedTwo")}</p> : null}
       <SharedStateBanner
         route="/compare"
-        verdict={verdict}
+        verdict={verdict ?? { state: list.status, reasonCode: list.reasonCode, retryable: list.retryable }}
         locale={locale}
-        onRetry={() => void runDiff()}
+        onRetry={() => list.status === "offline" || list.status === "error" ? list.retry() : void runDiff()}
       />
       {err ? <p role="alert">{err}</p> : null}
       <div className="sec-head">
         <h2>{t(locale, "runDiff")}</h2>
       </div>
       <div className="row">
-        <select value={a} onChange={(e) => setA(e.target.value)} aria-label="diff-a">
+        <select value={a} onChange={(e) => selectReceipt("a", e.target.value)} aria-label="diff-a">
           <option value="">{t(locale, "empty")}</option>
           {ids.map((id) => (
             <option key={`a-${id}`} value={id}>
@@ -1176,7 +1225,7 @@ function ComparePage({ locale }: { locale: Locale }) {
             </option>
           ))}
         </select>
-        <select value={b} onChange={(e) => setB(e.target.value)} aria-label="diff-b">
+        <select value={b} onChange={(e) => selectReceipt("b", e.target.value)} aria-label="diff-b">
           <option value="">{t(locale, "empty")}</option>
           {ids.map((id) => (
             <option key={`b-${id}`} value={id}>
@@ -1188,6 +1237,9 @@ function ComparePage({ locale }: { locale: Locale }) {
           {loading ? t(locale, "loading") : t(locale, "runDiff")}
         </button>
       </div>
+      {asObj(diff).same_domain === false ? (
+        <p role="status" data-testid="compare-incomparable">{t(locale, "compareIncomparable")}</p>
+      ) : null}
       {diff ? <pre className="mono">{JSON.stringify(diff, null, 2)}</pre> : null}
     </section>
   );
@@ -1349,9 +1401,10 @@ type Resource = {
  * rather than only hiding it. Retry re-sends the same request and changes no
  * parameter, so it cannot widen an authorization that was refused.
  */
-function useResource(path: string): Resource {
+function useResource(path: string, retainSnapshot = false): Resource {
   const [attempt, setAttempt] = useState(0);
-  const [state, setState] = useState<Omit<Resource, "retry" | "cancel">>({
+  const [state, setState] = useState<Omit<Resource, "retry" | "cancel"> & { path: string }>({
+    path,
     status: "loading",
     reasonCode: "",
     retryable: false,
@@ -1366,28 +1419,31 @@ function useResource(path: string): Resource {
     const ctrl = new AbortController();
     controller.current = ctrl;
     const mine = generation.current.next();
-    setState({ status: "loading", reasonCode: "", retryable: false, data: null });
+    setState((previous) => ({ path, status: "loading", reasonCode: "", retryable: false,
+      data: retainSnapshot && previous.path === path ? previous.data : null }));
     void requestJson(path, { signal: ctrl.signal }).then((result) => {
       if (!generation.current.isCurrent(mine)) return;
       if (result.ok) {
         const verdict = classifyPayload(result.data);
-        setState({ ...verdict, status: verdict.state, data: result.data });
+        setState({ path, ...verdict, status: verdict.state, data: result.data });
         return;
       }
       // A cancelled request is the user's own doing, not an unreachable
       // daemon, so it does not present as offline.
       if (result.code === "api.cancelled") {
-        setState({ status: "cancelled", reasonCode: result.code, retryable: true, data: null });
+        setState((previous) => ({ path, status: "cancelled", reasonCode: result.code, retryable: true,
+          data: retainSnapshot && previous.path === path ? previous.data : null }));
         return;
       }
       const verdict = classifyFailure(result.kind, result.code);
-      setState({ ...verdict, status: verdict.state, data: null });
+      setState((previous) => ({ path, ...verdict, status: verdict.state,
+        data: retainSnapshot && result.kind === "transport" && previous.path === path ? previous.data : null }));
     });
-    return () => ctrl.abort();
-  }, [path, attempt]);
+    return () => { generation.current.next(); ctrl.abort(); };
+  }, [path, attempt, retainSnapshot]);
 
   return {
-    ...state,
+    ...(state.path === path ? state : { status: "loading", reasonCode: "", retryable: false, data: null }),
     retry: () => setAttempt((n) => n + 1),
     cancel: () => controller.current?.abort(),
   };
@@ -1495,11 +1551,17 @@ function StateView({
   /** A presentation for the payload. When given, it replaces the JSON dump. */
   render?: (data: Json) => ReactNode;
 }) {
-  const res = useResource(path);
+  const res = useResource(path, true);
   const Heading = headingLevel === 2 ? "h2" : "h1";
   return (
     <section className="panel">
       <Heading>{title}</Heading>
+      <button type="button" className="secondary" disabled={res.status === "loading"} onClick={res.retry}>
+        {t(locale, "refresh")}
+      </button>
+      {res.data != null && ["loading", "offline", "cancelled"].includes(res.status) ? (
+        <p role="status" data-testid="retained-snapshot">{t(locale, "retainedSnapshot")}</p>
+      ) : null}
       {res.status === "loading" ? (
         <p role="status" data-state="loading">
           <span className="loading-pulse">{t(locale, "loading")}</span>{" "}
@@ -1651,11 +1713,6 @@ function ReceiptsListView({ data, locale }: { data: Json; locale: Locale }) {
   );
 }
 
-/**
- * V06 Sessions: the list endpoint serves ids only (`{sessions: [id]}`), so
- * the table has exactly one honest column; everything else lives on the
- * per-session page.
- */
 function MonitorView({ data, locale }: { data: Json; locale: Locale }) {
   if (data.schema !== "ctxpect-monitor-v1") return <pre className="mono">{JSON.stringify(data, null, 2)}</pre>;
   const staleness = asObj(data.staleness);
@@ -1671,6 +1728,12 @@ function MonitorView({ data, locale }: { data: Json; locale: Locale }) {
   </>;
 }
 
+/**
+ * V06 Sessions: the id list plus per-session summary metadata
+ * (mapping_id / event_count / partial / bodies_stored) when the daemon
+ * serves `session_summaries`; a missing field shows —. Bodies never reach
+ * this table; the detail link carries the session id.
+ */
 function SessionsListView({ data, locale }: { data: Json; locale: Locale }) {
   if (!Array.isArray(data.sessions)) {
     return <pre className="mono">{JSON.stringify(data, null, 2)}</pre>;
@@ -2736,30 +2799,32 @@ function AssetsPage({ locale }: { locale: Locale }) {
   const data = asObj(res.data);
   const [assetId, setAssetId] = useState("");
   const [plan, setPlan] = useState<Json | null>(null);
+  const [rolledBack, setRolledBack] = useState<Json | null>(null);
   const [copied, setCopied] = useState<Json | null>(null);
   const [busy, setBusy] = useState("");
   const [problem, setProblem] = useState<{ code: string; message: string } | null>(null);
 
   async function call(action: "preview" | "copy") {
-    if (busy || !assetId) return;
+    if (busy || !assetId || (action === "copy" && plan?.asset_id !== assetId)) return;
     setBusy(action);
     setProblem(null);
     const result = await requestJson(`/api/v1/assets/${encodeURIComponent(assetId)}/${action}`, {
       method: "POST",
-      body: "{}",
+      body: JSON.stringify(action === "copy" ? { preview_id: plan?.tx_id } : {}),
     });
     if (result.ok) {
       const value = asObj(result.data);
       if (action === "preview") {
         setPlan(value);
         setCopied(null);
+        setRolledBack(null);
       } else {
         setCopied(value);
         res.retry();
       }
     } else {
       setProblem({ code: result.code, message: result.message });
-      if (action === "preview") setPlan(null);
+      setPlan(null);
     }
     setBusy("");
   }
@@ -2774,6 +2839,7 @@ function AssetsPage({ locale }: { locale: Locale }) {
       body: "{}",
     });
     if (result.ok) {
+      setRolledBack(asObj(result.data));
       setCopied(null);
       setPlan(null);
       res.retry();
@@ -2807,7 +2873,13 @@ function AssetsPage({ locale }: { locale: Locale }) {
           <input
             value={assetId}
             disabled={busy !== ""}
-            onChange={(e) => setAssetId(e.target.value)}
+            onChange={(e) => {
+              setAssetId(e.target.value);
+              setPlan(null);
+              setCopied(null);
+              setRolledBack(null);
+              setProblem(null);
+            }}
             placeholder={t(locale, "assetsIdPlaceholder")}
           />
         </label>
@@ -2818,7 +2890,7 @@ function AssetsPage({ locale }: { locale: Locale }) {
           type="button"
           className="primary"
           // Copy follows a vetted preview; there is no blind install.
-          disabled={busy !== "" || plan === null || copied !== null}
+          disabled={busy !== "" || plan?.asset_id !== assetId || copied !== null}
           onClick={() => void call("copy")}
           title={plan === null ? t(locale, "assetsPreviewFirst") : undefined}
         >
@@ -2857,6 +2929,25 @@ function AssetsPage({ locale }: { locale: Locale }) {
         </p>
       ) : null}
 
+      {copied || rolledBack ? (
+        <div role="status" data-testid="assets-verification">
+          {rolledBack ? <p>{t(locale, "assetsRolledBack")}</p> : null}
+          <p>{t(locale, "assetsRuntimeUnknown")}</p>
+          {(copied ?? rolledBack)?.asset_lock_error ? <p role="alert">{t(locale, "assetsLockFailed")} <code>
+            {String(asObj((copied ?? rolledBack)?.asset_lock_error).code ?? "")}
+          </code></p> : null}
+          {(copied ?? rolledBack)?.post_receipt_id ? (
+            <Link to={`/receipts/${encodeURIComponent(String((copied ?? rolledBack)?.post_receipt_id))}`}>
+              {t(locale, "assetsPostReceipt")}: {String((copied ?? rolledBack)?.post_receipt_id)}
+            </Link>
+          ) : (
+            <p role="alert">{t(locale, "assetsObservationFailed")} <code>
+              {String(asObj(asObj((copied ?? rolledBack)?.post_receipt_error).error).code ?? "")}
+            </code></p>
+          )}
+        </div>
+      ) : null}
+
       {unlicensed > 0 ? (
         <p role="alert" data-testid="assets-unlicensed">
           {t(locale, "assetsUnlicensed")}: {unlicensed}
@@ -2864,7 +2955,7 @@ function AssetsPage({ locale }: { locale: Locale }) {
       ) : null}
 
       {res.data != null ? (
-        <pre className="mono">{JSON.stringify(res.data, null, 2)}</pre>
+        <RawJsonDetails data={res.data} locale={locale} />
       ) : null}
     </section>
   );
@@ -2878,6 +2969,197 @@ function AssetsPage({ locale }: { locale: Locale }) {
  * merged into — the semantic result, because moving bytes is not verifying
  * meaning.
  */
+/**
+ * V17 Advisor (F-13/F-14): the reachable entry for suggestions.
+ *
+ * Default is "not authorized": nothing is scanned or sent until both
+ * independent confirmations are ticked, and the client refuses to issue the
+ * POST before that. What would be sent is shown up front and mirrors exactly
+ * what the daemon's `advisor_api` puts into the request (a fixed redacted
+ * preview through the local heuristic adapter), so the preview cannot drift
+ * from the payload. The result is a candidate, and the page says so next to
+ * it: not a claim, not into policy/CI/baseline/reconciliation, no treatment
+ * unlock. No confidence scores exist in this contract, so none are shown.
+ */
+function AdvisorPage({ locale }: { locale: Locale }) {
+  const [consent, setConsent] = useState(false);
+  const [ack, setAck] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [cancelled, setCancelled] = useState(false);
+  const [verdict, setVerdict] = useState<StateVerdict | null>(null);
+  const [result, setResult] = useState<Json | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const ready = consent && ack;
+
+  async function send() {
+    // Client-side gate: without both confirmations no request leaves.
+    if (sending || !ready) return;
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setSending(true);
+    setCancelled(false);
+    setVerdict(null);
+    const response = await requestJson("/api/v1/advisor", {
+      method: "POST",
+      body: JSON.stringify({ consent, preview_ack: ack }),
+      signal: ctrl.signal,
+    });
+    setSending(false);
+    if (response.ok) {
+      setResult(asObj(response.data));
+      return;
+    }
+    // A cancelled request is the user's own doing, not an unreachable daemon.
+    if (response.code === "api.cancelled") {
+      setCancelled(true);
+      return;
+    }
+    setResult(null);
+    setVerdict(classifyFailure(response.kind, response.code));
+  }
+
+  const candidates = Array.isArray(result?.candidates) ? result.candidates : [];
+  const advisorRefusal = verdict?.reasonCode.startsWith("advisor.") ?? false;
+
+  return (
+    <section className="panel">
+      <div className="eyebrow">{t(locale, "navGroupActions")}</div>
+      <h1>{t(locale, "advisor")}</h1>
+      <p className="muted">{t(locale, "advisorLead")}</p>
+
+      <h2>{t(locale, "advisorPreviewTitle")}</h2>
+      <p className="muted">{t(locale, "advisorPreviewNote")}</p>
+      <dl className="kv" data-testid="advisor-preview">
+        <dt>{t(locale, "advisorEvidenceLabel")}</dt>
+        <dd>
+          <code>e1</code>
+        </dd>
+        <dt>payload_preview</dt>
+        <dd>
+          <code>redacted</code>
+        </dd>
+        <dt>{t(locale, "advisorAdapterLabel")}</dt>
+        <dd>
+          <code>local-heuristic-not-llm</code>
+        </dd>
+      </dl>
+
+      <label className="row">
+        <input
+          type="checkbox"
+          checked={consent}
+          disabled={sending}
+          onChange={(e) => setConsent(e.target.checked)}
+        />
+        <span>{t(locale, "advisorConsent")}</span>
+      </label>
+      <label className="row">
+        <input
+          type="checkbox"
+          checked={ack}
+          disabled={sending}
+          onChange={(e) => setAck(e.target.checked)}
+        />
+        <span>{t(locale, "advisorAck")}</span>
+      </label>
+
+      <div className="row">
+        <button
+          type="button"
+          className="primary"
+          disabled={!ready || sending}
+          onClick={() => void send()}
+          title={!ready ? t(locale, "advisorBlocked") : undefined}
+        >
+          {sending ? t(locale, "loading") : t(locale, "advisorSend")}
+        </button>
+        {sending ? (
+          <button type="button" onClick={() => abortRef.current?.abort()}>
+            {t(locale, "cancel")}
+          </button>
+        ) : null}
+      </div>
+      {!ready ? <p className="muted">{t(locale, "advisorBlocked")}</p> : null}
+      {sending ? (
+        <p role="status" data-state="loading">
+          <span className="loading-pulse">{t(locale, "loading")}</span>
+        </p>
+      ) : null}
+      {cancelled ? (
+        <p role="status" data-state="cancelled">
+          {t(locale, "cancelled")} <code>api.cancelled</code>{" "}
+          <button type="button" onClick={() => void send()}>
+            {t(locale, "retry")}
+          </button>
+        </p>
+      ) : null}
+      {verdict ? (
+        <StateBanner
+          route="/advisor"
+          status={verdict.state}
+          reasonCode={verdict.reasonCode}
+          retryable={verdict.retryable}
+          locale={locale}
+          onRetry={() => void send()}
+        />
+      ) : null}
+      {advisorRefusal ? (
+        <p className="muted">{t(locale, "advisorDeniedNote")}</p>
+      ) : null}
+
+      {result ? (
+        <>
+          <div className="sec-head">
+            <h2>{t(locale, "advisorCandidatesTitle")}</h2>
+            <span className="sec-note">
+              <code>{String(result.candidate_id ?? "")}</code>
+            </span>
+          </div>
+          <p role="note" data-testid="advisor-not-claim">
+            {t(locale, "advisorNotClaim")}
+          </p>
+          <ul data-testid="advisor-candidates">
+            {candidates.map((raw, index) => {
+              const item = asObj(raw);
+              return (
+                <li key={index}>
+                  {String(item.text ?? "")}{" "}
+                  <span className="muted">
+                    intent_hint: <code>{String(item.intent_hint ?? "")}</code>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <dl className="kv" data-testid="advisor-flags">
+            {[
+              "is_claim",
+              "enters_policy",
+              "enters_ci",
+              "enters_baseline",
+              "enters_reconciliation",
+              "unlocks_treatment",
+            ].map((flag) => (
+              <Fragment key={flag}>
+                <dt>{flag}</dt>
+                <dd>
+                  <code>{String(result[flag] ?? "unknown")}</code>
+                </dd>
+              </Fragment>
+            ))}
+            <dt>kind</dt>
+            <dd>
+              <code>{String(result.kind ?? "")}</code>
+            </dd>
+          </dl>
+          <RawJsonDetails data={result} locale={locale} />
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 function SyncPage({ locale }: { locale: Locale }) {
   const status = useResource("/api/v1/sync");
   const [bundleId, setBundleId] = useState("bundle-local");

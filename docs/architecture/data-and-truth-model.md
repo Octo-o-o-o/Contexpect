@@ -41,6 +41,8 @@
 
 LLM 不在 provenance 轴上。Advisor 输出只能是 `AdvisorSuggestion` 或 `CandidateRelation`。
 
+Claim 另带**可选**的来源元数据 `source`（C-F04，2026-09-12，additive、非轴）：`producer`（产生它的规则/模块标识）、`basis`（依据引用，如 edge rule id / evidence id）、`evaluated_at`（有显式时钟读数才填）、`source_domain`（由 provenance 派生：`native-runtime`/`native-log` → `native`，`harness-source`/`official-spec` → `static-resolution`，`user-attested` → `user-attested`，`heuristic` → `heuristic`）。无记录时整个 `source` 缺席，不编造；在 Receipt 里它是签名内容（进 `manifest.digest`，不在 `x-display-only`），旧 Receipt 没有它、验签不变。
+
 UseEvidence 再拆为 `invocation-observed`、`reference-observed`、`behavior-consistent`、`internal-attribution`。任何外部线索都不能把 internal-attribution 改为 present。
 
 `absent` 必须有足够覆盖；无法证明不存在时用 `indeterminate`。
@@ -86,7 +88,7 @@ Receipt 是一次核对的不可变摘要。至少包含 PRD §4.3 列出的字�
 
 ## Unknown reason codes
 
-至少：`surface_not_exposed`、`unsupported_harness_version`、`permission_not_granted`、`runtime_snapshot_missing`、`cloud_setting_unavailable`、`dynamic_agent_selection`、`tool_schema_not_exported`、`current_occupancy_not_reported`、`content_redacted_by_policy`、`import_parse_failed`、`evidence_stale`，以及安装诚实码 `not_installed`、`connector_required`、`config_residue_only`、`authentication_unavailable`、`sandbox_unavailable`。
+至少：`surface_not_exposed`、`unsupported_harness_version`、`permission_not_granted`、`runtime_snapshot_missing`、`cloud_setting_unavailable`、`dynamic_agent_selection`、`tool_schema_not_exported`、`current_occupancy_not_reported`、`content_redacted_by_policy`、`import_parse_failed`、`evidence_stale`，以及安装诚实码 `not_installed`、`connector_required`、`config_residue_only`、`authentication_unavailable`、`sandbox_unavailable`。C-F01 新增 `observation_scope_excluded`：Contexpect 自己的观察范围排除（如 `.ctxpect-ignore`）只说"产品不读"，不得据此断言原生 absence。完整冻结词表以 `acceptance/claim-validity-matrix.yaml` 的 `unknown_reason_codes` 为准。
 
 ## Receipt 迁移
 

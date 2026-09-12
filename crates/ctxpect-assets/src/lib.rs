@@ -251,11 +251,15 @@ pub fn preview(root: &Root, asset: &RegisteredAsset) -> Result<CopyPlan, AssetEr
         .map(|bytes| sha256_hex(&bytes))
         .unwrap_or_default();
 
+    static NEXT_PREVIEW: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos()).unwrap_or(0);
+    let serial = NEXT_PREVIEW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     Ok(CopyPlan {
-        tx_id: format!(
-            "tx_{}",
-            &sha256_hex(format!("{}|{}", asset.asset_id, asset.target_rel).as_bytes())[..16]
-        ),
+        tx_id: format!("tx_{}", &sha256_hex(format!(
+            "{}|{}|{nonce}|{}|{serial}", root.path().display(), asset.asset_id, std::process::id()
+        ).as_bytes())[..16]),
         source_rel,
         actual_digest: actual,
         overwrites: !target_before.is_empty(),
@@ -313,14 +317,16 @@ pub fn apply(
         ));
     }
 
-    fs::create_dir_all(backup_dir)
-        .map_err(|err| AssetError::new("assets.io", err.to_string()))?;
-    // The transaction directory and its parent must be real directories: a
-    // pre-placed symlink at either name would carry the backup out of the
-    // store.
     if let Some(parent) = backup_dir.parent() {
+        fs::create_dir_all(parent).map_err(|err| AssetError::new("assets.io", err.to_string()))?;
         ctxpect_fs::real_dir(parent).map_err(|err| AssetError::new("assets.io", err.to_string()))?;
     }
+    // One transaction owns one backup directory. Never replace a previous
+    // attempt's before-image, including an interrupted attempt.
+    fs::create_dir(backup_dir).map_err(|err| AssetError::new(
+        if err.kind() == std::io::ErrorKind::AlreadyExists { "assets.tx_exists" } else { "assets.io" },
+        "copy transaction directory is unavailable; use a new preview or recover the existing transaction",
+    ))?;
     ctxpect_fs::real_dir(backup_dir).map_err(|err| AssetError::new("assets.io", err.to_string()))?;
     // Only an overwrite has previous bytes to keep. Whether the copy created
     // the file is recorded in `tx.json`, so rollback removes it rather than
@@ -334,14 +340,14 @@ pub fn apply(
     let tx_path = backup_dir.join("tx.json");
     write_atomic(
         &tx_path,
-        ctxpect_schema::canonical_json(&tx_meta(plan, TX_PENDING)).as_bytes(),
+        ctxpect_schema::canonical_json(&tx_meta(root, plan, TX_PENDING)).as_bytes(),
     )?;
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|err| AssetError::new("assets.io", err.to_string()))?;
     }
     write_atomic(&target, &bytes)?;
 
-    let meta = tx_meta(plan, TX_COMMITTED);
+    let meta = tx_meta(root, plan, TX_COMMITTED);
     write_atomic(&tx_path, ctxpect_schema::canonical_json(&meta).as_bytes())?;
     Ok(meta)
 }
@@ -351,9 +357,10 @@ pub const TX_PENDING: &str = "pending";
 pub const TX_COMMITTED: &str = "committed";
 pub const TX_ROLLED_BACK: &str = "rolled-back";
 
-fn tx_meta(plan: &CopyPlan, state: &str) -> Value {
+fn tx_meta(root: &Root, plan: &CopyPlan, state: &str) -> Value {
     object([
         ("schema", string("ctxpect-assets-tx-v1")),
+        ("project_digest", string(sha256_hex(format!("project:{}", root.path().display()).as_bytes()))),
         ("tx_id", string(&plan.tx_id)),
         ("asset_id", string(&plan.asset.asset_id)),
         ("target_rel", string(&plan.asset.target_rel)),
@@ -411,6 +418,10 @@ pub fn rollback(root: &Root, backup_dir: &Path) -> Result<Value, AssetError> {
         .map_err(|_| AssetError::new("assets.no_tx", "no copy transaction to roll back"))?;
     let meta = ctxpect_schema::parse(&meta_text)
         .map_err(|err| AssetError::new("assets.parse", err.to_string()))?;
+    let scope = sha256_hex(format!("project:{}", root.path().display()).as_bytes());
+    if meta.get("project_digest").and_then(Value::as_str) != Some(scope.as_str()) {
+        return Err(AssetError::new("assets.project_mismatch", "copy transaction has no matching project identity; refusing rollback"));
+    }
     let target_rel = meta
         .get("target_rel")
         .and_then(Value::as_str)
@@ -501,6 +512,7 @@ pub fn rollback(root: &Root, backup_dir: &Path) -> Result<Value, AssetError> {
 #[must_use]
 pub fn lock_entry(plan: &CopyPlan) -> Value {
     object([
+        ("tx_id", string(&plan.tx_id)),
         ("asset_id", string(&plan.asset.asset_id)),
         ("origin", string(&plan.asset.origin)),
         ("license", string(&plan.asset.license)),
@@ -688,6 +700,30 @@ mod tests {
         .unwrap();
         let err = registered(Some(&escaping_target), "a").expect_err("abs target");
         assert_eq!(err.code, "assets.path_escapes");
+    }
+
+    #[test]
+    fn copy_backups_are_unique_and_cannot_be_reused_or_rolled_into_another_project() {
+        let scratch = Scratch::new("tx-identity");
+        scratch.write("vendor/skill-a.md", BODY);
+        scratch.write(".ctxpect/skills/skill-a.md", "original");
+        let root = scratch.root();
+        let asset = registered(Some(&registry_json("")), "skill-a").unwrap();
+        let plan = preview(&root, &asset).unwrap();
+        let next = preview(&root, &asset).unwrap();
+        assert_ne!(plan.tx_id, next.tx_id);
+        let backup = backup_dir(&scratch.path.join("store"), &plan.tx_id);
+        apply(&root, &plan, &backup, true).unwrap();
+        let before = fs::read(backup.join("before")).unwrap();
+        let record = fs::read(backup.join("tx.json")).unwrap();
+        let other = Scratch::new("other-project");
+        other.write(".ctxpect/skills/skill-a.md", BODY);
+        assert_eq!(rollback(&other.root(), &backup).unwrap_err().code, "assets.project_mismatch");
+        assert_eq!(other.read(".ctxpect/skills/skill-a.md").as_deref(), Some(BODY));
+        scratch.write(".ctxpect/skills/skill-a.md", "original");
+        assert_eq!(apply(&root, &plan, &backup, true).unwrap_err().code, "assets.tx_exists");
+        assert_eq!(fs::read(backup.join("before")).unwrap(), before);
+        assert_eq!(fs::read(backup.join("tx.json")).unwrap(), record);
     }
 
     #[test]

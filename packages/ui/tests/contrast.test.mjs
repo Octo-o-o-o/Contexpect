@@ -45,7 +45,6 @@ test("the contrast helper matches the WCAG reference values", () => {
 
 test("text meets WCAG 2.2 AA (SC 1.4.3) against the ground it is drawn on", () => {
   const T = tokens();
-  const literals = { navLink: "#c9c6bb", navActiveBg: "#1c2533" };
   // Only combinations that actually occur in the rendered UI.
   const pairs = [
     ["body text on canvas", T["text-primary"], T["bg-canvas"]],
@@ -53,8 +52,8 @@ test("text meets WCAG 2.2 AA (SC 1.4.3) against the ground it is drawn on", () =
     ["muted on canvas", T["text-muted"], T["bg-canvas"]],
     ["muted on surface", T["text-muted"], T["bg-surface"]],
     ["shell text", T["text-on-shell"], T["bg-shell"]],
-    ["nav link", literals.navLink, T["bg-shell"]],
-    ["active nav link", T["text-on-shell"], literals.navActiveBg],
+    ["nav link", T["text-nav-link"], T["bg-shell"]],
+    ["active nav link", T["text-on-shell"], T["bg-shell-active"]],
     ["verified badge", T.verified, T["bg-surface"]],
     ["suspected badge", T.suspected, T["bg-surface"]],
     ["confirmed badge", T.confirmed, T["bg-surface"]],

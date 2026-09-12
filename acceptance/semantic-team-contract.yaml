@@ -29,8 +29,12 @@
       "path": "acceptance/semantic-team/ST2-neg.json"
     },
     {
-      "digest_sha256": "31e33c2a04447394d65dd84154d5097fd1287183643ec14b18f730a1a7f93f4d",
+      "digest_sha256": "410ae931051a964834caf6f1b944ee18c444f2b7cce8b7004488b44744e0d40a",
       "path": "acceptance/semantic-team/ST2-pos.json"
+    },
+    {
+      "digest_sha256": "1d7f7a83b5ab92b0e74a5cf813ee3fbb49dae17192b2a554f75a03b460e19d72",
+      "path": "acceptance/semantic-team/ST2-same-bytes-pos.json"
     },
     {
       "digest_sha256": "3ed9e6bffb2c9c7505b3e7bdd6ae42767c97ab00706afc219dda9497f2bf0d4a",
@@ -532,6 +536,7 @@
     "ST1-pos": "ST1-pos",
     "ST2-neg": "ST2-neg",
     "ST2-pos": "ST2-pos",
+    "ST2-same-bytes-pos": "ST2-same-bytes-pos",
     "ST3-neg": "ST3-neg",
     "ST3-pos": "ST3-pos",
     "ST4-neg": "ST4-neg",
@@ -620,6 +625,7 @@
     "ST1-neg",
     "ST2-pos",
     "ST2-neg",
+    "ST2-same-bytes-pos",
     "ST3-pos",
     "ST3-neg",
     "ST4-pos",

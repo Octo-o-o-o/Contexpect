@@ -1,19 +1,19 @@
 # 桌面 UI 指南
 
 > 状态：规范；`packages/ui` 与 `ctxpect daemon` localhost API 已可构建。Tauri WebView 全 OS 验收与完整产品运行时尚未实施。
-> 视觉参考：`docs/gpt-img-2-design/20260904-1200-contexpect-doctor/`
+> 视觉规范：最终方向为白底黑字 monochrome，见 [handoff 06 UI/UX 视觉规范](../handoff/contexpect-2026-09-11/06_UI_UX_AND_VISUAL_SPEC.md)；`docs/gpt-img-2-design/20260904-1200-contexpect-doctor/` 仅作历史构图参考。
 > 语义以 PRD §9、design Markdown spec 和本文为准；生成图的小字可能失真。4/9/5 只是 Doctor fixture。
 
 实现入口：`packages/ui`（React/TypeScript）、`packages/ui-tokens`、`ctxpect daemon start --listen 127.0.0.1:7420`。UI 只消费 `/api/v1/*`，不自行扫盘、不计算 Claim、不决定 policy pass。
 
 ## Shell
 
-- 236px 深蓝导航 + 56px coordinate bar + 主工作区
+- 236px 浅色导航（浅灰底 + 1px 分隔边框，无大面积深色壳）+ 56px coordinate bar + 主工作区
 - 右侧 evidence/care 常驻 region；可折叠 drawer 尚未实施
 - 主视口 1440×900；≥1280 三栏；768–1279 当前常驻证据 region 随文档排列以避免遮挡正文；<768 只读 Receipt/通知。可关闭 overlay drawer 尚未实施
 - 导航按 诊断 / 记录 / 操作 / 治理 四组分组；顶栏右侧有 ⌘K 命令面板入口，可按页面名过滤跳转。
 
-Doctor 是默认主入口（`/` → `/doctor`）。V01–V16 全部可达，可分组，但不能用隐藏菜单或空白占位代替功能。
+Doctor 是默认主入口（`/` → `/doctor`）。V01–V17 全部可达，可分组，但不能用隐藏菜单或空白占位代替功能。
 
 | ID | 页面 | 路由 | DTO |
 | --- | --- | --- | --- |
@@ -33,6 +33,7 @@ Doctor 是默认主入口（`/` → `/doctor`）。V01–V16 全部可达，可�
 | V14 | Team compliance | `/team/compliance` | redacted leader view |
 | V15 | Care Plan | `/care-plan/:findingId` | preview/authority/apply/rollback |
 | V16 | Integrations | `/integrations`, `/integrations/:id` | 18 families; independent install/auth/connector/version/surface；`evidence_capability`（native / static-only / connector-required / unsupported）是 daemon 计算的分组标签，调用方不再自行嗅探 |
+| V17 | Advisor | `/advisor` | F-13/F-14 的可达入口；发送预览 + 双确认（consent / preview_ack）后才 `POST /api/v1/advisor`；返回 advisor-suggestion 候选（`is_claim=false`，不进 policy/CI/baseline/reconciliation，不解锁处置；无置信分） |
 
 ## C01 坐标与异步
 
@@ -97,7 +98,7 @@ Modal drawer 合同：Esc 关闭、焦点返回、未保存编辑确认、执行
 
 ## C06 桌面 / a11y / i18n
 
-暖白/深蓝。WCAG 2.2 AA。键盘完成关键动作。zh-CN / en 覆盖导航、Doctor 与 Checkup/Inspector/Settings/Care Plan/Integrations 正文；其余页面仍以 API JSON 转储为主。已有 snapshot 时 coordinate bar、Receipt 时间、risk/unknown count、Inspector skeleton 目标 ≤2s（该性能数字尚未用 OS WebView 取证）。
+白底黑字 monochrome。WCAG 2.2 AA。键盘完成关键动作。zh-CN / en 覆盖导航、Doctor 与 Checkup/Inspector/Settings/Care Plan/Integrations 正文；其余页面仍以 API JSON 转储为主。已有 snapshot 时 coordinate bar、Receipt 时间、risk/unknown count、Inspector skeleton 目标 ≤2s（该性能数字尚未用 OS WebView 取证）。
 
 ## C07 真实动作
 
@@ -178,7 +179,7 @@ C04 明确要求「对不适用状态给理由，不能机械制造伪状态」�
 | 状态 | 判定依据 |
 | --- | --- |
 | `offline` | fetch 本身失败（daemon 不可达），reason code `api.unreachable` |
-| `permission-denied` | envelope 的 `error.code` 以 `policy.` / `principal.` / `exception.` 开头，或是 `api.identity_required`、`advisor.consent_required` |
+| `permission-denied` | envelope 的 `error.code` 以 `policy.` / `principal.` / `exception.` 开头，或是 `api.identity_required`、`advisor.consent_required`、`advisor.preview_required` |
 | `error` | 其它 envelope 错误 |
 | `stale` | 载荷里 `stale === true`、`staleness.status === "stale"`，或 reason code `evidence_stale` |
 | `unsupported-version` | 载荷里出现 reason code `unsupported_harness_version` |
@@ -217,7 +218,7 @@ C04 明确要求「对不适用状态给理由，不能机械制造伪状态」�
 | 持久化边界 | `persistence` | 写明什么落盘、什么随会话丢弃、什么不可撤销 |
 | 敏感数据边界 | `sensitive` | 写明本页展示什么、**不**展示什么 |
 
-两处声明之间也有交叉校验：**声明了写操作的页面，必须把 `permission-denied` 列为可达状态**。测试还断言只有 `/assets`、`/compare`、`/doctor`、`/receipts`、`/settings`、`/sync` 六页声明了动作，且它们的动作标签在 `App.tsx` 里确有对应控件——契约不能承诺一个页面并不渲染的动作。契约的 `method + path` 与 `ROUTE_TABLE` 逐项按方法比对：声明 `DELETE /api/v1/receipts/:id/verify` 这类未路由方法会让测试失败。
+两处声明之间也有交叉校验：**声明了写操作的页面，必须把 `permission-denied` 列为可达状态**。测试还断言只有 `/advisor`、`/assets`、`/compare`、`/doctor`、`/receipts`、`/settings`、`/sync` 七页声明了动作，且它们的动作标签在 `App.tsx` 里确有对应控件——契约不能承诺一个页面并不渲染的动作。契约的 `method + path` 与 `ROUTE_TABLE` 逐项按方法比对：声明 `DELETE /api/v1/receipts/:id/verify` 这类未路由方法会让测试失败。
 
 ### 动作面（V04 / V05 / V08 / V12）
 
@@ -238,9 +239,9 @@ C04 明确要求「对不适用状态给理由，不能机械制造伪状态」�
 
 ### 颜色与对比度
 
-设计语言不变（暖白画布、深蓝侧栏、证据与严重性分离），但色值按 WCAG 2.2 AA 校准过：文本对背景 ≥ 4.5:1，控件边框与焦点环 ≥ 3:1。修正只压明度、保持色相。
+设计语言为白底黑字 monochrome（2026-09-11 最终方向）：纯白画布、浅灰侧栏与次级表面，近黑实心只给最重要动作；证据与严重性语义色保留原有色相、仅局部使用，状态从不只靠颜色承载。色值按 WCAG 2.2 AA 校准：文本对背景 ≥ 4.5:1，控件边框与焦点环 ≥ 3:1。
 
-`--border` 与 `--border-strong` 是两个用途不同的令牌：前者做面板边缘、表格行分隔这类装饰性描边；后者（3.30:1）给 input / select / textarea / 次要按钮，因为 SC 1.4.11 管的是需要被感知的**控件边界**。把控件改回 `--border` 会让边框回到 1.38:1。
+`--border` 与 `--border-strong` 是两个用途不同的令牌：前者做面板边缘、表格行分隔这类装饰性描边；后者（3.66:1）给 input / select / textarea / 次要按钮，因为 SC 1.4.11 管的是需要被感知的**控件边界**。把控件改回 `--border` 会让边框跌回 1.27:1。
 
 严重性色之间的对比度很低，这是有意的：状态从不只靠颜色承载，每个徽章都带文字。`tests/contrast.test.mjs` 会同时守住色值与「不只靠颜色」这两点。
 
@@ -265,9 +266,24 @@ Doctor 的证据抽屉是**常驻区域**而非模态，因此没有打开/关�
 
 ## 本切片明确未做 / 未覆盖
 
-- **其余页面的呈现**：V04/V05/V08/V09/V12 已有动作面（见下节），`/sessions/:id`（请求证据页，`SessionRequestsView`）与 `/lab`、`/lab/:id`（执行状态 / 判定摘要，`LabListView` / `LabResultView`）已有按页呈现，其余入口的正文仍是 API JSON 转储。C04 的逐页声明本身已补齐（见「页面契约覆盖 C04 的哪些项」），但声明中标为「本页只读」的动作（会话导入与删除、实验发起、标准发布与采纳、例外申请与批准）仍只能走 CLI 或 API。
+- **其余页面的呈现**：V04/V05/V08/V09/V12/V17 已有动作面（见下节），`/sessions/:id`（请求证据页，`SessionRequestsView`）与 `/lab`、`/lab/:id`（执行状态 / 判定摘要，`LabListView` / `LabResultView`）已有按页呈现，其余入口的正文仍是 API JSON 转储。C04 的逐页声明本身已补齐（见「页面契约覆盖 C04 的哪些项」），但声明中标为「本页只读」的动作（会话导入与删除、实验发起、标准发布与采纳、例外申请与批准）仍只能走 CLI 或 API。
 - **团队汇总**：`/team/compliance` 统计本地 store。没有团队传输，因此它不是跨成员的合规汇总，界面也不得这样呈现。
 - **应用截图、Tauri 桌面壳、OS WebView / a11y / 屏幕阅读器 / ≤2s 性能证据**：未采集，不得当作已覆盖。
 - **例外批准身份源**：UI/API 不能用调用方自报角色完成 approve。身份来自仓内已登记 principals + 调用方持有的登记密钥，而密钥只经环境变量传入 CLI，HTTP 请求无法安全携带。因此 `POST /api/v1/exceptions` 明确返回 `api.identity_required`，例外生命周期只经 CLI。
 - **i18n**：导航、Doctor、以及 Checkup / Inspector / Settings / Care Plan / Integrations 的页面正文已接进 zh/en 表。API JSON 转储字段名仍是英文协议键。
-- **渲染测试的边界**：`ui-unit` 的 `render.test.mjs` 用 `vite build --ssr` + `react-dom/server` 渲染 23 条路由的首屏、各页契约声明适用的状态横幅（不适用状态被标为矛盾而非隐藏）、请求证据页（`renderSessionRequests`：header digest、计数、区间、派发证据、限制说明、两个 metadata-only 视图，且断言不含正文）与 Effect Lab 结果（`renderLabResult`：`executed: false` + 原因）。SSR 不执行取数 effect；取数、导航与交互由可选门禁 `ui-e2e`（`packages/ui/tests/e2e/pages.spec.ts`，Playwright 驱动真实 daemon）覆盖：`/sessions/:id` 三条请求与选择后的派生 surface 视图、切换会话后旧错误横幅不残留、`/lab` 与 `/lab/:id` 的执行状态与判定、`/checkup` 真实 inspect 往返并渲染 `policy_result`。取消（中止请求）由 `ui-e2e` 的 cancel 用例覆盖（延迟响应后点击取消，页面进入 `cancelled` 且响应不落页）。
+- **渲染测试的边界**：`ui-unit` 的 `render.test.mjs` 用 `vite build --ssr` + `react-dom/server` 渲染 24 条路由的首屏、各页契约声明适用的状态横幅（不适用状态被标为矛盾而非隐藏）、请求证据页（`renderSessionRequests`：header digest、计数、区间、派发证据、限制说明、两个 metadata-only 视图，且断言不含正文）与 Effect Lab 结果（`renderLabResult`：`executed: false` + 原因）。SSR 不执行取数 effect；取数、导航与交互由可选门禁 `ui-e2e`（`packages/ui/tests/e2e/pages.spec.ts`，Playwright 驱动真实 daemon）覆盖：`/sessions/:id` 三条请求与选择后的派生 surface 视图、切换会话后旧错误横幅不残留、`/lab` 与 `/lab/:id` 的执行状态与判定、`/checkup` 真实 inspect 往返并渲染 `policy_result`。取消（中止请求）由 `ui-e2e` 的 cancel 用例覆盖（延迟响应后点击取消，页面进入 `cancelled` 且响应不落页）。
+
+
+## 资产预览与写后观察（2026-09-12）
+
+`POST /assets/:id/preview` 返回冻结计划的 `tx_id`；复制必须以 `POST /assets/:id/copy` 提交 `{"preview_id":"tx_…"}`。预览绑定项目与登记资产，15 分钟过期，一次写入尝试前持久标为 consumed；目标在预览后变化报 `assets.concurrent_hash`，登记元数据改变报 `assets.preview_changed`。重新预览使用新 tx，不覆盖旧备份。UI 修改 asset_id 或操作失败后必须重新预览。
+
+资产 copy/rollback 的响应分别描述文件操作与验证：成功写入后生成 `post_receipt_id`，`static_verification` 为 `recorded`，运行面保持 `runtime_verification: not-observed`。若写后观察无法保存，响应仍表示文件操作已完成，静态验证为 `unavailable` 并附 `post_receipt_error`；asset lock 登记失败另附 `asset_lock_error`。不得把这些情况误报为“未写入”后盲目重试。回滚受独立授权，并拒绝覆盖后续编辑。
+
+自取数 StateView（例如会话列表、实验详情）同路径刷新、取消或断网时保留上次成功数据并提示非最新；路径改变或服务端拒绝/缺失结果时清空旧数据。刷新恢复后以新响应替换。此规则不把缓存升格为当前事实。
+
+
+比较页的结果绑定当前选择的两份 Receipt。更换任一选择立即清空旧 diff 并取消在途请求，迟到响应不再覆盖新选择；列表获取失败的重试会重新加载列表。跨类型或坐标的 `same_domain=false` 显式提示不可作为同域基线，字节相同不升级为语义等价。
+
+
+资产 CLI/API 共用唯一事务和 provenance 恢复规则。每次复制独占备份目录，重复操作不覆盖旧 before-image；回滚同时恢复原资产登记，因此 SBOM 不保留已撤销的首次复制。若同一资产之后又复制过，即使字节相同，旧回滚也报 `assets.lock_conflict`，需先回滚新事务。备份中的 `project_digest` 必须匹配实际项目，缺失或跨项目报 `assets.project_mismatch`；旧事务缺少 provenance 历史报 `assets.lock_history_missing`，保留原备份供人工核对，不自动推测归属或伪造旧登记。

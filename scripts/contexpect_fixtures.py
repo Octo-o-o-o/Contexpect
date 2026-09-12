@@ -527,6 +527,17 @@ def _ignored(files: dict[str, str], path: str) -> bool:
     return False
 
 
+def _ctxpect_excluded(files: dict[str, str], path: str) -> bool:
+    """The file exists with content and only Contexpect's own `.ctxpect-ignore`
+    excludes it (C-F01): an observation-scope exclusion is not native absence.
+    Harness-native ignore files (`.cursorignore` etc.) stay native rules."""
+    body = files.get(".ctxpect-ignore")
+    if not body or not str(files.get(path) or "").strip():
+        return False
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    return path in lines or path.split("/")[-1] in lines
+
+
 def _load_envelope(files: dict[str, str]) -> dict[str, Any]:
     text = files.get(ENVELOPE)
     if not text:
@@ -854,6 +865,19 @@ def interpret_static(
     if status == "required-unknown-honesty":
         return _indeterminate_result(capability_id, native)
     included, parse = _parse_capability_native(family_id, capability_id, native)
+    if capability_id == "instructions" and not included and _ctxpect_excluded(native, instruction_path(family_id)):
+        # The product reports `included: null` whenever the claim is
+        # indeterminate; the exclusion itself is recorded in edges/explanation.
+        return _result(
+            "static",
+            capability_id,
+            "indeterminate",
+            included=None,
+            loss=False,
+            reason="observation_scope_excluded",
+            native=native,
+            parse={**parse, "included": None},
+        )
     return _present_or_absent(capability_id, included, native, parse)
 
 

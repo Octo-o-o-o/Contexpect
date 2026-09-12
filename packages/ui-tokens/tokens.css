@@ -1,28 +1,29 @@
-/* Contexpect design tokens — "Refined Clinical" (方案 A).
+/* Contexpect design tokens — white monochrome (最终方向, handoff 2026-09-11 §06).
    Semantic names are contractual: contrast.test.mjs reads the hex values here
    and verifies WCAG ratios, and tokens.js maps evidence/severity onto them.
    Unknown is not a severity color; Expected is not a truth_state. */
 :root {
-  /* Grounds — warm paper canvas, ink-navy shell */
-  --bg-canvas: #F4F2EB;
-  --bg-surface: #FCFBF7;
-  --bg-surface-2: #F7F5EE;
-  --bg-shell: #10151F;
-  --bg-shell-2: #18202C;
-  --bg-shell-active: #1c2533;
+  /* Grounds — pure white canvas, light-gray surfaces and shell */
+  --bg-canvas: #FFFFFF;
+  --bg-surface: #FFFFFF;
+  --bg-surface-2: #F7F7F8;
+  --bg-shell: #FAFAFA;
+  --bg-shell-2: #F0F0F2;
+  --bg-shell-active: #E7E7EA;
 
-  /* Text */
-  --text-primary: #151C26;
-  /* 5.49:1 on --bg-canvas, 5.94:1 on --bg-surface (SC 1.4.3) */
-  --text-muted: #5A6270;
-  --text-faint: #828A97;
-  --text-on-shell: #E9E7DE;
-  --text-nav-link: #c9c6bb;
+  /* Text — near-black on white; hierarchy by weight and gray step */
+  --text-primary: #111111;
+  /* 18.88:1 on --bg-canvas and --bg-surface (SC 1.4.3) */
+  --text-muted: #5B5B62;
+  /* Small text: 6.74:1 on --bg-canvas and --bg-surface (SC 1.4.3) */
+  --text-faint: #6E6E76;
+  --text-on-shell: #18181B;
+  --text-nav-link: #5B5B62;
 
   /* Borders — `--border` is decorative; controls use `--border-strong`
-     (3.30:1 on surface, SC 1.4.11). */
-  --border: #E4E1D6;
-  --border-strong: #8F8B7A;
+     (3.66:1 on surface, SC 1.4.11). */
+  --border: #E4E4E7;
+  --border-strong: #85858E;
 
   /* Evidence & severity semantics (all ≥ 4.5:1 on --bg-surface) */
   --verified: #0F7A6B;
@@ -42,9 +43,9 @@
   --radius-sm: 7px;
   --radius: 11px;
   --radius-lg: 16px;
-  --shadow-1: 0 1px 2px rgba(21, 28, 38, 0.05);
-  --shadow-2: 0 2px 6px rgba(21, 28, 38, 0.07), 0 12px 32px rgba(21, 28, 38, 0.08);
-  --shadow-pop: 0 4px 12px rgba(21, 28, 38, 0.10), 0 24px 64px rgba(21, 28, 38, 0.16);
+  --shadow-1: 0 1px 2px rgba(17, 17, 17, 0.05);
+  --shadow-2: 0 2px 6px rgba(17, 17, 17, 0.07), 0 12px 32px rgba(17, 17, 17, 0.08);
+  --shadow-pop: 0 4px 12px rgba(17, 17, 17, 0.10), 0 24px 64px rgba(17, 17, 17, 0.16);
 
   /* Metrics */
   --nav-width: 236px;

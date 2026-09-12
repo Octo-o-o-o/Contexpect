@@ -64,6 +64,7 @@ reason_codes! {
     AttachmentUnavailable => "attachment_unavailable",
     OfficialDistributionNotCaptured => "official_distribution_not_captured",
     HermeticFixtureOnly => "hermetic_fixture_only",
+    ObservationScopeExcluded => "observation_scope_excluded",
 }
 
 #[cfg(test)]

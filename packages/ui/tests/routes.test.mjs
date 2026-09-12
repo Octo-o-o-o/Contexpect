@@ -32,9 +32,10 @@ const expected = [
   "/care-plan/:findingId",
   "/integrations",
   "/integrations/:id",
+  "/advisor",
 ];
 
-test("all V01-V16 routes are declared", () => {
+test("all V01-V17 routes are declared", () => {
   for (const path of expected) {
     assert.match(routes, new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     const needle = path.replace(/:findingId|:id/g, "");

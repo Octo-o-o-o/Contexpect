@@ -812,6 +812,7 @@ UNKNOWN_REASON_CODES = [
     "attachment_unavailable",
     "official_distribution_not_captured",
     "hermetic_fixture_only",
+    "observation_scope_excluded",
 ]
 
 CAPABILITIES = [

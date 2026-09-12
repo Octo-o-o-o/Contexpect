@@ -720,19 +720,48 @@ pub fn scan_project_for_doctor(root: &Root) -> Result<Vec<ScannedFile>, InspectF
     Ok(files)
 }
 
-/// Doctor content findings for a project, rendered.
+/// The evaluation clock for a Doctor run. Without `--as-of` both readings
+/// come from the wall clock; with it, the `stale` rule judges against that
+/// civil date and suppression expiry against its noon-UTC reading
+/// (`evaluated_at_secs` in the output shows which), so a run is reproducible
+/// and the date a stale finding names is the date it was judged against.
+fn doctor_clock(as_of: Option<(i64, u32, u32)>) -> ((i64, u32, u32), i64) {
+    match as_of {
+        Some((year, month, day)) => (
+            (year, month, day),
+            ctxpect_doctor::days_from_civil(year, month, day) * 86_400 + 43_200,
+        ),
+        None => {
+            let now_secs = i64::try_from(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
+            )
+            .unwrap_or(0);
+            (ctxpect_doctor::civil_from_days(now_secs.div_euclid(86_400)), now_secs)
+        }
+    }
+}
+
+/// Doctor content findings for a project, rendered. `stale` is judged
+/// against the wall-clock date; callers with an explicit reference date use
+/// [`ctxpect_doctor::project_findings_in`] directly.
 pub fn project_doctor_findings(root: &Root) -> Result<Vec<Value>, InspectFailure> {
     let files = scan_project_for_doctor(root)?;
-    Ok(render_project_findings(&ctxpect_doctor::project_findings_in(&files, Some(root.path()))))
+    let (as_of, _) = doctor_clock(None);
+    Ok(render_project_findings(&ctxpect_doctor::project_findings_in(&files, Some(root.path()), as_of)))
 }
 
 /// Receipt-derived findings plus project-content findings, with the
 /// project's suppressions applied: the one diagnosis `doctor`, `ci` and the
-/// API report (R04).
-pub(crate) fn diagnosis_for_root(base: Value, root: &Root) -> Result<Value, InspectFailure> {
+/// API report (R04). `as_of` pins the evaluation clock (see [`doctor_clock`]);
+/// `None` reads the wall clock.
+pub(crate) fn diagnosis_for_root(base: Value, root: &Root, as_of: Option<(i64, u32, u32)>) -> Result<Value, InspectFailure> {
     let files = scan_project_for_doctor(root)?;
+    let (as_of, now_secs) = doctor_clock(as_of);
     let project_findings =
-        render_project_findings(&ctxpect_doctor::project_findings_in(&files, Some(root.path())));
+        render_project_findings(&ctxpect_doctor::project_findings_in(&files, Some(root.path()), as_of));
     let merged = with_project_findings(base, &project_findings);
     // Evidence digests bind a suppression to the reviewed bytes.
     let mut evidence = std::collections::BTreeMap::new();
@@ -755,13 +784,6 @@ pub(crate) fn diagnosis_for_root(base: Value, root: &Root) -> Result<Value, Insp
     } else {
         (None, None, None)
     };
-    let now_secs = i64::try_from(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
-    )
-    .unwrap_or(0);
     Ok(ctxpect_doctor::apply_suppressions(
         merged,
         &ctxpect_doctor::SuppressionInput {
@@ -775,10 +797,11 @@ pub(crate) fn diagnosis_for_root(base: Value, root: &Root) -> Result<Value, Insp
 }
 
 /// Receipt-derived findings plus project-content findings, the diagnosis
-/// both `doctor` and `ci` (and the API) report.
-pub(crate) fn full_diagnosis(snapshot: &Value, project: &Path) -> Result<Value, InspectFailure> {
+/// both `doctor` and `ci` (and the API) report. `as_of` is the explicit
+/// evaluation clock (`--as-of`); `None` reads the wall clock.
+pub(crate) fn full_diagnosis(snapshot: &Value, project: &Path, as_of: Option<(i64, u32, u32)>) -> Result<Value, InspectFailure> {
     let root = Root::new(project).map_err(|err| fail("io.missing", err.to_string()))?;
-    diagnosis_for_root(diagnose(snapshot), &root)
+    diagnosis_for_root(diagnose(snapshot), &root, as_of)
 }
 
 fn collect_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
@@ -958,7 +981,7 @@ fn collect_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
 fn doctor_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
     let inspect_args = inspect_args(args)?;
     let report = inspect(inspect_args)?;
-    let diagnosis = full_diagnosis(&report.envelope, &inspect_args_project(args)?)?;
+    let diagnosis = full_diagnosis(&report.envelope, &inspect_args_project(args)?, args.as_of)?;
     // The same judgement `ci` applies (C1): one function, two entry points.
     let exit = combine_exits(&[
         report.exit_code,
@@ -971,6 +994,14 @@ fn doctor_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
     if let Value::Object(map) = &mut body {
         map.insert("inspect_exit_code".into(), Value::Int(i64::from(report.exit_code)));
         map.insert("snapshot_schema".into(), string("dev-inspect-v0"));
+        // The date `stale` was judged against: the `--as-of` value, else the
+        // wall-clock date. Naming it keeps a re-analysis of old evidence
+        // distinguishable from a fresh observation (C-F05).
+        let (as_of, _) = doctor_clock(args.as_of);
+        map.insert(
+            "as_of".into(),
+            string(format!("{:04}-{:02}-{:02}", as_of.0, as_of.1, as_of.2)),
+        );
     }
     if let Some(store_path) = &args.store {
         let store = Store::open(store_path).map_err(|err| fail(err.code, err.message))?;
@@ -2097,6 +2128,60 @@ pub(crate) fn asset_lock(store: &Store) -> Value {
     ctxpect_assets::lock_document(entries)
 }
 
+/// Save the prior provenance record before any copy can change the target.
+pub(crate) fn prepare_asset_lock(store: &Store, plan: &ctxpect_assets::CopyPlan) -> Result<(), InspectFailure> {
+    // Validate the folder too: get_named reports a missing child when its
+    // parent is a regular file, which is not an absent provenance record.
+    store.list_named("assetlock").map_err(|err| fail(err.code, err.message))?;
+    match store.get_named("assetlockbefore", &plan.tx_id) {
+        Ok(_) => return Err(fail("assets.tx_exists", "copy transaction already has provenance history; use a new preview".into())),
+        Err(err) if err.code == "store.missing" => {},
+        Err(err) => return Err(fail(err.code, err.message)),
+    }
+    let previous = match store.get_named("assetlock", &plan.asset.asset_id) {
+        Ok(value) => value,
+        Err(err) if err.code == "store.missing" => Value::Null,
+        Err(err) => return Err(fail(err.code, err.message)),
+    };
+    store.put_named("assetlockbefore", &plan.tx_id, &object([
+        ("asset_id", string(&plan.asset.asset_id)),
+        ("previous", previous),
+    ])).map_err(|err| fail(err.code, err.message))
+}
+
+/// Rollback restores both the bytes and their recorded provenance. A later
+/// copy owns a different lock entry even when it installed identical bytes.
+pub(crate) fn rollback_asset_in(root: &Root, store: &Store, tx: &str) -> Result<Value, InspectFailure> {
+    let history = store.get_named("assetlockbefore", tx).map_err(|err| {
+        if err.code == "store.missing" {
+            fail("assets.lock_history_missing", "copy transaction has no prior provenance record; inspect its backup before manual recovery".into())
+        } else { fail(err.code, err.message) }
+    })?;
+    let asset_id = history.get("asset_id").and_then(Value::as_str)
+        .ok_or_else(|| fail("assets.lock_history_invalid", "rollback history has no asset id".into()))?;
+    let previous = history.get("previous")
+        .ok_or_else(|| fail("assets.lock_history_invalid", "rollback history has no previous lock record".into()))?;
+    match store.get_named("assetlock", asset_id) {
+        Ok(current) if current.get("tx_id").and_then(Value::as_str) == Some(tx) || &current == previous => {},
+        Ok(_) => return Err(fail("assets.lock_conflict", "a later copy owns this asset; roll it back first".into())),
+        Err(err) if err.code == "store.missing" => {},
+        Err(err) => return Err(fail(err.code, err.message)),
+    }
+    let result = ctxpect_assets::rollback(root, &ctxpect_assets::backup_dir(store.root(), tx))
+        .map_err(|err| fail(err.code, err.message))?;
+    let restored = if previous == &Value::Null {
+        store.delete_named("assetlock", asset_id).map(|_| ())
+    } else {
+        store.put_named("assetlock", asset_id, previous)
+    };
+    Ok(match restored {
+        Ok(()) => result,
+        Err(err) => merge(result, [("asset_lock_error", object([
+            ("code", string(err.code)), ("message", string(err.message)),
+        ]))]),
+    })
+}
+
 /// The assets overview, shared by the CLI and the API so both describe the
 /// executor the same way.
 pub(crate) fn assets_status(harness: &str, lock: Option<&Value>) -> Value {
@@ -2150,6 +2235,7 @@ fn assets_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
 
             let store = open_store(args)?;
             let _auth = authorize_store_apply(&store, Some(project.as_path()), "assets.copy", asset_id)?;
+            prepare_asset_lock(&store, &plan)?;
             let backup = ctxpect_assets::backup_dir(store.root(), &plan.tx_id);
             let meta = ctxpect_assets::apply(&root, &plan, &backup, true)
                 .map_err(|err| fail(err.code, err.message))?;
@@ -2187,9 +2273,7 @@ fn assets_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
             let root = Root::new(project).map_err(|err| fail("io.missing", err.to_string()))?;
             let store = open_store(args)?;
             let _auth = authorize_store_apply(&store, Some(project.as_path()), "assets.rollback", tx)?;
-            let backup = ctxpect_assets::backup_dir(store.root(), tx);
-            let result = ctxpect_assets::rollback(&root, &backup)
-                .map_err(|err| fail(err.code, err.message))?;
+            let result = rollback_asset_in(&root, &store, tx)?;
             let _ = store.audit("assets.rollback", "asset", Some(tx));
             let post = post_receipt(args, &store)?;
             ok(
@@ -2521,7 +2605,7 @@ fn inspect_args_project(args: &ProductArgs) -> Result<std::path::PathBuf, Inspec
 fn ci_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
     let inspect_args = inspect_args(args)?;
     let report = inspect(inspect_args)?;
-    let diagnosis = full_diagnosis(&report.envelope, &inspect_args_project(args)?)?;
+    let diagnosis = full_diagnosis(&report.envelope, &inspect_args_project(args)?, args.as_of)?;
     let doctor_exit = ctxpect_doctor::blocking_exit(&diagnosis, args.fail_on.as_deref());
     let store = existing_store(args)?;
     let policy = ci_policy_verdict(store.as_ref(), args.project.as_deref());

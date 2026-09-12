@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """UI route and token smoke checks. Offline. No pip deps.
 
-Fails if V01–V16 routes are missing from packages/ui/src/routes.ts
-or if C03 token contracts are absent.
+Fails if V01–V17 routes (including `/advisor`, the F-13/F-14 entry) are
+missing from packages/ui/src/routes.ts or if C03 token contracts are absent.
 """
 
 from __future__ import annotations
@@ -39,6 +39,7 @@ REQUIRED_PATHS = [
     "/care-plan/:findingId",
     "/integrations",
     "/integrations/:id",
+    "/advisor",
 ]
 
 

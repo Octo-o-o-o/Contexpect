@@ -35,7 +35,6 @@ from contexpect_semantic_team import (  # noqa: E402
     SEMANTIC_TEAM_CONTRACT,
     SEMANTIC_TEAM_DIR,
     _case_digest,
-    _native_fingerprint,
     collect_violations,
     family_native_targets,
     iter_payloads,
@@ -230,10 +229,17 @@ def check_fixture_semantics(fixture: dict, errors: list[str]) -> None:
             )
 
 
-def check_st2_byte_inequality(fixtures: dict[str, dict], errors: list[str]) -> None:
+def check_st2_projection_equivalence(fixtures: dict[str, dict], errors: list[str]) -> None:
+    # C-F02 (2026-09-12): byte identity is neither proof of semantic equivalence nor
+    # evidence of non-equivalence, so the former "four fingerprints must differ" and
+    # per-pair "path/syntax must differ" assertions were removed. Byte identity as an
+    # equivalence *basis* stays forbidden via the binding assertions below and via
+    # collect_violations (byte_identical=True or a byte/hash equivalence_basis fails);
+    # byte-identical projections across families are permitted, as ST2-same-bytes-pos
+    # demonstrates.
     fixture = fixtures.get("ST2-pos")
     if not fixture:
-        fail("ST2-pos missing; cannot prove native-equivalent projections differ by bytes", errors)
+        fail("ST2-pos missing; cannot check native projection equivalence semantics", errors)
         return
     projections = [
         item
@@ -245,17 +251,7 @@ def check_st2_byte_inequality(fixtures: dict[str, dict], errors: list[str]) -> N
     if missing:
         fail(f"ST2-pos missing required harness projections {missing}", errors)
         return
-    fingerprints = {item["family_id"]: _native_fingerprint(item) for item in projections if item["family_id"] in REQUIRED_FOUR}
-    if len(set(fingerprints.values())) != len(REQUIRED_FOUR):
-        fail("ST2-pos equivalent projections are byte-identical across the four harnesses", errors)
     paths = {item["family_id"]: item.get("native_path") for item in projections if item["family_id"] in REQUIRED_FOUR}
-    syntax = {item["family_id"]: item.get("syntax") for item in projections if item["family_id"] in REQUIRED_FOUR}
-    if paths.get("codex") == paths.get("claude-code"):
-        fail("ST2-pos Codex and Claude Code native paths must differ", errors)
-    if paths.get("cursor") == paths.get("codex"):
-        fail("ST2-pos Cursor native path must differ from Codex", errors)
-    if syntax.get("codex") == syntax.get("grok-build"):
-        fail("ST2-pos Codex and Grok native syntax must differ", errors)
     for family_id, expected_path in FOUR_PATHS.items():
         if paths.get(family_id) != expected_path:
             fail(f"ST2-pos {family_id} native path {paths.get(family_id)!r} != declared {expected_path!r}", errors)
@@ -329,7 +325,7 @@ def check_semantic_team(errors: list[str], root: Path | None = None) -> None:
     if list(CLAIM_RECONCILIATION_STATES) != ["verified", "structural-only", "indeterminate", "failed"]:
         fail("CLAIM_RECONCILIATION_STATES mutated", errors)
 
-    check_st2_byte_inequality(fixtures, errors)
+    check_st2_projection_equivalence(fixtures, errors)
 
 
 def main() -> int:

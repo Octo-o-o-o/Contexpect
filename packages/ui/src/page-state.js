@@ -26,6 +26,7 @@ const DENIED_PREFIXES = ["policy.", "principal.", "exception."];
 const DENIED_CODES = new Set([
   "api.identity_required",
   "advisor.consent_required",
+  "advisor.preview_required",
   "io.permission_denied",
   "permission_not_granted",
 ]);
@@ -36,6 +37,7 @@ const CONNECTOR_REQUIRED = "connector_required";
 
 /** Reason codes that mean the answer is incomplete rather than wrong. */
 const PARTIAL_REASONS = new Set([
+  "observation_scope_excluded",
   "runtime_snapshot_missing",
   "config_residue_only",
   "surface_not_exposed",

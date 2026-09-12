@@ -398,6 +398,27 @@ fn every_precise_partial_answer_has_a_red_negative() {
     assert_eq!(hit.get("missing_source_seq").and_then(Value::as_i64), Some(11));
 }
 
+/// A header-only log whose header line has no trailing newline is a torn
+/// tail too: with no body lines the per-line torn check never fires, so the
+/// whole-text check must catch it.
+#[test]
+fn a_header_only_log_without_a_trailing_newline_is_torn() {
+    let jsonl = String::from_utf8(fixture("session.jsonl")).unwrap();
+    let header = jsonl.lines().next().expect("header line");
+    // The same header with its newline is a complete (if empty) log.
+    let clean = import(format!("{header}\n").as_bytes());
+    assert_eq!(clean.pointer(&["reconstruction", "complete"]), Some(&Value::Bool(true)));
+    assert_eq!(clean.get("event_count").and_then(Value::as_i64), Some(0));
+    assert_eq!(clean.get("partial"), Some(&Value::Bool(false)));
+    // Without it, the log is torn at the header, not silently complete.
+    let session = import(header.as_bytes());
+    assert!(reasons(&session).contains(&"import_parse_failed".to_string()));
+    assert_eq!(session.pointer(&["reconstruction", "complete"]), Some(&Value::Bool(false)));
+    assert_eq!(session.pointer(&["reconstruction", "stopped_at_seq"]).and_then(Value::as_i64), Some(0));
+    assert_eq!(session.get("event_count").and_then(Value::as_i64), Some(0));
+    assert_eq!(session.get("partial"), Some(&Value::Bool(true)));
+}
+
 /// Importing the same artifact twice through the CLI lands in one session
 /// record; deleting it removes requests and insights alike.
 #[test]
@@ -455,4 +476,19 @@ fn import_is_idempotent_and_delete_cascades() {
     assert_eq!(code, 1);
     assert_eq!(gone.pointer(&["error", "code"]).and_then(Value::as_str), Some("store.missing"));
     let _ = fs::remove_dir_all(&scratch);
+}
+
+
+#[test]
+fn non_js_number_shapes_do_not_create_precise_header_evidence() {
+    let jsonl = String::from_utf8(fixture("session.jsonl")).unwrap();
+    assert!(jsonl.contains("\"temperature\":0.5"));
+    for lexeme in ["10e+21", "0.1e-7", "0e+21", "1e+309", "1e-400", "0.0000001"] {
+        let changed = jsonl.replace("\"temperature\":0.5", &format!("\"temperature\":{lexeme}"));
+        let session = import(changed.as_bytes());
+        assert!(reasons(&session).contains(&"import_parse_failed".to_string()), "{lexeme}");
+        let requests = session.get("requests").and_then(Value::as_array).unwrap();
+        assert!(requests.iter().all(|request| request.get("header_digest") == Some(&Value::Null)), "invalid header must not produce a precise digest: {lexeme}");
+        assert_eq!(session.get("claims").and_then(Value::as_array).map(<[Value]>::len), Some(0));
+    }
 }

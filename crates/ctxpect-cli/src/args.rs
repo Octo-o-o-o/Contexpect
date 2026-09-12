@@ -117,6 +117,10 @@ pub struct ProductArgs {
     pub preflight_id: Option<String>,
     pub from: Option<PathBuf>,
     pub fail_on: Option<String>,
+    /// Explicit `stale`-rule reference date for `doctor` / `ci`
+    /// (`--as-of YYYY-MM-DD`, parsed and validated at parse time); also the
+    /// clock suppression expiry is judged against for that run.
+    pub as_of: Option<(i64, u32, u32)>,
     pub home: Option<PathBuf>,
     pub id: Option<String>,
     pub reason: Option<String>,
@@ -197,6 +201,7 @@ where
     let mut preflight_id = None;
     let mut from = None;
     let mut fail_on = None;
+    let mut as_of = None;
     let mut home = None;
     let mut id = None;
     let mut reason = None;
@@ -338,6 +343,18 @@ where
                         ));
                     }
                     fail_on = Some(value);
+                }
+                "as-of" => {
+                    let value = need_value("as-of", inline, &mut iter, command.as_deref())?;
+                    // A date that does not exist must fail closed; silently
+                    // clamping it would judge `stale` against a date the user
+                    // never asked for. The invalid value is not echoed.
+                    as_of = Some(ctxpect_doctor::parse_civil_date(&value).ok_or_else(|| {
+                        invalid(
+                            "`--as-of` must be a calendar date `YYYY-MM-DD`".to_string(),
+                            command.clone(),
+                        )
+                    })?);
                 }
                 "home" => {
                     home = Some(need_value("home", inline, &mut iter, command.as_deref())?);
@@ -560,6 +577,7 @@ where
             preflight_id,
             from: from.map(PathBuf::from),
             fail_on,
+            as_of,
             home: home.map(PathBuf::from),
             id,
             reason,
@@ -956,6 +974,21 @@ mod tests {
             assert!(!err.message.contains(value), "{flag} {}", err.message);
             assert!(!err.message.contains("/etc"), "{}", err.message);
             assert!(!err.message.contains(".."), "{}", err.message);
+        }
+    }
+
+    #[test]
+    fn as_of_accepts_a_real_date_and_rejects_impossible_ones_without_echo() {
+        let Cli::Product(parsed) =
+            parse_cli(["ctxpect", "doctor", "--project", ".", "--as-of", "2026-09-04"]).unwrap()
+        else {
+            panic!("doctor parses as a product command")
+        };
+        assert_eq!(parsed.as_of, Some((2026, 9, 4)));
+        for bad in ["2026-13-01", "2026-02-30", "2025-02-29", "not-a-date", "2026-09-04T00:00:00Z"] {
+            let err = parse_cli(["ctxpect", "doctor", "--project", ".", "--as-of", bad]).expect_err(bad);
+            assert_eq!(err.code, "usage.invalid", "{bad}");
+            assert!(!err.message.contains(bad), "{bad}");
         }
     }
 

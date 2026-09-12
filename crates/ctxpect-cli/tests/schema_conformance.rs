@@ -87,6 +87,24 @@ fn a_real_receipt_and_its_tombstone_validate_and_a_drifted_one_does_not() {
     let schema = schema("ctxpect-receipt-v1.schema.json");
     validate(&schema, &receipt).unwrap_or_else(|errors| panic!("receipt: {errors:#?}"));
 
+    // C-F04: the static resolver's claims name their producer and domain, and
+    // the frozen schema accepts the additive optional `source` object.
+    let claim = receipt
+        .get("claims")
+        .and_then(Value::as_array)
+        .and_then(|claims| claims.first())
+        .expect("receipt claims");
+    assert_eq!(
+        claim.pointer(&["source", "producer"]).and_then(Value::as_str),
+        Some("ctxpect-resolve::resolved_claim"),
+        "{claim:?}"
+    );
+    assert_eq!(
+        claim.pointer(&["source", "source_domain"]).and_then(Value::as_str),
+        Some("static-resolution"),
+        "{claim:?}"
+    );
+
     // The stored copy validates too.
     let id = receipt.get("receipt_id").and_then(Value::as_str).unwrap();
     let stored = store.get_receipt(id).unwrap();

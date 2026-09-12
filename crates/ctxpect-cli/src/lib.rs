@@ -125,7 +125,7 @@ ctxpect — AI coding context 核对与控制工具
 
 用法:
   ctxpect inspect [选项]
-  ctxpect doctor --project <dir> [--store <dir>] [--fail-on confirmed]
+  ctxpect doctor --project <dir> [--store <dir>] [--fail-on confirmed] [--as-of YYYY-MM-DD]
   ctxpect collect --project <dir>
   ctxpect receipt show|verify|export|redact --store <dir> --receipt <id>
   ctxpect daemon start --project <dir> --store <dir> --listen 127.0.0.1:7420
@@ -140,6 +140,11 @@ mutation 合同（详见 docs/guides/cli-reference.md「授权绑定」）:
   ctxpect intent preview --project <dir> --store <dir> --target <rel> --desired <text>
   ctxpect apply --tx <id> --project <dir> --store <dir>
   ctxpect exception request --action <mutation> --expires-in <秒> [--target <t>] [--reason <r>]
+
+doctor 选项:
+  --fail-on confirmed 确认级 finding 也置 exit 2
+  --as-of YYYY-MM-DD  stale 规则与 suppression 过期判定对照的评估日期（默认系统当日；
+                      指定后 suppression 以该日 UTC 正午为评估时刻）。非法日期拒绝（exit 1）。
 
 inspect 选项:
   --project <dir>     要检查的项目根（必填）

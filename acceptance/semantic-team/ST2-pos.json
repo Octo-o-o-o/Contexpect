@@ -3,7 +3,7 @@
     "ST2-pos"
   ],
   "cutoff": "2026-09-04T23:59:59+08:00",
-  "digest": "e2f047feb8721486917f85a4cfb3790ffed1fb08e2f33af549c7dfff8ebed573",
+  "digest": "ae43738741b77c19ad5761bf9e203aead8121179b7e09701c64b1ef64526f49e",
   "expected_gate_result": "pass",
   "expected_violations": [],
   "id": "ST2-pos",
@@ -684,11 +684,11 @@
         "family_id": "kimi-code",
         "lifecycle": "preview-apply-rollback",
         "managed_channel": true,
-        "native_digest": "df52aa8866b182203a6d2b4f30b8ad901bd98c82e92caf6ceeeef38f8e20c6e4",
+        "native_digest": "d54436071069b86e5f3f75bab5e09572eb4b0a50de1979ab3da83c62d0234922",
         "native_files": [
           {
-            "content": "# kimi-code\nJavaScript tests must use Vitest. Jest is not the project runner.\n",
-            "digest_sha256": "a6ce8c988e1b37d2b07d9d1e033e5918b39254d66bf2468285154d213b708fbb",
+            "content": "# AGENTS.md\n\n## Testing\n\nThis repository's JavaScript tests must use Vitest.\nDo not add Jest as the project test runner.\n",
+            "digest_sha256": "8460b4aae81616f3a13118fc436522c24d35026d05d0f80f77d5c456b57670dc",
             "path": "AGENTS.md"
           }
         ],
@@ -774,11 +774,11 @@
         "family_id": "zcode",
         "lifecycle": "preview-apply-rollback",
         "managed_channel": true,
-        "native_digest": "5230cfdd0f4a0e38b74b06da7a516e5a727ac51c9953086edb5487c6694d306b",
+        "native_digest": "d54436071069b86e5f3f75bab5e09572eb4b0a50de1979ab3da83c62d0234922",
         "native_files": [
           {
-            "content": "# zcode\nJavaScript tests must use Vitest. Jest is not the project runner.\n",
-            "digest_sha256": "124b246405cd15e77b4478e8db36e27734bbf52c57d5de5a8d5d79a597e8066b",
+            "content": "# AGENTS.md\n\n## Testing\n\nThis repository's JavaScript tests must use Vitest.\nDo not add Jest as the project test runner.\n",
+            "digest_sha256": "8460b4aae81616f3a13118fc436522c24d35026d05d0f80f77d5c456b57670dc",
             "path": "AGENTS.md"
           }
         ],

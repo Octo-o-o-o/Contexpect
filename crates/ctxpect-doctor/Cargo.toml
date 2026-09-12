@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+ctxpect-policy = { path = "../ctxpect-policy" }
 ctxpect-schema = { path = "../ctxpect-schema" }
 
 [lints]
