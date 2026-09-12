@@ -162,7 +162,18 @@ impl ProjectFinding {
 /// content rule off for the whole file (the projection gate reads the same
 /// way).
 fn text_of(file: &ScannedFile) -> Option<std::borrow::Cow<'_, str>> {
-    file.bytes.as_deref().map(String::from_utf8_lossy)
+    let bytes = file.bytes.as_deref()?;
+    // These signatures identify binary containers, not text with a stray
+    // malformed byte. The latter must still reach the security rules.
+    let binary = [
+        &b"\x89PNG\r\n\x1a\n"[..], &b"\xff\xd8\xff"[..],
+        &b"GIF87a"[..], &b"GIF89a"[..], &b"PK\x03\x04"[..],
+        &b"PK\x05\x06"[..], &b"\x1f\x8b"[..], &b"%PDF-"[..],
+        &b"\x7fELF"[..], &b"\xcf\xfa\xed\xfe"[..],
+        &b"\xfe\xed\xfa\xcf"[..],
+    ].iter().any(|signature| bytes.starts_with(signature));
+    // A binary prefix in a Markdown instruction must not disable its checks.
+    (!binary || is_markdown(&file.path)).then(|| String::from_utf8_lossy(bytes))
 }
 
 /// The `schema` a root-level declaration file must carry to be read as one:
@@ -725,7 +736,7 @@ pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>
             add(ProjectFinding::new(
                 "duplicate",
                 sorted[sorted.len() - 1],
-                "instruction body is byte-identical to another instruction file",
+                "project Markdown is byte-identical to another file; simultaneous instruction use is not established",
             ));
         }
     }
@@ -747,7 +758,7 @@ pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>
         add(ProjectFinding::new(
             "conflict",
             *path,
-            "instruction files disagree on the package manager",
+            "project Markdown names conflicting package managers; simultaneous instruction use is not established",
         ));
     }
 
@@ -849,7 +860,7 @@ pub fn project_findings_in(files: &[ScannedFile], root: Option<&std::path::Path>
                 add(ProjectFinding::new(
                     "gitignore_mismatch",
                     ignored,
-                    "an ignored path is present and still referenced by instructions",
+                    "an ignored path is present and mentioned in project Markdown; native instruction use is not established",
                 ));
             }
         }
@@ -1056,6 +1067,20 @@ mod tests {
         let found = rules(&[scanned]);
         assert!(found.contains(&("secret_literal", "AGENTS.md".to_string())), "{found:?}");
         assert!(found.contains(&("path_containment_escape", "AGENTS.md".to_string())), "{found:?}");
+    }
+
+    #[test]
+    fn binary_container_bytes_are_not_instruction_text_but_extensions_do_not_exempt_text() {
+        let text = "over\u{200B}ride\nread: ../outside\n";
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.extend_from_slice(text.as_bytes());
+        let binary = ScannedFile { path: "evidence.png".into(), bytes: Some(png.clone()), link_target: None, is_symlink: false };
+        assert!(rules(&[binary]).is_empty());
+        let disguised = ScannedFile { path: "AGENTS.md".into(), bytes: Some(png), link_target: None, is_symlink: false };
+        assert!(rules(&[disguised]).iter().any(|(rule, _)| *rule == "hidden_unicode"));
+        let findings = rules(&[file("pretend.png", text)]);
+        assert!(findings.iter().any(|(rule, _)| *rule == "hidden_unicode"));
+        assert!(findings.iter().any(|(rule, _)| *rule == "path_containment_escape"));
     }
 
     #[test]

@@ -25,6 +25,10 @@
         "unset"
       ]
     },
+    "project_label": {
+      "type": ["string", "null"],
+      "description": "Local project basename only; mask in screenshot privacy mode. Not a project identity."
+    },
     "coordinate": {
       "type": "object",
       "required": [

@@ -287,3 +287,14 @@ Doctor 的证据抽屉是**常驻区域**而非模态，因此没有打开/关�
 
 
 资产 CLI/API 共用唯一事务和 provenance 恢复规则。每次复制独占备份目录，重复操作不覆盖旧 before-image；回滚同时恢复原资产登记，因此 SBOM 不保留已撤销的首次复制。若同一资产之后又复制过，即使字节相同，旧回滚也报 `assets.lock_conflict`，需先回滚新事务。备份中的 `project_digest` 必须匹配实际项目，缺失或跨项目报 `assets.project_mismatch`；旧事务缺少 provenance 历史报 `assets.lock_history_missing`，保留原备份供人工核对，不自动推测归属或伪造旧登记。
+
+
+## 真实项目可读性与范围（2026-09-13）
+
+启动摘要增加项目 basename（非身份，截图隐私下遮罩）与声明的规则版本；不把声明版本当成本机安装证明。`ctxpect-status-v1.project_label` 是可选的本地显示字段，原 `project` 脱敏标记与 project_digest 身份不变。浏览器检查省略 codex_home 时沿用 daemon 启动时显式授权的根，不能扩展到其他根。
+
+Doctor 将确认状态与影响分列，解释完整审计计数，并提供只改变视图的范围筛选，详见 [Doctor 规则](../process/doctor-rule-map.md)。体检的 pass 明确限定静态指令解析，不替代 Doctor 项目审计、模型消费证据或写入授权。未加载的 facet 不渲染成已评估的 Unknown。
+
+集成/资产目录只从 active_coordinate 的条目推导整页版本状态；其他工具保留逐行 Unknown/unsupported，不影响当前选择。结构化集成、证据解释、预算状态与本地日期优先展示，原始 JSON 保留在可展开区域。会话空状态引导显式导入文件；检查项目不会导入会话。记录、实验与同步显示当前 store 边界。
+
+UI 请求有 30 秒等待上限；超时显示 api.timeout 与下一步，而非无限 loading 或证据 Unknown。取消只停止前端等待，不宣称中止已进入服务端的检查。

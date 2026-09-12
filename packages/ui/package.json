@@ -9,7 +9,7 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
-    "test": "node --test tests/routes.test.mjs tests/i18n.test.mjs tests/mask.test.mjs tests/page-state.test.mjs tests/settings-form.test.mjs tests/contrast.test.mjs tests/generation.test.mjs tests/render.test.mjs"
+    "test": "node --test tests/routes.test.mjs tests/i18n.test.mjs tests/mask.test.mjs tests/page-state.test.mjs tests/settings-form.test.mjs tests/contrast.test.mjs tests/generation.test.mjs tests/render.test.mjs tests/evidence-presentation.test.mjs"
   },
   "dependencies": {
     "react": "18.3.1",

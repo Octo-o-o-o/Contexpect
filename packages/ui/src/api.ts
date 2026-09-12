@@ -32,8 +32,10 @@ function envelopeError(data: unknown): { code: string; message: string } | null 
  */
 export async function requestJson(path: string, init?: RequestInit): Promise<ApiResult> {
   let data: unknown;
+  const timeout = AbortSignal.timeout(30_000);
+  const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
   try {
-    const res = await fetch(path, { headers, ...init });
+    const res = await fetch(path, { headers, ...init, signal });
     data = await res.json();
   } catch (error: unknown) {
     // Includes AbortError; a cancelled request is reported as such rather
@@ -42,7 +44,9 @@ export async function requestJson(path: string, init?: RequestInit): Promise<Api
       ok: false,
       kind: "transport",
       code:
-        error instanceof DOMException && error.name === "AbortError"
+        timeout.aborted && !init?.signal?.aborted
+          ? "api.timeout"
+          : error instanceof DOMException && error.name === "AbortError"
           ? "api.cancelled"
           : "api.unreachable",
       message: String(error),

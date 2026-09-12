@@ -2335,12 +2335,15 @@ fn http_json(raw: &str) -> Value {
 
 /// Start a daemon on an ephemeral port and return it with its address.
 fn start_daemon(scratch: &Scratch, store: &Path) -> (ChildGuard, String) {
+    start_daemon_with_home(scratch, store, None)
+}
+
+fn start_daemon_with_home(scratch: &Scratch, store: &Path, home: Option<&Path>) -> (ChildGuard, String) {
     use std::thread;
     use std::time::Duration;
 
-    let mut child = ChildGuard::new(
-        Command::new(bin())
-            .args([
+    let mut command = Command::new(bin());
+    command.args([
                 "daemon",
                 "start",
                 "--project",
@@ -2349,10 +2352,11 @@ fn start_daemon(scratch: &Scratch, store: &Path) -> (ChildGuard, String) {
                 store.to_str().unwrap(),
                 "--listen",
                 "127.0.0.1:0",
-            ])
-            .spawn()
-            .expect("daemon"),
-    );
+            ]);
+    if let Some(home) = home {
+        command.arg("--codex-home").arg(home);
+    }
+    let mut child = ChildGuard::new(command.spawn().expect("daemon"));
     let addr_file = store.join("daemon.addr");
     let mut listen = String::new();
     for _ in 0..80 {
@@ -2377,6 +2381,25 @@ fn start_daemon(scratch: &Scratch, store: &Path) -> (ChildGuard, String) {
         thread::sleep(Duration::from_millis(50));
     }
     panic!("daemon never became healthy");
+}
+
+#[test]
+fn browser_inspect_inherits_only_the_home_granted_at_daemon_start() {
+    let project = Scratch::new("http-inherit-project");
+    let home = Scratch::new("http-inherit-home");
+    project.write("AGENTS.md", "project rules\n");
+    home.write("AGENTS.md", "global rules\n");
+    let store = project.path.join("store");
+    let (_daemon, listen) = start_daemon_with_home(&project, &store, Some(&home.path));
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/inspect", "{}");
+    assert_eq!(status, 200, "{raw}");
+    let receipt = http_json(&raw).get("receipt").cloned().unwrap();
+    let layers = receipt.get("layers").and_then(Value::as_array).unwrap();
+    let global = layers.iter().find(|layer| layer.get("id").and_then(Value::as_str) == Some("global")).unwrap();
+    assert_eq!(global.get("adopted").and_then(Value::as_str), Some("AGENTS.md"));
+    assert_eq!(global.get("unknown_reason_code"), Some(&Value::Null));
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/inspect", &format!(r#"{{"codex_home":"{}"}}"#, project.path.display()));
+    assert_ne!(status, 200, "unexpected scope expansion: {raw}");
 }
 
 /// Same as [`start_daemon`], with a UI root so the static file server runs.
@@ -4026,7 +4049,7 @@ fn codex_static_to_safe_write_loop_closes_end_to_end() {
         facets
             .pointer(&["installed", "unknown_reason_code"])
             .and_then(Value::as_str),
-        Some("not_installed")
+        Some("runtime_snapshot_missing")
     );
     let old_receipt_id = json
         .get("formal_receipt_id")

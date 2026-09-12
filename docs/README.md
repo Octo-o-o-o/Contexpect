@@ -4,8 +4,8 @@
 > 当前仓库是产品定义、架构合同与验收基线。WP-02 的开发切片已提供可构建的
 > `ctxpect inspect`（Codex 与 Claude Code 两个 anchor 的 `instructions`，静态只读）；另有
 > Receipt 迁移、JSON ledger、Doctor（20 条语料规则）、localhost UI 与 macOS 已验的 Tauri 壳。
-> 其余 OS lane 的 WebView、SQLite/FTS5 引擎、E2EE 与其余完整验收尚未实施；逐项见
-> [交付状态](process/2026-09-08-delivery-status.md)。
+> 其余 OS lane 的 WebView、SQLite/FTS5 引擎与完整验收仍未完成。外部 age/SSHSIG 加密适配器、真实 Effect runner 与周期静态监测已有阶段实现，当前证据见
+> [运行与发行接续](plan/2026-09-12-runtime-and-release-execution.md)；历史基线见 [交付状态](process/2026-09-08-delivery-status.md)。
 
 ## 阅读顺序
 

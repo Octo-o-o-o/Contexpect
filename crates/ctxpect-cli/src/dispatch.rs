@@ -678,7 +678,7 @@ pub fn persist_inspect(
 }
 
 /// Largest file the Doctor content rules read in full. Larger files are
-/// scanned by name only; the collector still digests them whole.
+/// scanned by name only. Doctor does not hash their unread bodies.
 const DOCTOR_READ_CAP: u64 = 1_048_576;
 
 /// The project as the Doctor content rules see it: every regular, non-withheld
@@ -686,7 +686,7 @@ const DOCTOR_READ_CAP: u64 = 1_048_576;
 /// with their targets as written. Nothing is executed or extracted.
 pub fn scan_project_for_doctor(root: &Root) -> Result<Vec<ScannedFile>, InspectFailure> {
     let inventory =
-        ctxpect_collect::scan(root).map_err(|err| fail("io.unresolvable", err.to_string()))?;
+        ctxpect_collect::scan_metadata(root).map_err(|err| fail("io.unresolvable", err.to_string()))?;
     let mut files = Vec::new();
     for entry in &inventory.entries {
         match entry.kind {

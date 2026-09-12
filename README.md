@@ -1,6 +1,6 @@
 # Contexpect
 
-> 状态：规范与验收合同已冻结；产品运行时**尚未实施**。
+> 状态：规范与验收合同已冻结；产品已有阶段实现，**完整产品尚未验收**。
 > WP-02 的开发切片提供了可构建的只读 `ctxpect inspect`（见[快速开始](#快速开始)）。
 > Expected. Observed. Reconciled.
 
@@ -12,8 +12,8 @@ CLI 名称：`ctxpect`
 
 本仓库当前交付的是完整产品合同、架构文档、开源治理文件、PRD §17.0 验收基线，WP-02
 的 `ctxpect inspect` 切片，以及后续 crate 中的 Receipt 迁移、JSON ledger、Doctor/diff/policy
-与 localhost UI。完整 WP-02–WP-12 验收、Tauri 全 OS WebView、SQLite/FTS5 引擎与真实 oracle
-**尚未实施**。不要把生成夹具或设计图理解为已经跑通的产品，也不要把单 anchor 的
+与 localhost UI。外部加密同步、真实 command runner、原生 oracle 采集与周期静态监测也已有阶段实现，见[当前运行证据](docs/plan/2026-09-12-runtime-and-release-execution.md)。完整 WP-02–WP-12 验收、Tauri 全 OS WebView、SQLite/FTS5 引擎与冻结 oracle 全量语义对账
+**仍未完成**。不要把生成夹具或设计图理解为已经跑通的产品，也不要把单 anchor 的
 静态 `inspect` 当作完整 WP-02。
 
 ## 快速开始
@@ -40,7 +40,7 @@ CORPUS=acceptance/corpus/development/static/inputs
 | 命令尾部 | 含义 | exit |
 | --- | --- | ---: |
 | `..._instructions__positive` | 规则命中，指令被纳入 | 0 |
-| `..._instructions__negative` | 被 `.ctxpect-ignore` 列出的 `AGENTS.md` 排除（G4 产品排除，不是 Codex 原生规则），required 判定为 absent | 2 |
+| `..._instructions__negative` | 被 `.ctxpect-ignore` 列出的 `AGENTS.md` 排除（G4 产品观察范围排除，不是 Codex 原生规则），required 证据为 indeterminate | 3 |
 | `--require tool-invocation ..._tool-invocation__indeterminate` | 本切片未解析该能力，诚实报 Unknown | 3 |
 
 完整参数见 `ctxpect --help`。常用的几个：`--json` 输出机器可读结果；`--codex-home <dir>`
@@ -59,7 +59,7 @@ CORPUS=acceptance/corpus/development/static/inputs
 anchor 的 `instructions`（Codex 0.147.0、Claude Code 2.1.259）；其余 16 个 adapter family 与
 其余 capability 在 `corpus-conformance` 门禁里如实计为未实现。Receipt 本地连续性签名、diff、
 JSON store、daemon API 与 UI 已有阶段实现（见下表与[交付状态](docs/process/2026-09-08-delivery-status.md)）；
-组织级签名、SQLite/FTS5、E2EE 尚未实施。
+SQLite/FTS5、完整组织信任与跨设备语义对账仍未完成；外部 age/SSHSIG 加密 transport 已有实现，不能等同完整 E2EE 工作包验收。
 
 ## 当前实现状态
 

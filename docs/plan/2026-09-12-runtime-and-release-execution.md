@@ -72,3 +72,17 @@ ctxpect experiment --execute --adapter command-v1 --from /absolute/path/to/new-e
 adapter 通过已有 Codex 登录启动真实模型；只保存判分标签、usage、元数据及摘要，不自行保存原始模型响应。Codex 自身保留本次新建的合成会话。首个 native 完成/身份/隔离故障会留下 stop 记录，后续 invocation 不再启动模型；要修复或重做必须显式开启新的实验，不能覆盖已冻结目录。
 
 E-LUNA-01 验证的是这个固定合同判断坐标的真实 runner，尚不等于真实 coding-task benchmark、全部模型或 WP-10 的完整验收。
+
+## 真实项目展示核验与修订（2026-09-13）
+
+针对真实仓库浏览器审计，本轮修正了二进制正文误判、目录状态串扰、证据范围与加载状态表达、记录时间显示，以及浏览器 inspect 未继承 daemon 已授权全局根的问题。根 README、AGENTS 与文档入口同步当前阶段实现状态，历史验收报告保留。
+
+复核既有合同后，撤回“可按测试目录直接排除凭据命中”的初步方向：测试 token 仍 fail-closed。Doctor 默认展示全项目审计，以只读筛选区分 Receipt 缺口、关联指令文件和其他项目文件；测试/历史路径仅作提示，不授予信任、不更改 CI。PNG 等已识别二进制容器不进入文本规则，但 Markdown 伪装前缀、普通文本错误扩展名与异常 UTF-8 仍有反例检查。普通 collect 内容摘要语义不变。
+
+真实仓库本轮 CLI Doctor 一次测得 10.847 秒，返回 exit 2（存在阻断，符合审计结果）；浏览器通过新构建 daemon 读到相同 127 confirmed、5 suspected、5 unknown、56 active_blocking，共 132 行，其中 Receipt 相关 6 行、关联指令文件命中 0 行、其他项目文件 126 行。此为该时点项目与未授权全局根的本地快照，不是稳定 benchmark，也不是 132 个当前上下文缺陷。PNG 误报消失；仓库内容变化后总数可变化。
+
+浏览器实查 Doctor 筛选及不变的总计、Inspector 六 facet 与未测预算、Checkup 静态 pass 边界、Receipt 列表与详情的本地时间、集成逐项状态、资产和同步配置说明。另在显式授权全局根的临时 daemon 中，通过页面检查确认全局与项目 AGENTS 两层静态采用；该授权不读取私人会话或凭据文件，声明的规则坐标仍不代表实际安装版本。当前仍缺运行期 installed/model-visible/use-evidence/outcome-affecting 的对应证据，不能把静态采用提升为真实消费证明。
+
+加载期间保持加载状态直到诊断完成；单次 HTTP 请求 30 秒超时会明确报告 api.timeout，不把超时当作 Unknown，也不宣称服务器已停止。扫描性能改善仅来自避免读取无需分析的大文件；未声称全部真实项目都在固定时间内完成。
+
+本轮 16 项 required gate 全部通过，UI unit 63/63、完整 Chromium E2E 43/43 通过（含真实 30 秒超时与诊断完成前持续 loading 的回归）。源码、产物与本地服务分别核验；原验收服务通过所有权 stop 更新，15 个 store 文件在重启前逐一校验备份，原历史保留，并继续使用原地址。以上为宿主自检与浏览器实查，不称独立 reviewer GREEN，也不替代冻结全系统发行验收。

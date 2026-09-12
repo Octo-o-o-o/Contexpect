@@ -6,6 +6,7 @@ import { t, type Locale } from "./i18n";
 import { asObj, postJson, requestJson, type Json } from "./api";
 import { projectFieldValue, projectVisible, revealed } from "./mask";
 import { classifyFailure, classifyPayload } from "./page-state";
+import { displayTime, findingScope, findingSource } from "./evidence-presentation";
 import { stateApplies } from "./page-contract";
 import {
   changedFields,
@@ -195,7 +196,6 @@ export function App() {
     const receiptObj = asObj(out.receipt);
     setReceipt(receiptObj);
     setDoctor({});
-    setStatus(out.stale === true ? "stale" : "idle");
 
     // The diagnosis is asked for *this* Receipt by id. Without the id the
     // daemon would answer for whichever Receipt is current, and a later
@@ -398,7 +398,9 @@ export function App() {
           </div>
         </div>
         <div className="coordinate-summary" data-testid="startup-coordinate">
-          {String(bootstrap.project ?? "—")} · {String(asObj(receipt.coordinate).harness ?? asObj(bootstrap.coordinate).harness ?? "—")}
+          {showProject ? String(bootstrap.project_label ?? bootstrap.project ?? "—") : "••••"} · {String(asObj(receipt.coordinate).harness ?? asObj(bootstrap.coordinate).harness ?? "—")}
+          {" · "}{String(asObj(receipt.coordinate).version ?? asObj(bootstrap.coordinate).version ?? "—")}
+          {" · "}{t(locale, "declaredCoordinate")}
           {" · "}{String(receipt.receipt_id ?? "—")}
           {" · "}{t(locale, "snapshotOrigin")}: {String(bootstrap.selection ?? "—")}
           {" · "}{t(locale, "freshness")}: {String(asObj(bootstrap.staleness).status ?? "unknown")}
@@ -696,12 +698,15 @@ function DoctorPage({
   onCopy: (event: ClipboardEvent) => void;
 }) {
   const [selected, setSelected] = useState(0);
+  const [scopeFilter, setScopeFilter] = useState("all");
   const [symptom, setSymptom] = useState("");
   const [collectStatus, setCollectStatus] = useState("");
   const [collectError, setCollectError] = useState("");
   const [collectResult, setCollectResult] = useState<Json>({});
   const counts = asObj(doctor.counts);
-  const finding = findings[selected];
+  const scopedFindings = findings.map((item, index) => ({ item, index, scope: findingScope(item, receipt) }));
+  const visibleFindings = scopedFindings.filter(({ scope }) => scopeFilter === "all" || scope === scopeFilter);
+  const finding = visibleFindings.find(({ index }) => index === selected)?.item ?? visibleFindings[0]?.item;
 
   /**
    * Change the drawer's subject.
@@ -784,10 +789,21 @@ function DoctorPage({
             <div className="stat-cap">{t(locale, "statCapUnknown")}</div>
           </div>
         </div>
-        <p className="muted">{String(counts.note ?? "")}</p>
+        <p className="muted">{t(locale, "auditCountsNote")}</p>
+        <p data-testid="audit-scope-note">{t(locale, "auditScopeNote")}</p>
+        <p className="muted">{t(locale, "contextLinkNote")}</p>
+        <label>{t(locale, "findingScope")}{" "}
+          <select aria-label={t(locale, "findingScope")} value={scopeFilter} onChange={(e) => setScopeFilter(e.target.value)}>
+            <option value="all">{t(locale, "scopeAll")} ({findings.length})</option>
+            {([['receipt', 'scopeReceipt'], ['linked-file', 'scopeLinked'], ['project', 'scopeProject']] as const).map(([value, key]) => (
+              <option key={value} value={value}>{t(locale, key)} ({scopedFindings.filter((item) => item.scope === value).length})</option>
+            ))}
+          </select>
+        </label>
         {typeof counts.active_confirmed === "number" ? <p data-testid="active-counts">
           {t(locale, "activeFindings")}: {String(counts.active_confirmed)} / {String(counts.active_blocking ?? "—")}
         </p> : null}
+        {findings.length > 0 && visibleFindings.length === 0 ? <p>{t(locale, "noMatchingFindings")}</p> : null}
         {findings.length === 0 ? (
           <p>{t(locale, Object.keys(counts).length === 0 ? "diagnosisNotRun" : "emptyFindings")}</p>
         ) : (
@@ -809,9 +825,9 @@ function DoctorPage({
               </tr>
             </thead>
             <tbody>
-              {findings.map((item, index) => {
-                const severity = item.severity === "confirmed" || item.severity === "suspected"
-                  ? item.severity : "";
+              {visibleFindings.map(({ item, index, scope }) => {
+                const severity = item.confirmation === "confirmed" || item.confirmation === "suspected"
+                  ? item.confirmation : "";
                 const surfaces = Array.isArray(item.affected_surfaces)
                   ? item.affected_surfaces
                   : [];
@@ -821,7 +837,7 @@ function DoctorPage({
                     tabIndex={0}
                     // Selection is announced, so the drawer's content change is
                     // not silent for assistive tech.
-                    aria-selected={index === selected}
+                    aria-selected={item === finding}
                     // While a collection is running the selection is frozen:
                     // switching would land the result on a different finding.
                     aria-disabled={collectStatus === "loading"}
@@ -845,6 +861,8 @@ function DoctorPage({
                     </td>
                     <td>
                       <div className="f-title">{String(item.title)}</div>
+                      <span className="pill">{t(locale, scope === "receipt" ? "scopeReceipt" : scope === "linked-file" ? "scopeLinked" : "scopeProject")}</span>
+                      {findingSource(item) !== "file" ? <span className="pill">{t(locale, findingSource(item) === "corpus" ? "sourceCorpus" : findingSource(item) === "history" ? "sourceHistory" : "sourceTest")}</span> : null}
                       {item.suppressed === true ? <span className="pill">{t(locale, "suppressedFinding")}</span> : null}
                       <div className="f-meta">
                         <span className="mono">{String(item.finding_id)}</span>
@@ -868,7 +886,7 @@ function DoctorPage({
                     <td>{String(item.impact)}</td>
                     <td>
                       <span className="f-firstseen">
-                        {item.first_seen === "current-receipt" ? t(locale, "firstSeenUntracked") : String(item.first_seen ?? "—")}
+                        {item.first_seen === "current-receipt" ? t(locale, "firstSeenUntracked") : displayTime(item.first_seen, locale)}
                       </span>
                     </td>
                   </tr>
@@ -1072,11 +1090,17 @@ function CheckupPage({
       <h1>{t(locale, "checkup")}</h1>
       <p className="page-sub">{t(locale, "checkupLead")}</p>
       <p>
-        {t(locale, "statusLabel")}: {status}
+        {t(locale, "statusLabel")}: {status === "idle" ? t(locale, receipt.receipt_id ? "checkCompleted" : "awaitingCheck") : t(locale, status)}
       </p>
       <SharedStateBanner route="/checkup" verdict={verdict} locale={locale} onRetry={onRetry} />
       {error ? <p role="alert">{error}</p> : null}
-      <pre className="mono">{JSON.stringify(receipt.policy_result ?? {}, null, 2)}</pre>
+      {receipt.receipt_id ? <>
+        <h2>{t(locale, "staticCheckScope")}</h2>
+        <p data-testid="static-check-result">{String(asObj(receipt.policy_result).verdict ?? "unknown")}</p>
+        <p>{t(locale, "staticCheckLimit")}</p>
+        <Link to="/doctor">{t(locale, "scopeAll")}</Link>{" · "}<Link to="/policy">{t(locale, "policy")}</Link>
+        <RawJsonDetails data={receipt.policy_result} locale={locale} />
+      </> : <p>{t(locale, status === "loading" ? "loadingEvidence" : "awaitingCheck")}</p>}
     </section>
   );
 }
@@ -1105,7 +1129,7 @@ function InspectorPage({
         <a href="#why">{t(locale, "whyHere")}</a> · <a href="#how">{t(locale, "howKnow")}</a>
       </p>
       <SharedStateBanner route="/inspector" verdict={verdict} locale={locale} onRetry={onRetry} />
-      <div className="facet-grid">
+      {Object.keys(facets).length === 0 ? <p>{t(locale, verdict ? "awaitingCheck" : "loadingEvidence")}</p> : <div className="facet-grid">
         {FACETS.map((name) => {
           const claim = asObj(facets[name]);
           const truth = String(claim.truth_state ?? "unknown");
@@ -1125,6 +1149,7 @@ function InspectorPage({
               <div className="f-axis">
                 {t(locale, "knowledgeStatus")}: {String(claim.knowledge_status ?? "")}
               </div>
+              {name === "installed" && truth === "indeterminate" ? <p>{t(locale, "evidenceNotObserved")}</p> : null}
               <EvidencePill
                 locale={locale}
                 kind={
@@ -1138,16 +1163,35 @@ function InspectorPage({
             </div>
           );
         })}
-      </div>
+      </div>}
       <h2>{t(locale, "budget")}</h2>
       <p className="muted">{t(locale, "budgetUnknownNote")}</p>
       <div id="how">
+        <table data-testid="budget-status">
+          <thead><tr><th>{t(locale, "budgetCell")}</th><th>{t(locale, "statusLabel")}</th><th>{t(locale, "reasonCodeLabel")}</th></tr></thead>
+          <tbody>{Object.entries(budget).filter(([, value]) => value && typeof value === "object").map(([key, value]) => (
+            <tr key={key}><td>{key}</td><td>{asObj(value).status === "unknown" ? t(locale, "budgetNotMeasured") : String(asObj(value).status ?? "—")}</td><td>{String(asObj(value).reason_code ?? "—")}</td></tr>
+          ))}</tbody>
+        </table>
         <MaskedText text={JSON.stringify(budget, null, 2)} hold={hold} locale={locale} onCopy={onCopy} />
       </div>
       <h2 id="why">{t(locale, "whyHere")}</h2>
-      <pre className="mono">{JSON.stringify(receipt.explanation ?? [], null, 2)}</pre>
+      <ExplanationView receipt={receipt} locale={locale} />
     </section>
   );
+}
+
+function ExplanationView({ receipt, locale }: { receipt: Json; locale: Locale }) {
+  const entries = Array.isArray(receipt.explanation) ? receipt.explanation.map(asObj) : [];
+  return <>
+    <ul className="evidence-explanations">{entries.map((entry, index) => <li key={index}>
+      <strong>{entry.kind === "included" ? t(locale, "evidenceIncluded") : entry.kind === "unknown" ? t(locale, "evidenceUnknown") : String(entry.kind ?? "—")}</strong>{" · "}
+      <code>{String(entry.path ?? entry.facet ?? "—")}</code>
+      <p>{String(entry.why ?? "")}</p>
+      {entry.next_evidence ? <p>{t(locale, "nextStepLabel")}: {String(entry.next_evidence)}</p> : null}
+    </li>)}</ul>
+    <RawJsonDetails data={receipt.explanation ?? []} locale={locale} />
+  </>;
 }
 
 function ComparePage({ locale }: { locale: Locale }) {
@@ -1397,8 +1441,8 @@ type Resource = {
 /**
  * Fetch one resource and classify the outcome into a C04 state.
  *
- * The in-flight request is abortable, so "cancel" actually stops the work
- * rather than only hiding it. Retry re-sends the same request and changes no
+ * Cancel aborts the browser request; it does not certify server cancellation.
+ * Retry re-sends the same request and changes no
  * parameter, so it cannot widen an authorization that was refused.
  */
 function useResource(path: string, retainSnapshot = false): Resource {
@@ -1411,7 +1455,7 @@ function useResource(path: string, retainSnapshot = false): Resource {
     data: null,
   });
   const controller = useRef<AbortController | null>(null);
-  // Abort stops the work; the generation stops a late answer that already
+  // Abort stops the browser request; the generation stops a late answer that already
   // left the daemon from touching a newer request's state (C01/C40).
   const generation = useRef(createGeneration());
 
@@ -1508,7 +1552,7 @@ export function StateBanner({
           </span>
         ) : null}
         <p className="sb-body">
-          {t(locale, "nextStepLabel")}: {t(locale, STATE_NEXT[status] ?? "nextError")}
+          {t(locale, "nextStepLabel")}: {t(locale, reasonCode === "api.timeout" ? "timeoutNext" : route === "/sessions" && status === "empty" ? "sessionsEmptyNext" : STATE_NEXT[status] ?? "nextError")}
         </p>
         {!declared ? (
           // The contract said this page could not reach this state. Surface the
@@ -1556,6 +1600,7 @@ function StateView({
   return (
     <section className="panel">
       <Heading>{title}</Heading>
+      {["/receipts", "/sessions", "/lab"].includes(route) ? <p>{t(locale, "localStoreScope")}</p> : null}
       <button type="button" className="secondary" disabled={res.status === "loading"} onClick={res.retry}>
         {t(locale, "refresh")}
       </button>
@@ -1565,6 +1610,7 @@ function StateView({
       {res.status === "loading" ? (
         <p role="status" data-state="loading">
           <span className="loading-pulse">{t(locale, "loading")}</span>{" "}
+          <span>{t(locale, "loadingNext")}</span>{" "}
           <button type="button" onClick={res.cancel}>
             {t(locale, "cancel")}
           </button>
@@ -1697,7 +1743,7 @@ function ReceiptsListView({ data, locale }: { data: Json; locale: Locale }) {
                   </td>
                   <td>{String(row.receipt_kind ?? "")}</td>
                   <td>{String(row.harness ?? "")}</td>
-                  <td className="mono">{String(row.created_at ?? "")}</td>
+                  <td><time title={String(row.created_at ?? "")}>{displayTime(row.created_at, locale)}</time></td>
                   <td>
                     <code>{String(row.digest ?? "").slice(0, 16)}</code>
                   </td>
@@ -2602,8 +2648,14 @@ function ReceiptDetail({ locale }: { locale: Locale }) {
             <dd>{String(meta.receipt_kind ?? "—")}</dd>
             <dt>tombstone</dt>
             <dd>{String(meta.tombstone === true)}</dd>
+            <dt>{t(locale, "observedAt")}</dt>
+            <dd><time title={String(meta.created_at ?? "")}>{displayTime(meta.created_at, locale)}</time></dd>
+            <dt>{t(locale, "declaredCoordinate")}</dt>
+            <dd>{["harness", "version", "surface", "os_lane"].map((key) => String(asObj(meta.coordinate)[key] ?? "—")).join(" / ")}</dd>
           </dl>
-          <pre className="mono">{JSON.stringify(res.data, null, 2)}</pre>
+          <p>{t(locale, "staticCheckLimit")}</p>
+          <ExplanationView receipt={meta} locale={locale} />
+          <RawJsonDetails data={res.data} locale={locale} />
         </>
       ) : null}
     </section>
@@ -3216,6 +3268,12 @@ function SyncPage({ locale }: { locale: Locale }) {
       />
       <p className="muted">{t(locale, "syncDestFixed")}</p>
       <p className="muted" data-testid="sync-encrypted-notice">{t(locale, "syncEncryptedCli")}</p>
+      {status.data != null ? <div data-testid="sync-summary">
+        <p>{t(locale, "localStoreScope")}</p>
+        {asObj(status.data).encryption_reason_code === "sync.profile_required" ? <p>{t(locale, "syncNotConfigured")}</p> : null}
+        <dl className="kv"><dt>{t(locale, "syncGroups")}</dt><dd>{secureGroups.length}</dd>
+          <dt>{t(locale, "syncReceipts")}</dt><dd>{String(asObj(status.data).syncable_receipts ?? "—")}</dd></dl>
+      </div> : null}
       {secureGroups.length > 0 ? (
         <div data-testid="sync-secure-groups">
           <h2>{t(locale, "syncEncryptedGroups")}</h2>
@@ -3471,6 +3529,7 @@ function IntegrationsPage({ locale }: { locale: Locale }) {
       <div className="eyebrow">{t(locale, "navGroupActions")}</div>
       <h1>{t(locale, "integrations")}</h1>
       <p className="page-sub">{t(locale, "integrationsIndependence")}</p>
+      <p>{t(locale, "catalogNote")}</p>
       <AdapterCoverage locale={locale} />
       <StateView
         path="/api/v1/integrations"
@@ -3478,7 +3537,27 @@ function IntegrationsPage({ locale }: { locale: Locale }) {
         title={t(locale, "catalog")}
         locale={locale}
         headingLevel={2}
+        render={(data) => <IntegrationsView data={data} locale={locale} />}
       />
     </section>
   );
+}
+
+function IntegrationsView({ data, locale }: { data: Json; locale: Locale }) {
+  const families = Array.isArray(data.families) ? data.families.map(asObj) : [];
+  return <>
+    <div className="table-scroll"><table data-testid="integration-catalog"><thead><tr>
+      <th>{t(locale, "integrations")}</th><th>{t(locale, "declaredVersion")}</th><th>{t(locale, "catalogCapability")}</th>
+      <th>{t(locale, "installation")}</th><th>{t(locale, "authentication")}</th><th>{t(locale, "connector")}</th><th>{t(locale, "reasonCodeLabel")}</th>
+    </tr></thead><tbody>{families.map((family) => <tr key={String(family.family_id)} data-active-coordinate={String(family.active_coordinate === true)}>
+      <td><Link to={`/integrations/${encodeURIComponent(String(family.family_id))}`}>{String(family.family_name)}</Link>{family.active_coordinate === true ? <span className="pill">{t(locale, "catalogCurrent")}</span> : null}</td>
+      <td>{String(asObj(family.version).declared ?? "unknown")}</td>
+      <td>{t(locale, family.evidence_capability === "native" ? "covNative" : family.evidence_capability === "static-only" ? "covStaticOnly" : family.evidence_capability === "connector-required" ? "covNeedsConnector" : family.evidence_capability === "unsupported" ? "covUnsupported" : "unknown")}</td>
+      <td>{String(asObj(family.installation).status ?? "unknown")}</td>
+      <td>{String(asObj(family.authentication).status ?? "unknown")}</td>
+      <td>{String(asObj(family.connector).status ?? "unknown")}</td>
+      <td><code>{String(family.reason_code ?? "—")}</code></td>
+    </tr>)}</tbody></table></div>
+    <RawJsonDetails data={data} locale={locale} />
+  </>;
 }

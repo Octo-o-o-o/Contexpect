@@ -315,9 +315,20 @@ pub fn scan(root: &Root) -> Result<Inventory, Refusal> {
 /// complete one. The limit counts entries visited, which is what the
 /// `resource_limits.scan_files` setting is about.
 pub fn scan_with_limit(root: &Root, file_limit: Option<usize>) -> Result<Inventory, Refusal> {
+    scan_inventory(root, file_limit, true)
+}
+
+/// List names and lengths without reading file contents. This is not a content
+/// fingerprint: Doctor uses it to select bounded reads, not as a Receipt digest.
+/// Exclusions and symlink handling are identical to the content collector.
+pub fn scan_metadata(root: &Root) -> Result<Inventory, Refusal> {
+    scan_inventory(root, None, false)
+}
+
+fn scan_inventory(root: &Root, file_limit: Option<usize>, read_content: bool) -> Result<Inventory, Refusal> {
     let mut entries = Vec::new();
     let mut truncated = false;
-    walk(root, root.path(), &mut entries, file_limit, &mut truncated)?;
+    walk(root, root.path(), &mut entries, file_limit, &mut truncated, read_content)?;
 
     // Sorting by path is what makes the digest independent of directory order.
     entries.sort_by(|a, b| a.path.cmp(&b.path));
@@ -343,6 +354,7 @@ fn walk(
     out: &mut Vec<Entry>,
     file_limit: Option<usize>,
     truncated: &mut bool,
+    read_content: bool,
 ) -> Result<(), Refusal> {
     if file_limit.is_some_and(|limit| out.len() >= limit) {
         *truncated = true;
@@ -420,7 +432,7 @@ fn walk(
                 link_count: None,
                 identity: None,
             });
-            walk(root, &child, out, file_limit, truncated)?;
+            walk(root, &child, out, file_limit, truncated, read_content)?;
             if *truncated {
                 return Ok(());
             }
@@ -474,6 +486,21 @@ fn walk(
                 link_target: None,
                 link_count: None,
                 identity: None,
+            });
+            continue;
+        }
+
+        if !read_content {
+            out.push(Entry {
+                path: rel,
+                kind,
+                content_digest: None,
+                len: Some(meta.len()),
+                truncated: false,
+                withheld: None,
+                link_target: None,
+                link_count: None,
+                identity: FileIdentity::from_metadata(&meta),
             });
             continue;
         }

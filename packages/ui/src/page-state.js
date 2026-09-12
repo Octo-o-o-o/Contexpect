@@ -84,6 +84,14 @@ function reasonCodes(value, out = new Set(), depth = 0) {
     return out;
   }
   for (const [key, child] of Object.entries(value)) {
+    // A catalog is a list of independent coordinates. An unsupported sibling
+    // does not invalidate the selected harness or an asset action.
+    if (key === "families" && Array.isArray(child)) {
+      for (const family of child) {
+        if (family?.active_coordinate === true) reasonCodes(family, out, depth + 1);
+      }
+      continue;
+    }
     if ((key === "reason_code" || key === "connector") && typeof child === "string") {
       out.add(child);
     }

@@ -1,6 +1,6 @@
 //! Passivity, exclusion and digest stability, against a real filesystem.
 
-use ctxpect_collect::{scan, scan_with_limit, Entry, Inventory, Withheld};
+use ctxpect_collect::{scan, scan_metadata, scan_with_limit, Entry, Inventory, Withheld};
 use ctxpect_fs::{EntryKind, Root};
 use std::fs;
 use std::path::PathBuf;
@@ -43,6 +43,29 @@ impl Scratch {
 impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+#[test]
+fn metadata_scan_keeps_exclusions_and_never_claims_content_digests() {
+    let scratch = Scratch::new("metadata");
+    scratch.write("AGENTS.md", "rules\n");
+    scratch.write(".env", "do not read\n");
+    scratch.write("target/hidden", "excluded\n");
+    let large = fs::File::create(scratch.path.join("large.bin")).unwrap();
+    large.set_len(1024 * 1024 * 1024).unwrap();
+    let inventory = scan_metadata(&scratch.root()).unwrap();
+    assert!(inventory.with_content().is_empty());
+    assert_eq!(inventory.get("large.bin").unwrap().len, Some(1024 * 1024 * 1024));
+    assert_eq!(inventory.get(".env").unwrap().withheld, Some(Withheld::ExcludedFile));
+    assert!(inventory.get("target/hidden").is_none());
+    assert_eq!(inventory.get("target").unwrap().withheld, Some(Withheld::ExcludedDirectory));
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink("../outside", scratch.path.join("escape")).unwrap();
+        let inventory = scan_metadata(&scratch.root()).unwrap();
+        assert_eq!(inventory.get("escape").unwrap().kind, EntryKind::Symlink);
+        assert_eq!(inventory.get("escape").unwrap().link_target.as_deref(), Some("../outside"));
     }
 }
 

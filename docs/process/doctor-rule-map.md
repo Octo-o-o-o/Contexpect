@@ -98,3 +98,14 @@ Doctor 的 treatment 是**有限静态修复**；某条 indeterminate 证据是�
 - `stale` 对照显式 `as_of` 判定（C-F05）：crate 内不读时钟，corpus/测试注入固定 `STALE_CUTOFF`（2026-09-04）保持 golden 可复现，CLI 生产路径用系统当日或 `--as-of` 覆盖；finding 文案写出实际对照的日期。日期久只证明越过 365 天维护阈值，不是「文件内容错误」的语义判断。
 - 所有 20 条规则的 finding 均为 `confirmation: confirmed`（对字节确定性判定）；Unknown 不是 severity（C03）。
 - `doctor` 与 `ci` 的项目规则扫描读取项目内文件（经 collect 的排除清单：`.env`、密钥文件等不读），不读取 `$HOME`。
+
+
+## 本地真实项目展示修订（2026-09-13）
+
+Doctor 的项目审计仍覆盖 collect 默认排除清单之外的文件。测试夹具中的凭据形状继续按既有合同阻断；路径名为 tests/corpus 或用户声称是假凭据，不构成自动放行。UI 明示测试/历史路径提示，不更改确认状态、suppression 或 CI 的 active_blocking。
+
+页面区分 Receipt 本身的证据缺口、与该 Receipt 静态采用链关联的指令文件、其他项目文件审计。关联只表示路径来自记录，不证明当前字节未变或模型实际读取；重复/冲突涉及多文件，不能只因其中一个路径被采用就归为当前指令冲突。全部发现默认可见，筛选不会修改总计或阻断决定。
+
+内容规则识别 PNG/JPEG/GIF/ZIP/gzip/PDF/ELF/Mach-O 的二进制签名，不把这些容器的随机字节解释为隐藏 Unicode。Markdown 文件即使带二进制前缀仍检查；普通文本中的异常 UTF-8 字节也不跳过安全规则。扩展名本身不是豁免依据。Markdown 中提及 gitignored 文件只能证明提及，不能证明原生指令引用。
+
+Doctor 先获取与 collect 相同排除边界的元数据清单，再读取不超过 1 MiB 的候选文件，避免给不分析正文的大文件计算整文件摘要。该元数据清单不被当作内容摘要、Receipt 证据或已检查正文的证明；普通 collect 的整文件摘要合同保持。

@@ -969,7 +969,8 @@ fn inspect_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
         codex_home: parsed
             .get("codex_home")
             .and_then(Value::as_str)
-            .map(PathBuf::from),
+            .map(PathBuf::from)
+            .or_else(|| state.codex_home.clone()),
         require: vec!["instructions".into()],
         os_lane: coordinate.os_lane.clone(),
         store: None,
@@ -1136,6 +1137,9 @@ fn status_api(state: &AppState) -> (u16, &'static str, String) {
     json_ok(object([
         ("schema", string("ctxpect-status-v1")),
         ("project", string(if state.project.is_some() { "<project>" } else { "unset" })),
+        ("project_label", state.project.as_deref().and_then(Path::file_name)
+            .and_then(|name| name.to_str()).filter(|name| !ctxpect_doctor::contains_secret(name))
+            .map(string).unwrap_or(Value::Null)),
         ("coordinate", coordinate.to_value()),
         ("generation", Value::Int(state.generation.load(Ordering::SeqCst) as i64)),
         ("daemon", object([

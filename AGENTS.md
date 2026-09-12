@@ -1,6 +1,6 @@
 # AGENTS.md
 
-> 状态：规范（阶段实现进行中：17 个本地 crate、`ctxpect` CLI / daemon API、`packages/ui` 与 macOS 已验的 Tauri 壳已有阶段实现；SQLite/FTS5、E2EE、全矩阵 adapter、oracle 对账等尚未实施，逐项见 [交付状态](docs/process/2026-09-08-delivery-status.md)）
+> 状态：规范（阶段实现进行中：17 个本地 crate、`ctxpect` CLI / daemon API、`packages/ui` 与 macOS 已验的 Tauri 壳已有阶段实现；SQLite/FTS5、全矩阵 adapter 与 oracle 对账等仍未完成；E2EE 外部 age/SSHSIG 适配器、Effect runner 与周期静态监测已有实现，完整工作包尚未验收，当前证据见 [运行与发行接续](docs/plan/2026-09-12-runtime-and-release-execution.md)，历史基线见 [交付状态](docs/process/2026-09-08-delivery-status.md)）
 > 本文件只约束本仓库的项目级命令与不变量。它不覆盖 owner 的全局工作流、模型分工或监督预算。
 
 ## 项目是什么

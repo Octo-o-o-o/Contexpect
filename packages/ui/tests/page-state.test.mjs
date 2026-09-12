@@ -59,11 +59,11 @@ test("staleness in the payload beats every other content state", () => {
 test("unsupported version and missing connector come from real reason codes", () => {
   // These are payload reason codes the catalog emits, not HTTP error codes.
   const catalog = {
-    families: [{ family_id: "x", installation: { reason_code: "unsupported_harness_version" } }],
+    families: [{ family_id: "x", active_coordinate: true, installation: { reason_code: "unsupported_harness_version" } }],
   };
   assert.equal(classifyPayload(catalog).state, "unsupported-version");
 
-  const connector = { families: [{ family_id: "y", connector: "connector_required" }] };
+  const connector = { families: [{ family_id: "y", active_coordinate: true, connector: "connector_required" }] };
   assert.equal(classifyPayload(connector).state, "connector-missing");
 });
 

@@ -450,7 +450,7 @@ pub fn honesty_claims(reason: UnknownReason, surface_unexposed: bool) -> FacetCl
         installed: resolved_claim(
             LifecycleStage::Installed,
             TruthState::Indeterminate,
-            Some(UnknownReason::NotInstalled),
+            Some(UnknownReason::RuntimeSnapshotMissing),
             false,
         ),
         discoverable,
@@ -1176,7 +1176,7 @@ pub(crate) fn instruction_claims(included: bool) -> FacetClaims {
         installed: resolved_claim(
             LifecycleStage::Installed,
             TruthState::Indeterminate,
-            Some(UnknownReason::NotInstalled),
+            Some(UnknownReason::RuntimeSnapshotMissing),
             false,
         ),
         discoverable,
