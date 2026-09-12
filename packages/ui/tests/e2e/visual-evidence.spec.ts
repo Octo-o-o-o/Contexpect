@@ -66,7 +66,12 @@ async function snap(
 ): Promise<void> {
   const file = `${route}__${state}__${viewport}__${locale}.png`;
   const path = join(evidenceDir, file);
-  await page.screenshot({ path, fullPage: true });
+  // A native modal belongs to the viewport; expanding the capture to the
+  // entire Receipt document changes its rendering context in Chromium.
+  const modal = page.getByRole("dialog");
+  const modalOpen = await modal.isVisible();
+  await page.screenshot({ path, fullPage: !modalOpen });
+  if (modalOpen) await expect(modal).toBeVisible();
   const sha256 = createHash("sha256").update(readFileSync(path)).digest("hex");
   entries.push({ file, route, state, viewport, locale, sha256, proves, doesNotProve });
 }
