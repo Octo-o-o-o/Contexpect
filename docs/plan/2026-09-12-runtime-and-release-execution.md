@@ -35,3 +35,40 @@ Grok 实装版本为 1.0.13；系统 Codex 为 0.153.3。本轮额外取官方 0
 测试密钥、真实工具、原始运行日志与包保留在忽略的本地任务目录，不发布私人路径或密钥。上述 smoke 脚本均接收 `--bin`；同步脚本另需显式 age/age-keygen，native 脚本需显式 Codex/Grok。
 
 完整工作包仍需：同步原生落地及跨设备语义核对、组织密钥/信任流程、Git provider；真实模型 Effect 的 harness/model/调用预算与外部 gate 证据；完整冻结三 OS build、签名安装/升级/卸载与恢复、72h、50 sessions/四周期、8 人六任务 QA、独立 readback。模拟人工操作只覆盖软件可复现路径，不能代签人的评价。历史状态文档保留历史语境。
+
+
+## 真实模型实验 E-LUNA-01（2026-09-12）
+
+按 owner 指定的 Codex `gpt-5.6-luna/max` 与 16 次调用预算，完成 8 组配对、32 道合成合同判断题。Codex native CLI 0.153.3 是本轮明确采用的开发期坐标，不修改冻结 native oracle 的 0.147.0 pin。无需第二个模型，未调用 Grok。
+
+开跑前冻结 `tests/effect/contract-context-suite-v1.json` 的题目、选项、golden、合同上下文、source revision 与 digest。控制组不提供额外合同摘录，处理组只增加对应摘录；两组问题、模型、effort、schema、判分器一致。主指标为每个 task 的四题全部答对，逐题分数只作描述。顺序按 task 交替 control-first / treatment-first；没有在观察结果后补样本。n=8 的 power 声明仅基于“独立配对、benefit-only discordance=0.85”的大效应设计假设（0.894787），不代表对一般 10pp 差异或真实开发任务具备该检验力。
+
+| 指标 | Control | Treatment |
+| --- | --- | --- |
+| 完成并通过 native 身份/协议核验 | 8/8 | 8/8 |
+| 主指标：整组四题全对 | 6/8 | 8/8 |
+| 逐题正确数（描述性） | 30/32 | 32/32 |
+
+配对 discordant 为 treatment-only 2、control-only 0；两侧精确检验 `p=0.50`，产品返回 `inconclusive / effect.estimator_inconclusive`，exit 3。exit 3 在此表示实验已完成但统计结论不确定，不是 16 次执行失败；没有支持 beneficial、harmful 或 equivalent，也没有 causal Claim。两个 control 错题是：把静态匹配当作 model-visible，以及把 `--as-of` suppression 的 UTC 正午评估误选为当地零点。
+
+16 次新会话均从自身 native `turn_context` 核对为 Luna/max、read-only、approval never；从各自 input 记录精确回读冻结 prompt；没有工具事件、超时、锁定字段漂移或重复调用。另一次宿主确定性回读将每条 gate 文件 hash、协议 stdout hash、产品 executor receipt、checkpoint run、逐题答案及配对 p 值逐项核对一致。这是宿主回读，不称独立 reviewer GREEN。聚合 usage 为 input 274,906、output 3,295（其中 reasoning 2,735，已包含在 output 内）；provider 内部重试次数不由 CLI 暴露，不将 16 次 CLI invocation 当作可验证的精确 provider request 数。
+
+可发布的逐 run 脱敏摘要见 [E-LUNA-01 结果](../process/2026-09-12-effect-luna-max-result.json)。原始本地 profile、request、preregistration、checkpoint 和 gate 记录留在忽略的任务目录；不发布 HOME、proxy 或 native session id。后续再跑必须新建合同与预算，不能为追求显著性续接本实验。
+
+### 复现工具
+
+`scripts/codex_effect_runner.py` 是 command-v1 的外部 Codex adapter；`scripts/prepare_codex_effect.py` 只准备独立临时 store、固定数据集副本、profile、launcher pin 和请求，不调用模型。例：
+
+```bash
+python3 scripts/prepare_codex_effect.py --codex /absolute/path/to/native-codex --model gpt-5.6-luna --effort max --output /absolute/path/to/new-experiment
+```
+
+必须传原生可执行文件而不是解析到其它版本的 shell wrapper。准备器仅在新建的实验 store 写两项本地执行 grant，不修改用户既有 policy 或读取 auth 文件。获得该轮实际调用授权后运行：
+
+```bash
+ctxpect experiment --execute --adapter command-v1 --from /absolute/path/to/new-experiment/request.json --project /absolute/path/to/new-experiment/project --store /absolute/path/to/new-experiment/store --json
+```
+
+adapter 通过已有 Codex 登录启动真实模型；只保存判分标签、usage、元数据及摘要，不自行保存原始模型响应。Codex 自身保留本次新建的合成会话。首个 native 完成/身份/隔离故障会留下 stop 记录，后续 invocation 不再启动模型；要修复或重做必须显式开启新的实验，不能覆盖已冻结目录。
+
+E-LUNA-01 验证的是这个固定合同判断坐标的真实 runner，尚不等于真实 coding-task benchmark、全部模型或 WP-10 的完整验收。

@@ -1,0 +1,466 @@
+{
+  "schema": "ctxpect-contract-context-suite-v1",
+  "license": "Apache-2.0",
+  "sensitivity": "public-synthetic",
+  "live_tested": false,
+  "scope": "Eight synthetic Contexpect contract-reasoning tasks; not a coding-throughput benchmark or frozen native oracle.",
+  "tasks": [
+    {
+      "id": "facets",
+      "contract_context": "Contexpect 的 Installed、Discoverable、Eligible、Model-visible、UseEvidence、Outcome-affecting 是六个独立 facet，前者不蕴含后者。Resolved Context 是规范与坐标计算的 expected context；Observed Context 需要原生或受控运行时证据；Context Effect 需要有门禁的受控对照。LLM 建议不得写入 Claim provenance、policy、CI 或 baseline。",
+      "sources": [
+        {
+          "path": "docs/requirements/2026-09-04-contexpect-complete-product-requirements.md",
+          "sha256": "e39f03884c7a48cad773c88e8e10e5f01cac7fed0613d03e4712912e7df1650d"
+        },
+        {
+          "path": "AGENTS.md",
+          "sha256": "cd1c3405cf8affc458dd8037537ad0ff118977a4d7dabdef91dbdd860209c7d9"
+        }
+      ],
+      "questions": [
+        {
+          "id": "f1",
+          "question": "静态 resolver 确认某 instruction 文件存在且匹配 cwd，但没有 runtime 证据。Model-visible 应如何记录？",
+          "options": {
+            "A": "present",
+            "B": "absent",
+            "C": "indeterminate",
+            "D": "not-applicable"
+          },
+          "expected": "C"
+        },
+        {
+          "id": "f2",
+          "question": "原生 wrapper 记录了一次工具 invocation，但没有对照实验。Outcome-affecting 应如何记录？",
+          "options": {
+            "A": "present",
+            "B": "indeterminate",
+            "C": "absent",
+            "D": "not-applicable"
+          },
+          "expected": "B"
+        },
+        {
+          "id": "f3",
+          "question": "LLM 根据语义认为一条配置过时，这个输出应成为哪种对象？",
+          "options": {
+            "A": "native-runtime Claim",
+            "B": "组织 policy",
+            "C": "已确认 baseline",
+            "D": "non-authoritative candidate"
+          },
+          "expected": "D"
+        },
+        {
+          "id": "f4",
+          "question": "六个 facet 的关系应怎样向用户解释？",
+          "options": {
+            "A": "互不自动蕴含，逐项依据证据",
+            "B": "前五项自动推出第六项",
+            "C": "Installed 为 false 时所有项都是 false",
+            "D": "Eligible 和 Model-visible 同义"
+          },
+          "expected": "A"
+        }
+      ]
+    },
+    {
+      "id": "projection",
+      "contract_context": "ctxpect apply 只接受 intent preview 持久化的 tx。预览绑定 project，应用前必须检查目标摘要；不同项目为 projection.preview_scope，目标变化为 projection.concurrent_hash。预览消费状态为 previewed→applied→rolled-back；已应用或已回滚的 tx 再 apply 为 projection.tx_consumed。rollback 先比对 after_digest，目标被改时 projection.rollback_conflict。",
+      "sources": [
+        {
+          "path": "docs/guides/cli-reference.md",
+          "sha256": "0190646a8fd7c7aac336c78ab926e5ed9163cefcb83377d8f20dccb2416001e0"
+        }
+      ],
+      "questions": [
+        {
+          "id": "p1",
+          "question": "在项目 A 生成的 tx 原样拿到项目 B apply，其他检查均正常，应返回什么？",
+          "options": {
+            "A": "projection.concurrent_hash",
+            "B": "projection.preview_scope",
+            "C": "成功，因为 intent 相同",
+            "D": "重新计算 tx 后自动应用"
+          },
+          "expected": "B"
+        },
+        {
+          "id": "p2",
+          "question": "同项目预览后，用户改了目标文件，再 apply，其他检查均正常，应怎样处理？",
+          "options": {
+            "A": "覆盖用户修改",
+            "B": "自动三方合并",
+            "C": "projection.concurrent_hash",
+            "D": "静默生成新预览再应用"
+          },
+          "expected": "C"
+        },
+        {
+          "id": "p3",
+          "question": "某 tx 已 apply 后又 rollback，用该旧 tx 再次 apply 应怎样处理？",
+          "options": {
+            "A": "允许，已回到旧字节",
+            "B": "只核对当前内容即可",
+            "C": "复用 backup 直接应用",
+            "D": "projection.tx_consumed，需要新预览"
+          },
+          "expected": "D"
+        },
+        {
+          "id": "p4",
+          "question": "apply 后用户又编辑了目标，再 rollback，其他检查均正常，应怎样处理？",
+          "options": {
+            "A": "projection.rollback_conflict",
+            "B": "覆盖为 backup",
+            "C": "删除目标",
+            "D": "只报告成功不动文件"
+          },
+          "expected": "A"
+        }
+      ]
+    },
+    {
+      "id": "encrypted-sync",
+      "contract_context": "age-ssh-v1 对 envelope 的 schema、group、generation、parent、epoch、recipient set、sender、ciphertext digest 与 ciphertext 签名。只收取密文是 transport，native projection 和语义 Receipt 尚未完成；不能显示 semantic verified。recipient 移除后不得解密未来 bundle，但已下载历史不能撤回。相同父节点的不同已签名 head 是 fork，禁止静默选择。preview 有 15 分钟有效期且绑定 profile、head、输入；apply 必须重新核验。",
+      "sources": [
+        {
+          "path": "docs/security/encrypted-sync-protocol.md",
+          "sha256": "5d0fada00a768d32035fcc3ac0d767c056419c6398dc54f88476d2821ae4c6cb"
+        }
+      ],
+      "questions": [
+        {
+          "id": "s1",
+          "question": "B 已验签并解密、保存密文 head，但没有 native projection 或目标 harness Receipt，能否标记 semantic verified？",
+          "options": {
+            "A": "能，因为签名可信",
+            "B": "能，因为正文相同",
+            "C": "不能，只能报告 transport/structural-only",
+            "D": "能，因为 age 提供 AEAD"
+          },
+          "expected": "C"
+        },
+        {
+          "id": "s2",
+          "question": "recipient A 被移除并完成后续轮换，对 A 曾下载的旧 bundle 能做何承诺？",
+          "options": {
+            "A": "旧 bundle 远程擦除",
+            "B": "不承诺撤回旧数据，阻止其解密未来 bundle",
+            "C": "旧私钥自动失效，历史全不可读",
+            "D": "删除服务端副本即可销毁已下载数据"
+          },
+          "expected": "B"
+        },
+        {
+          "id": "s3",
+          "question": "收到同父节点、同代数、不同密文的另一可信 signed head，应该怎样处理？",
+          "options": {
+            "A": "按最新时间覆盖",
+            "B": "按 sender 名字排序选一个",
+            "C": "签名都可信就合并正文",
+            "D": "报告 fork，禁止静默选择"
+          },
+          "expected": "D"
+        },
+        {
+          "id": "s4",
+          "question": "preview 后等待 16 分钟才 apply，profile、head、输入都没变，如何处理？",
+          "options": {
+            "A": "拒绝旧预览并要求重新 preview",
+            "B": "允许，因为输入相同",
+            "C": "延长有效期并应用",
+            "D": "先应用再提示过期"
+          },
+          "expected": "A"
+        }
+      ]
+    },
+    {
+      "id": "effect-decisions",
+      "contract_context": "Effect Lab 四种 decision 是 supported-beneficial、supported-harmful、supported-equivalent-within-margin、inconclusive。未显著不等于等价。run 的 model/harness/code/tool 锁定值漂移、重复 run、样本不等于 n_planned 都强制 inconclusive。command-v1 的错误协议或总预算耗尽强制 inconclusive；timeout/crash 不删除，按预注册 ITT 保留。",
+      "sources": [
+        {
+          "path": "docs/guides/llm-advisor-and-effect-lab.md",
+          "sha256": "6e16ce0ce61ecaa962fedb70583a73aa20462b0808990cbecdb2e111fd6dcbc1"
+        }
+      ],
+      "questions": [
+        {
+          "id": "e1",
+          "question": "方向检验不显著，而且区间未完全落在等价 margin 内，应该给什么结论？",
+          "options": {
+            "A": "supported-equivalent-within-margin",
+            "B": "supported-beneficial",
+            "C": "supported-harmful",
+            "D": "inconclusive"
+          },
+          "expected": "D"
+        },
+        {
+          "id": "e2",
+          "question": "预注册 8 对，跑完后看起来差一点显著，于是又加入 2 对，其他条件不变，原实验应怎样判？",
+          "options": {
+            "A": "inconclusive，样本违反冻结 n_planned",
+            "B": "按全部 10 对宣称 supported",
+            "C": "只保留最有利的 8 对",
+            "D": "忽略冻结值重新命名结果"
+          },
+          "expected": "A"
+        },
+        {
+          "id": "e3",
+          "question": "control 的 runner 返回格式错误的成功进程输出，treatment 都成功，能按 control 失败直接宣称收益吗？",
+          "options": {
+            "A": "可以，退出码 0 就有观测",
+            "B": "不可以，协议错误强制 inconclusive",
+            "C": "可以，ITT 自动认证协议",
+            "D": "丢弃 control 再进行非配对检验"
+          },
+          "expected": "B"
+        },
+        {
+          "id": "e4",
+          "question": "预注册采用 count-as-fail 的 ITT，出现 timeout，应怎么处理原始 run？",
+          "options": {
+            "A": "删除并补样本",
+            "B": "改成 pass",
+            "C": "保留 timeout 并按 ITT 计入",
+            "D": "改 frozen_at 后重跑相同实验"
+          },
+          "expected": "C"
+        }
+      ]
+    },
+    {
+      "id": "doctor-time",
+      "contract_context": "doctor --as-of YYYY-MM-DD 同时固定 stale 规则和 suppression 过期评估日期；suppression 以该日 UTC 正午评估。不存在的日期是 usage.invalid，不静默截断。--fail-on 只接受 confirmed，其他值 usage.invalid；最终 exit 要合并 inspect 出码，无 AGENTS.md 时 inspect 自身可 exit 2。",
+      "sources": [
+        {
+          "path": "docs/guides/cli-reference.md",
+          "sha256": "0190646a8fd7c7aac336c78ab926e5ed9163cefcb83377d8f20dccb2416001e0"
+        }
+      ],
+      "questions": [
+        {
+          "id": "d1",
+          "question": "--as-of 2026-02-30 应发生什么？",
+          "options": {
+            "A": "截断为 2 月 28 日",
+            "B": "改用当前系统日期",
+            "C": "usage.invalid",
+            "D": "当作 3 月 2 日"
+          },
+          "expected": "C"
+        },
+        {
+          "id": "d2",
+          "question": "--as-of 2026-09-12 时，suppression 应相对哪个时间判断过期？",
+          "options": {
+            "A": "执行时系统时钟",
+            "B": "该日当地零点",
+            "C": "第一次导入时间",
+            "D": "该日 UTC 正午"
+          },
+          "expected": "D"
+        },
+        {
+          "id": "d3",
+          "question": "--fail-on arbitrary 应怎样处理？",
+          "options": {
+            "A": "当成没有阈值",
+            "B": "usage.invalid",
+            "C": "默认 confirmed",
+            "D": "只打印警告并 exit 0"
+          },
+          "expected": "B"
+        },
+        {
+          "id": "d4",
+          "question": "没有 AGENTS.md，Doctor 没有另一个 confirmed finding，可以仅因此强制 exit 0 吗？",
+          "options": {
+            "A": "不可以，还要合并 inspect 的 exit 2",
+            "B": "可以，Doctor findings 为空就是成功",
+            "C": "可以，--fail-on 覆盖全部出码",
+            "D": "必须永远 exit 1"
+          },
+          "expected": "A"
+        }
+      ]
+    },
+    {
+      "id": "ownership",
+      "contract_context": "daemon start --execute 周期观察静态 instructions，不保证看见轮询间的瞬态变化。daemon stop 通过 0600 daemon.control 的 loopback token 请求关机，并等待所有权锁释放；缺 control 时拒绝，不按陈旧 PID 杀进程。同 store 第二个 daemon 必须拒绝，不能覆盖活 control。status 用健康探测而非 pid 文件。",
+      "sources": [
+        {
+          "path": "docs/guides/operations.md",
+          "sha256": "a65a3d753cc80d0928c06885a298e4af45dfa04f7c3f69d7e971fd3e8af9cc38"
+        }
+      ],
+      "questions": [
+        {
+          "id": "o1",
+          "question": "磁盘只有 daemon.pid，daemon.control 不存在，stop 应怎样做？",
+          "options": {
+            "A": "立即 kill 该 PID",
+            "B": "删除 PID 文件并报告进程已停止",
+            "C": "重建任意 token 请求停止",
+            "D": "拒绝停止，不根据陈旧 PID 杀进程"
+          },
+          "expected": "D"
+        },
+        {
+          "id": "o2",
+          "question": "pid 文件存在就足以声明 daemon 正在运行吗？",
+          "options": {
+            "A": "是，文件名就是证据",
+            "B": "是，只要 PID 是整数",
+            "C": "否，应健康探测",
+            "D": "否，只能用模型猜测"
+          },
+          "expected": "C"
+        },
+        {
+          "id": "o3",
+          "question": "两次静态轮询之间创建后立即删除的文件，没有被看见，产品能否声称完整事件监控？",
+          "options": {
+            "A": "不能，该模式明确不保证瞬态变化",
+            "B": "能，只要扫描次数足够多",
+            "C": "能，通知数等于快照数",
+            "D": "能，文件最终不存在"
+          },
+          "expected": "A"
+        },
+        {
+          "id": "o4",
+          "question": "另一个进程正持有同 store daemon 锁，新 daemon 应怎样处理？",
+          "options": {
+            "A": "抢占锁并写 control",
+            "B": "拒绝启动并保留活 control",
+            "C": "先改 control 后尝试锁",
+            "D": "只覆盖 PID，继续运行"
+          },
+          "expected": "B"
+        }
+      ]
+    },
+    {
+      "id": "native-evidence",
+      "contract_context": "当前产品的真实 collect --execute adapter 只支持 Codex 0.147.0 和 Grok 1.0.13 的 macOS 27 arm64，实际 OS build 是否匹配冻结值单独记录。Codex debug prompt-input 实际输出 message 数组；Grok inspect 只提供 instruction discovery metadata，不证明正文已消费。产品输出脱敏 native observation，receipt_id 为 null、claims_upgraded 为 false，不代表真实模型执行或 provider-wire 证据。",
+      "sources": [
+        {
+          "path": "docs/guides/cli-reference.md",
+          "sha256": "0190646a8fd7c7aac336c78ab926e5ed9163cefcb83377d8f20dccb2416001e0"
+        },
+        {
+          "path": "docs/plan/2026-09-12-runtime-and-release-execution.md",
+          "sha256": "e2d4c22c2d59cfca98e37a3b1c212e9dfc65482bb8ed213e76f57090074136e2"
+        }
+      ],
+      "questions": [
+        {
+          "id": "n1",
+          "question": "真实 Grok inspect 成功且列出了 instruction 路径，就能断言模型已消费正文吗？",
+          "options": {
+            "A": "不能，只观察到 discovery metadata",
+            "B": "可以，文件路径等于正文",
+            "C": "可以，原生命令都是模型调用",
+            "D": "可以，退出码 0 表示消费成功"
+          },
+          "expected": "A"
+        },
+        {
+          "id": "n2",
+          "question": "harness 版本匹配，但实际 macOS build 与冻结 build 不同，怎样记录？",
+          "options": {
+            "A": "自动升级冻结矩阵",
+            "B": "视为 required OS pass",
+            "C": "单列 build 漂移，不冒充冻结坐标通过",
+            "D": "忽略 build 只比较主版本"
+          },
+          "expected": "C"
+        },
+        {
+          "id": "n3",
+          "question": "当前 native capture 返回脱敏 observation 后是否自动升级 Claim？",
+          "options": {
+            "A": "总是升级六个 facet",
+            "B": "只升级 outcome-affecting",
+            "C": "只升级 UseEvidence",
+            "D": "不升级，claims_upgraded 为 false"
+          },
+          "expected": "D"
+        },
+        {
+          "id": "n4",
+          "question": "34 条 oracle 输入的进程都退出 0，其中 18 条 raw shape 与历史期望不符，能报告 34 条语义通过吗？",
+          "options": {
+            "A": "能，进程码是唯一判据",
+            "B": "不能，执行成功与语义验收分开",
+            "C": "能，直接覆盖旧 expected",
+            "D": "能，删除不匹配条目"
+          },
+          "expected": "B"
+        }
+      ]
+    },
+    {
+      "id": "release-boundaries",
+      "contract_context": "完整发行需要冻结 OS 矩阵、真实安装/升级/卸载与恢复、72h/1000changes、人工 QA 和独立 readback。证据 inventory 核对候选与工件 digest；文件验证不等于语义或 reviewer 认证，full_product_accepted 保持 false。308 秒 1000 次变更只证明该次短测试。unsigned CLI 同候选 side-by-side smoke 不证明跨版本迁移、签名或桌面安装。",
+      "sources": [
+        {
+          "path": "docs/plan/2026-09-12-runtime-and-release-execution.md",
+          "sha256": "e2d4c22c2d59cfca98e37a3b1c212e9dfc65482bb8ed213e76f57090074136e2"
+        }
+      ],
+      "questions": [
+        {
+          "id": "r1",
+          "question": "1,000 次变更在 308 秒内全部通过，可否填写 soak_72h_complete=true？",
+          "options": {
+            "A": "可以，变更数够了",
+            "B": "不可以，未达到 72 小时",
+            "C": "可以，按次数折算",
+            "D": "可以，只需估算稳定性"
+          },
+          "expected": "B"
+        },
+        {
+          "id": "r2",
+          "question": "inventory 的每个文件 SHA-256 都匹配，是否自动完成独立 readback？",
+          "options": {
+            "A": "是，密码学摘要认证语义",
+            "B": "是，只要文件名像 review",
+            "C": "是，候选 HEAD 相同即可",
+            "D": "否，文件完整性不认证 reviewer 或结论"
+          },
+          "expected": "D"
+        },
+        {
+          "id": "r3",
+          "question": "同一 unsigned CLI 候选先装 A 再装 B 并回退成功，证明什么？",
+          "options": {
+            "A": "正式跨版本迁移通过",
+            "B": "macOS 签名分发通过",
+            "C": "该候选临时 side-by-side 安装/回退 smoke",
+            "D": "完整桌面升级通过"
+          },
+          "expected": "C"
+        },
+        {
+          "id": "r4",
+          "question": "自动化浏览器模拟了全部点击，可以代替 8 人 QA 的个人判断和签署吗？",
+          "options": {
+            "A": "不可以，只算软件路径模拟",
+            "B": "可以，操作次数相同",
+            "C": "可以，截图齐全即可",
+            "D": "可以，只要模型给出评价"
+          },
+          "expected": "A"
+        }
+      ]
+    }
+  ],
+  "source_revision": "96e9bafa17cabeea26b0479ddd825a6fdd8ed678"
+}

@@ -1,0 +1,535 @@
+{
+  "schema": "ctxpect-live-effect-observation-v1",
+  "license": "Apache-2.0",
+  "record_type": "observed-experiment-summary-not-a-frozen-oracle-fixture",
+  "experiment_id": "luna-max-contract-context-20260912-v1",
+  "source_revision": "96e9bafa17cabeea26b0479ddd825a6fdd8ed678",
+  "product_source_revision": "96e9bafa17cabeea26b0479ddd825a6fdd8ed678",
+  "suite_sha256": "40eb7d3067a5a3591885accde197c2b4cc475be2bbdf3995ecfc66013a8aabab",
+  "engine_sha256": "43c551602e3a45056b048c899b7c18078818209f2142ae93c45c9362ab181075",
+  "request_sha256": "facfd4bb682b83162283b9aff6847bcf4781740a4f498c00d9f83adb847bdc7e",
+  "request_digest": "ab6e6f346050e59154f5c0f3234b6bf38ff77f8b41a7476222e8ff70c548b839",
+  "product_result_sha256": "9aff8134bdeb7bea55b5423636d000364a3ab45f3443f40f3cd55723380f7431",
+  "frozen_at": "1789225099.000Z",
+  "native_cli": "codex-cli 0.153.3",
+  "native_cli_sha256": "0e1f892695844ad0798dab8895955846450a9e7663476ebf24615814dd377216",
+  "model": "gpt-5.6-luna",
+  "effort": "max",
+  "native_cli_invocations": 16,
+  "provider_request_count": "not-exposed-by-cli; retries not equated with invocations",
+  "native_execution_gate": "pass",
+  "product_exit_code": 3,
+  "product_exit_meaning": "completed experiment with inconclusive statistical decision",
+  "decision": "inconclusive",
+  "reason_code": "effect.estimator_inconclusive",
+  "arms": {
+    "control": {
+      "task_pass": 6,
+      "question_correct": 30
+    },
+    "treatment": {
+      "task_pass": 8,
+      "question_correct": 32
+    }
+  },
+  "pairs": 8,
+  "questions_per_arm": 32,
+  "effect_pp": 25,
+  "two_sided_exact_p": 0.5,
+  "estimator": {
+    "available": true,
+    "detail": {
+      "alpha": "0.05",
+      "ci_confidence": "0.900",
+      "control_only_pass": 0,
+      "decision_precedence": "direction-before-equivalence",
+      "difference_ci_pp": [
+        "-33.15",
+        "59.97"
+      ],
+      "discordant": 2,
+      "discordant_rate_ci": [
+        "0.0464",
+        "0.5997"
+      ],
+      "margin_pp": 10,
+      "p_value": "0.500000",
+      "pairs": 8,
+      "treatment_only_pass": 2
+    },
+    "name": "paired-exact-binomial-v2",
+    "note": "neither a direction at alpha nor equivalence within the margin is supported by these pairs; not-significant is not equivalent"
+  },
+  "deviations": [],
+  "total_usage": {
+    "input_tokens": 274906,
+    "cached_input_tokens": 0,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 3295,
+    "reasoning_output_tokens": 2735
+  },
+  "design_power": {
+    "target": 0.8,
+    "assumption": "independent pairs, benefit-only discordance probability 0.85, no harmful pairs",
+    "calculation": "P(Binomial(8,0.85)>=6); six benefit-only pairs yield two-sided exact p<=0.03125",
+    "value": 0.8947872258203122,
+    "limitation": "large-effect conditional design, not power for a generic 10pp effect or heterogeneous production tasks"
+  },
+  "primary": "one task passes only when all four frozen answers match",
+  "secondary": "per-question correctness descriptive only; no additional significance tests",
+  "scope": "Eight synthetic Contexpect contract-reasoning tasks; not a coding-throughput benchmark or frozen native oracle.",
+  "source_private_paths_removed": true,
+  "human_acceptance": false,
+  "independent_readback": false,
+  "full_product_accepted": false,
+  "runs": [
+    {
+      "run_id": "run-0-control",
+      "task_id": "facets",
+      "arm": "control",
+      "outcome": "fail",
+      "question_correct": 3,
+      "questions": 4,
+      "answers": {
+        "f1": "A",
+        "f2": "B",
+        "f3": "D",
+        "f4": "A"
+      },
+      "gate_sha256": "d428fc3dcd8ba4bb984050d52a5ce9a903519e881392d408cc157077be97f014",
+      "prompt_sha256": "567ae28e98b698daf19d442e29c6449d803dd67776bf72c7b47fd0e1d50d45c1",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 20.604,
+      "usage": {
+        "input_tokens": 17106,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 450,
+        "reasoning_output_tokens": 415
+      }
+    },
+    {
+      "run_id": "run-0-treatment",
+      "task_id": "facets",
+      "arm": "treatment",
+      "outcome": "pass",
+      "question_correct": 4,
+      "questions": 4,
+      "answers": {
+        "f1": "C",
+        "f2": "B",
+        "f3": "D",
+        "f4": "A"
+      },
+      "gate_sha256": "cf27f1dee4f5cc79404cf6a86ca669f985fa096cf4e5cc6c9b3fabfdc93412f0",
+      "prompt_sha256": "60fb08b1b9a4b29b38cd3a99fc0f106e95e26677a9c643160d05954a6a029187",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 16.313,
+      "usage": {
+        "input_tokens": 17188,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 269,
+        "reasoning_output_tokens": 234
+      }
+    },
+    {
+      "run_id": "run-1-control",
+      "task_id": "projection",
+      "arm": "control",
+      "outcome": "pass",
+      "question_correct": 4,
+      "questions": 4,
+      "answers": {
+        "p1": "B",
+        "p2": "C",
+        "p3": "D",
+        "p4": "A"
+      },
+      "gate_sha256": "e4a606ee2c6e0061b8ab4e6213e9e7dbcd87cb2b8e53eb3276c864e8317e35d8",
+      "prompt_sha256": "4f5f152fd426c22a2325e709f883bcf333e5cb979efc75fedfcb284494091bc8",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 14.193,
+      "usage": {
+        "input_tokens": 17106,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 178,
+        "reasoning_output_tokens": 143
+      }
+    },
+    {
+      "run_id": "run-1-treatment",
+      "task_id": "projection",
+      "arm": "treatment",
+      "outcome": "pass",
+      "question_correct": 4,
+      "questions": 4,
+      "answers": {
+        "p1": "B",
+        "p2": "C",
+        "p3": "D",
+        "p4": "A"
+      },
+      "gate_sha256": "208d6dc895ed62e8494b9f33a0675367dda91fe6ddc5ad6e7197604bf8e4bea3",
+      "prompt_sha256": "34978964d1e766f95532a8d810743d6a6ba126d02ba104e639b79207869fe727",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 12.091,
+      "usage": {
+        "input_tokens": 17185,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 134,
+        "reasoning_output_tokens": 99
+      }
+    },
+    {
+      "run_id": "run-2-control",
+      "task_id": "encrypted-sync",
+      "arm": "control",
+      "outcome": "pass",
+      "question_correct": 4,
+      "questions": 4,
+      "answers": {
+        "s1": "C",
+        "s2": "B",
+        "s3": "D",
+        "s4": "A"
+      },
+      "gate_sha256": "0b8b8ecff922def15e776c4a7d23f1bda301fd4d95e2ab9a2019c489a3091cef",
+      "prompt_sha256": "a57f93ac1364e5bd6dd04d151fc860d3826c83af112eb5c930c17729fe7690e0",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 16.947,
+      "usage": {
+        "input_tokens": 17163,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 159,
+        "reasoning_output_tokens": 124
+      }
+    },
+    {
+      "run_id": "run-2-treatment",
+      "task_id": "encrypted-sync",
+      "arm": "treatment",
+      "outcome": "pass",
+      "question_correct": 4,
+      "questions": 4,
+      "answers": {
+        "s1": "C",
+        "s2": "B",
+        "s3": "D",
+        "s4": "A"
+      },
+      "gate_sha256": "f02c2c740822a51e7f44358c49a9c186564ad3bf09d7a3efacd8f5d343be94a7",
+      "prompt_sha256": "af78b7d1f3ae4c687808162c496085d9e984916160953e47c6ed88d288bad00e",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 13.682,
+      "usage": {
+        "input_tokens": 17267,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 142,
+        "reasoning_output_tokens": 107
+      }
+    },
+    {
+      "run_id": "run-3-control",
+      "task_id": "effect-decisions",
+      "arm": "control",
+      "outcome": "pass",
+      "question_correct": 4,
+      "questions": 4,
+      "answers": {
+        "e1": "D",
+        "e2": "A",
+        "e3": "B",
+        "e4": "C"
+      },
+      "gate_sha256": "eaeb6eeb763326e010a489f55df471998177c7e4a883fea3e8cfa7cf344f5359",
+      "prompt_sha256": "f9067c280d9338d443a21f9e9fe17d5f70e6f3f4c0394721ef1efca0281d9087",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 15.9,
+      "usage": {
+        "input_tokens": 17169,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 205,
+        "reasoning_output_tokens": 170
+      }
+    },
+    {
+      "run_id": "run-3-treatment",
+      "task_id": "effect-decisions",
+      "arm": "treatment",
+      "outcome": "pass",
+      "question_correct": 4,
+      "questions": 4,
+      "answers": {
+        "e1": "D",
+        "e2": "A",
+        "e3": "B",
+        "e4": "C"
+      },
+      "gate_sha256": "48450d369512677b9b62f1c9b7c87573dda8cd226bf0f69a11f8a9f06782eb5f",
+      "prompt_sha256": "175d2510837de2e6f7ee1851210c5e1344faedd2f349fa0a56271fdb290f7292",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 13.393,
+      "usage": {
+        "input_tokens": 17255,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 127,
+        "reasoning_output_tokens": 92
+      }
+    },
+    {
+      "run_id": "run-4-control",
+      "task_id": "doctor-time",
+      "arm": "control",
+      "outcome": "fail",
+      "question_correct": 3,
+      "questions": 4,
+      "answers": {
+        "d1": "C",
+        "d2": "B",
+        "d3": "B",
+        "d4": "A"
+      },
+      "gate_sha256": "255f7f2fb828056341979d5bb976338e83458cace524b480fb6c41fe33eb6856",
+      "prompt_sha256": "6b46b77f0a036ecde79d9c51281e6be3e1504fd5c4c9d8a7bf8e468721690823",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 19.122,
+      "usage": {
+        "input_tokens": 17111,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 433,
+        "reasoning_output_tokens": 398
+      }
+    },
+    {
+      "run_id": "run-4-treatment",
+      "task_id": "doctor-time",
+      "arm": "treatment",
+      "outcome": "pass",
+      "question_correct": 4,
+      "questions": 4,
+      "answers": {
+        "d1": "C",
+        "d2": "D",
+        "d3": "B",
+        "d4": "A"
+      },
+      "gate_sha256": "b564189b87430ac53ca408db52fb4ccfc1e291b37d59b6ef1858f8bf5106bb01",
+      "prompt_sha256": "92c27fa6e20371ce597a2787bef4ed67d70e286752561d1a23a447634fb7ad7e",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 13.855,
+      "usage": {
+        "input_tokens": 17181,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 133,
+        "reasoning_output_tokens": 98
+      }
+    },
+    {
+      "run_id": "run-5-control",
+      "task_id": "ownership",
+      "arm": "control",
+      "outcome": "pass",
+      "question_correct": 4,
+      "questions": 4,
+      "answers": {
+        "o1": "D",
+        "o2": "C",
+        "o3": "A",
+        "o4": "B"
+      },
+      "gate_sha256": "9e5642f5cbba4df88d313d9d88b26e927492915d9b90802efdabcdf1f3b58cb3",
+      "prompt_sha256": "0df596027c431758a1c432ef702845fcbc72e4ed5e42f826ab12cdcfb54370ae",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 15.759,
+      "usage": {
+        "input_tokens": 17136,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 178,
+        "reasoning_output_tokens": 143
+      }
+    },
+    {
+      "run_id": "run-5-treatment",
+      "task_id": "ownership",
+      "arm": "treatment",
+      "outcome": "pass",
+      "question_correct": 4,
+      "questions": 4,
+      "answers": {
+        "o1": "D",
+        "o2": "C",
+        "o3": "A",
+        "o4": "B"
+      },
+      "gate_sha256": "d3b0b63bce067c68ad22120d152de8e2a950b4e66c1fb2e4bb1a19810cbd6018",
+      "prompt_sha256": "1ccd4ed0be74b4bf7b82f1f4801f689cb127bb20c543968a197880f64aefb09c",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 12.852,
+      "usage": {
+        "input_tokens": 17210,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 99,
+        "reasoning_output_tokens": 64
+      }
+    },
+    {
+      "run_id": "run-6-control",
+      "task_id": "native-evidence",
+      "arm": "control",
+      "outcome": "pass",
+      "question_correct": 4,
+      "questions": 4,
+      "answers": {
+        "n1": "A",
+        "n2": "C",
+        "n3": "D",
+        "n4": "B"
+      },
+      "gate_sha256": "5971b7c1f05ffdcf2109f61b28fd162d34a012496caab714f35d11c77672aebd",
+      "prompt_sha256": "3d4892d3f2690f666911577beba364fda3a7f70bdd1446b6b67f3cdfdef57328",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 16.174,
+      "usage": {
+        "input_tokens": 17155,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 312,
+        "reasoning_output_tokens": 277
+      }
+    },
+    {
+      "run_id": "run-6-treatment",
+      "task_id": "native-evidence",
+      "arm": "treatment",
+      "outcome": "pass",
+      "question_correct": 4,
+      "questions": 4,
+      "answers": {
+        "n1": "A",
+        "n2": "C",
+        "n3": "D",
+        "n4": "B"
+      },
+      "gate_sha256": "597a50299b8fb9811a8c7ae6dbeccce137ec15b0dcb7c13823df56da8f148c23",
+      "prompt_sha256": "f0bbb8e9218f8d15bf48f3aad9a5d807bc96b90b0ec916c9066affd5e5a5d2bc",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 13.123,
+      "usage": {
+        "input_tokens": 17249,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 116,
+        "reasoning_output_tokens": 81
+      }
+    },
+    {
+      "run_id": "run-7-control",
+      "task_id": "release-boundaries",
+      "arm": "control",
+      "outcome": "pass",
+      "question_correct": 4,
+      "questions": 4,
+      "answers": {
+        "r1": "B",
+        "r2": "D",
+        "r3": "C",
+        "r4": "A"
+      },
+      "gate_sha256": "eb9219aa3ad67ab3049bdb3e9dafc2d1a1fa526cca40039202870efde2892e50",
+      "prompt_sha256": "c86610194c460c579defef7b684911f0738e9b97096a9f753a7556d2eb56bfd3",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 25.343,
+      "usage": {
+        "input_tokens": 17173,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 179,
+        "reasoning_output_tokens": 144
+      }
+    },
+    {
+      "run_id": "run-7-treatment",
+      "task_id": "release-boundaries",
+      "arm": "treatment",
+      "outcome": "pass",
+      "question_correct": 4,
+      "questions": 4,
+      "answers": {
+        "r1": "B",
+        "r2": "D",
+        "r3": "C",
+        "r4": "A"
+      },
+      "gate_sha256": "ff7ad5a4d5077d9c004ce37f3fb1ff262ba991d34bf0a53874f2dee40516b853",
+      "prompt_sha256": "0b1e60967b455049364f268a26a16892659e8049189ce352c1df68a9a150c7f9",
+      "native_input_exact_match": true,
+      "model": "gpt-5.6-luna",
+      "effort": "max",
+      "native_cli_exit": 0,
+      "elapsed_seconds": 14.619,
+      "usage": {
+        "input_tokens": 17252,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 181,
+        "reasoning_output_tokens": 146
+      }
+    }
+  ]
+}

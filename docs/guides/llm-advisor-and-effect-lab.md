@@ -1,6 +1,6 @@
 # LLM Advisor 与 Effect Lab 方法
 
-> 状态：规范（尚未实施完整产品运行时）。`ctxpect advisor` 只产候选；`ctxpect experiment` 使用冻结 ExperimentContract。付费模型调用尚未授权。
+> 状态：规范（尚未实施完整产品运行时）。`ctxpect advisor` 只产候选；`ctxpect experiment` 使用冻结 ExperimentContract。真实模型调用按每个实验的明确授权和冻结预算执行。
 
 确定性检查和 LLM 建议必须分开。前者可进 CI，后者不得作为唯一门禁，也不得写入 Claim 真值。
 
@@ -55,4 +55,4 @@ Doctor 的 PlacementRecommendation 由确定性规则产生。Advisor 只能补�
 
 `ctxpect experiment --execute --adapter command-v1 --from request.json --project <project> --store <store>` 需 `experiment.execute` 与 `experiment.persist` grant。请求 schema 为 `ctxpect-command-runner-v1`，包括冻结 contract、runner 的绝对路径/SHA-256/协议版本/sandbox 声明、files、配对 tasks 及 max_runs/timeout_seconds/total_seconds 预算；完整可执行合成例见 `scripts/check_effect_runner.py`。v1 使用按 task 配对、交替先后顺序，每次启动独立目录与清空的环境；这不是 OS sandbox。
 
-runner 从 stdin 接收 `ctxpect-runner-input-v1`，stdout 返回 `ctxpect-runner-result-v1`，须匹配 run_id/request_digest/sandbox，并提供 observed 锁定字段、outcome 与 gate_evidence_digest。结果和 sandbox 是 runner attestation，宿主不因此声称独立核验门禁或模型。协议错误及耗尽总预算强制 inconclusive；超时/crash 保留 ITT；同 experiment 不重复启动。调用前冻结、逐次 checkpoint，原始响应不保存。真实模型实验仍需确定 harness/model/预算；当前测试使用零 API 调用的真实本地子进程。
+runner 从 stdin 接收 `ctxpect-runner-input-v1`，stdout 返回 `ctxpect-runner-result-v1`，须匹配 run_id/request_digest/sandbox，并提供 observed 锁定字段、outcome 与 gate_evidence_digest。结果和 sandbox 是 runner attestation，宿主不因此声称独立核验门禁或模型。协议错误及耗尽总预算强制 inconclusive；超时/crash 保留 ITT；同 experiment 不重复启动。调用前冻结、逐次 checkpoint，原始响应不保存。每个真实模型实验都需确定 harness/model/预算；`check_effect_runner.py` 仍为零 API 调用的真实本地子进程测试。Luna/max 的 16 次实际调用与 inconclusive 结果见 [E-LUNA-01](../plan/2026-09-12-runtime-and-release-execution.md#真实模型实验-e-luna-012026-09-12)。
