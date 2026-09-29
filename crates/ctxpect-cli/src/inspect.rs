@@ -595,6 +595,9 @@ fn display_project_or_home(path: &str, rule_id: &str) -> String {
 /// anchor without one says so instead of naming an oracle it does not have.
 fn oracle_hint(anchor: Option<&Anchor>) -> &'static str {
     match anchor.map(|a| a.grammar) {
+        Some(Grammar::CodexDevelopment) => {
+            "explicit Codex 0.153.3 development debug diagnostic in its declared profile; no claim about another live session"
+        }
         Some(Grammar::CodexInstructions) => {
             "native runtime snapshot (codex debug prompt-input on Codex 0.147.0) to establish model-visible"
         }

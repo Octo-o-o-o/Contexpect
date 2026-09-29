@@ -192,6 +192,10 @@ where
     S: Into<OsString>,
 {
     let collected: Vec<OsString> = args.into_iter().map(Into::into).collect();
+    if collected.get(1).is_some_and(|s| s == "integration") {
+        if collected.len() != 2 {return 1;}
+        return native_oracle::integration::run();
+    }
     if collected
         .iter()
         .skip(1)

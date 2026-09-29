@@ -41,6 +41,8 @@
 
 ### 用户 / 开发者 / 运维指南
 
+- [Development 项目指令核对](guides/context-integration.md) — 独立协议、当前坐标、隔离原生诊断与专项测试
+
 - [guides/user-guide.md](guides/user-guide.md) — one-shot / periodic / continuous
 - [guides/cli-reference.md](guides/cli-reference.md)
 - [guides/desktop-ui.md](guides/desktop-ui.md)

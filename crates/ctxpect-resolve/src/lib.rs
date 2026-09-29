@@ -105,6 +105,8 @@ pub mod claude_code;
 pub enum Grammar {
     /// `docs/adapters/grammar/codex-cli-0.147.0-instructions.md`
     CodexInstructions,
+    /// Explicit default-config development lane; never part of frozen coverage.
+    CodexDevelopment,
     /// `docs/adapters/grammar/claude-code-cli-2.1.259-instructions.md`
     ClaudeCodeInstructions,
 }
@@ -160,13 +162,19 @@ pub const ANCHORS: &[Anchor] = &[
     },
 ];
 
+/// Development support is separate from the acceptance cutoff and frozen anchors.
+pub const DEVELOPMENT: &[Anchor] = &[Anchor {
+    harness: "codex", version: "0.153.3", surface: "cli", os_lane: "macos-27-arm64",
+    grammar: Grammar::CodexDevelopment, capabilities: &[INSTRUCTIONS], display: "Codex development",
+}];
+
 /// The anchor `inspect` uses when no coordinate flags are given.
 pub const DEFAULT_ANCHOR: &Anchor = &ANCHORS[0];
 
 /// The anchor that resolves this exact coordinate, if any.
 #[must_use]
 pub fn anchor_for(harness: &str, version: &str, surface: &str, os_lane: &str) -> Option<&'static Anchor> {
-    ANCHORS.iter().find(|anchor| {
+    ANCHORS.iter().chain(DEVELOPMENT).find(|anchor| {
         anchor.harness == harness
             && anchor.version == version
             && anchor.surface == surface
@@ -175,7 +183,7 @@ pub fn anchor_for(harness: &str, version: &str, surface: &str, os_lane: &str) ->
 }
 
 fn family_anchors(harness: &str) -> impl Iterator<Item = &'static Anchor> {
-    ANCHORS.iter().filter(move |anchor| anchor.harness == harness)
+    ANCHORS.iter().chain(DEVELOPMENT).filter(move |anchor| anchor.harness == harness)
 }
 
 const OVERRIDE_NAME: &str = "AGENTS.override.md";
@@ -547,7 +555,7 @@ fn ignore_line_allowed(line: &str) -> bool {
 /// Resolve `instructions` for `request` with the anchor's grammar.
 pub fn resolve(request: &ResolveRequest<'_>) -> Result<Resolution, ResolveError> {
     match request.grammar {
-        Grammar::CodexInstructions => resolve_codex(request),
+        Grammar::CodexInstructions | Grammar::CodexDevelopment => resolve_codex(request),
         Grammar::ClaudeCodeInstructions => claude_code::resolve_claude_code(request),
     }
 }
@@ -564,7 +572,13 @@ fn resolve_codex(request: &ResolveRequest<'_>) -> Result<Resolution, ResolveErro
     let ignore_used = loaded_ignore.used;
     let ignore_digest = loaded_ignore.digest;
     let ignore_warnings = loaded_ignore.warnings;
-    let layer_rels = layers_toward_cwd(request.cwd_rel);
+    let development = request.grammar == Grammar::CodexDevelopment;
+    let mut layer_rels = layers_toward_cwd(request.cwd_rel);
+    if development {
+        // Default project root discovery stops at the closest .git marker.
+        let start = layer_rels.iter().rposition(|rel| request.project.path().join(rel).join(".git").exists());
+        layer_rels = match start { Some(i) => layer_rels[i..].to_vec(), None => vec![request.cwd_rel.to_string()] };
+    }
     let mut project_names = Vec::new();
     for layer_rel in &layer_rels {
         project_names.push(layer_file(layer_rel, OVERRIDE_NAME));
@@ -662,8 +676,32 @@ fn resolve_codex(request: &ResolveRequest<'_>) -> Result<Resolution, ResolveErro
         })?;
     }
 
-    let (aggregated_bytes, truncated) =
-        apply_cap(request.project_doc_max_bytes, &adopted_files, &mut edges);
+    if development {
+        adopted_files.retain(|file| {
+            let root = if file.root_kind == RootKind::Project { request.project } else { request.codex_home.unwrap() };
+            read_contained(root, Path::new(&file.path)).is_ok_and(|c| !String::from_utf8_lossy(&c.bytes).trim().is_empty())
+        });
+    }
+    if development {
+        for layer in &mut layers {
+            if layer.adopted.as_ref().is_some_and(|path| !adopted_files.iter().any(|f| f.path == *path && f.root_kind == layer.root_kind)) {
+                layer.adopted = None;
+                for candidate in &mut layer.candidates { candidate.adopted = false; }
+            }
+        }
+        for edge in &mut edges {
+            if edge.kind == EdgeKind::IncludedBy && !adopted_files.iter().any(|f| f.path == edge.path && f.root_kind == edge.root_kind) {
+                edge.kind = EdgeKind::ExcludedBy;
+                edge.note = Some("empty-native-instruction-body".into());
+            }
+        }
+    }
+    let (aggregated_bytes, truncated) = if development {
+        let global = adopted_files.iter().filter(|f| f.root_kind != RootKind::Project).map(|f| f.len).sum::<u64>();
+        let project_files = adopted_files.iter().filter(|f| f.root_kind == RootKind::Project).map(|f| Adopted {path:f.path.clone(),len:f.len,root_kind:f.root_kind}).collect::<Vec<_>>();
+        let (bytes, truncated) = apply_cap(request.project_doc_max_bytes, &project_files, &mut edges);
+        (bytes + global, truncated)
+    } else { apply_cap(request.project_doc_max_bytes, &adopted_files, &mut edges) };
 
     let included = !adopted_files.is_empty();
     let parse_path = adopted_files
@@ -694,7 +732,7 @@ fn resolve_codex(request: &ResolveRequest<'_>) -> Result<Resolution, ResolveErro
     };
     ensure_expressible(&claims)?;
 
-    let assumptions = vec![
+    let mut assumptions = vec![
         Assumption {
             key: "project_doc_max_bytes".to_string(),
             value: request.project_doc_max_bytes.to_string(),
@@ -718,6 +756,13 @@ fn resolve_codex(request: &ResolveRequest<'_>) -> Result<Resolution, ResolveErro
         },
     ];
 
+    if development {
+        assumptions = vec![
+            Assumption { key:"profile".into(), value:"declared-default-config-trusted-project; custom config not read".into(), provenance:"user-attested" },
+            Assumption { key:"source".into(), value:"openai/codex rust-v0.153.3 codex-rs/core/src/agents_md.rs sha256:8bbaf068c099fdeeaf4fe49076d398da7671f20c9a962fde5c4eb7653008fed4".into(), provenance:"harness-source" },
+            Assumption { key:"project_doc_max_bytes".into(), value:request.project_doc_max_bytes.to_string(), provenance:"harness-source" },
+        ];
+    }
     Ok(Resolution {
         layers,
         edges,
