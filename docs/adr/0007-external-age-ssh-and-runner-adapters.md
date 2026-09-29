@@ -27,3 +27,7 @@ Effect 采用 versioned 外部 command adapter 协议；Contexpect 只管冻结�
 ## 验收边界
 
 运行工具缺失、摘要变化、签名不可信、recipient 撤销、协议漂移必须拒绝；不能退回明文同步。测试 profile 的双端运行证明软件链路，不代替组织身份、真实多机、独立安全审查或正式发行签名。
+
+## 2026-09-29 可选诊断入口补充
+
+Owner 采纳 E01–E12 窄集成后，显式 `ctxpect integration` 的 `native=true` 可请求当前 development 坐标的隔离指令镜像诊断。执行代码仍在 `native_oracle` 允许边界内，普通 inspect/collect/resolver 保持被动。此通道的授权是本地协议请求中的固定 tool digest、项目/cwd 与专用 store；OWF 将其约束为本机配置注册项目和既有控制认证。它只构造隔离诊断，OS sandbox 禁网，不读真实用户 profile、不写被检项目、不升级 Claim。旧 `collect --execute`、冻结 oracle 和其 policy mutation 授权链不变；不是允许任意 CLI 执行的通道。协议与边界见 [运行说明](../guides/context-integration.md)。

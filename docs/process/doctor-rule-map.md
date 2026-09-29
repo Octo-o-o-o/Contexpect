@@ -28,6 +28,7 @@ Doctor 的 treatment 是**有限静态修复**；某条 indeterminate 证据是�
 - `D-FACET-MODEL-VISIBLE` / `D-FACET-USE-EVIDENCE`（runtime-surface 证据）与 `D-FACET-OUTCOME-AFFECTING`（outcome，表中显式「仍可未知」列）indeterminate 时：finding 仍输出、`confirmation`/`severity` 为 `suspected`、`evidence_state: "indeterminate"`、计入 `counts.unknown`，但 `treatment.locked: false`、`lock_reason: "none"`——缺效果或运行面证据不阻止安全静态修复。`--fail-on confirmed` 因此对纯 facet-indeterminate 诊断不再 exit 2。
 - 目标归属/权限/坐标类未知仍锁：`D-UNKNOWN-SURFACE`（`lock_reason` = 该 unknown 的 reason code，如 `permission_not_granted`）与 `D-UNSUPPORTED-VERSION`（`lock_reason: "unsupported_harness_version"`）保持 `treatment.locked: true`、`suspected`。它们不标 `confirmed`，所以也不单独触发 `--fail-on confirmed`。
 - 语料命名空间 20 条规则的 finding 与 8 条阻断规则不受影响（下表与 `BLOCKING_RULES` 未动）。
+- **执行链接线（2026-09-15）**：同一判定表现在也由 projection `apply` / `rollback` 的结果与拒绝引用（`ctxpect-cli::mutation_report`，CLI 与 API 共用）：成功结果的 `preconditions.satisfied` 逐项写明满足该前置的实际检查，`verification` 把操作提交、静态重验、运行核验、效果与信任分轴；拒绝的 `error.precondition` 指出缺的是哪一项。Doctor 的 lock 与 apply 的拒绝因此引用同一份 id 表，不再各自解释。见 [交接包二次核对](../plan/2026-09-15-handoff-second-pass-mutation-axes.md)。
 
 
 ## 阻断判定（`ci` 与 `doctor` 共用）

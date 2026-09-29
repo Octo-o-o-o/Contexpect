@@ -41,6 +41,8 @@
 
 ### 用户 / 开发者 / 运维指南
 
+- [Development 项目指令核对](guides/context-integration.md) — 独立协议、当前坐标、隔离原生诊断与专项测试
+
 - [guides/user-guide.md](guides/user-guide.md) — one-shot / periodic / continuous
 - [guides/cli-reference.md](guides/cli-reference.md)
 - [guides/desktop-ui.md](guides/desktop-ui.md)
@@ -49,6 +51,10 @@
 - [guides/llm-advisor-and-effect-lab.md](guides/llm-advisor-and-effect-lab.md)
 
 ### 过程
+
+- [完整窄集成最终方案](plan/2026-09-29-context-integration-final.md) — 当前工程 canonical：独立引擎与 OWF 可选入口、E01–E12 完整工程范围；新会话采纳 prompt 后连续实施，本轮尚未施工
+- [最终方案交叉 review](review/2026-09-29-context-integration-cross-review.md) — 1 个 subagent 初评及同稿复核、宿主采纳；方案级结论，不是产品验收
+- [Contexpect 去留与 OctoWorkFlow 边界决策](plan/2026-09-29-product-direction-and-octoworkflow.md) — 历史研究背景：两份 Pro 初评与合并复核；逐阶段审批流程由最终工程方案替代
 
 - [process/implementation-plan.md](process/implementation-plan.md)
 - [可视化与完整产品闭环补充实施方案](process/2026-09-06-contexpect-visualization-closure-supplement.md) — 2026-09-06 基线对账；14 个主入口与 2 个配套入口、共用视觉合同及剩余闭环
@@ -66,6 +72,7 @@
 - [交接包价值裁决与本地候选实施](plan/2026-09-12-handoff-value-implementation.md) — 全包阅读后的 T01–T12/M01–M20 裁决、资产写入与离线闭环修复、当前验收边界
 - [T07–T12 决策材料](plan/2026-09-12-t07-t12-decision-materials.md) — 依赖政策 ADR 候选大纲、外部适配/团队信任/Effect/发行收口的决策点与准入验证表；不是已批准变更
 - [DEMO-01–18 场景落地评估](plan/2026-09-12-demo-01-18-evaluation.md) — U04/U05 切片：18 个 demo 场景的现有 e2e 覆盖、本次新增用例与未覆盖归属；不建平行 demo-data 层的理由
+- [交接包二次核对：mutation 结果分轴与 C-F03 接线](plan/2026-09-15-handoff-second-pass-mutation-axes.md) — 全包重读后的差距表；apply/rollback 结果分轴、前置证据报告与拒绝映射（CLI/API 同源）；Q14 核查结论与明确不做项
 
 ### ADR
 
