@@ -33,13 +33,21 @@ pub enum InspectFailure {
         message: String,
         command: Option<String>,
     },
+    /// A mutation refused for a missing precondition (C-F03): the reason
+    /// code plus the precondition id from the policy table it stands for.
+    Refused {
+        code: &'static str,
+        message: String,
+        command: Option<String>,
+        precondition: &'static str,
+    },
 }
 
 impl InspectFailure {
     pub fn code(&self) -> &'static str {
         match self {
             InspectFailure::Usage(err) => err.code,
-            InspectFailure::Io { code, .. } => code,
+            InspectFailure::Io { code, .. } | InspectFailure::Refused { code, .. } => code,
             InspectFailure::Internal { .. } => "internal",
         }
     }
@@ -47,9 +55,44 @@ impl InspectFailure {
     pub fn message(&self) -> String {
         match self {
             InspectFailure::Usage(err) => err.message.clone(),
-            InspectFailure::Io { message, .. } | InspectFailure::Internal { message, .. } => {
-                message.clone()
+            InspectFailure::Io { message, .. }
+            | InspectFailure::Internal { message, .. }
+            | InspectFailure::Refused { message, .. } => message.clone(),
+        }
+    }
+
+    /// The precondition this failure names, when it is a refusal for
+    /// missing evidence.
+    pub fn precondition(&self) -> Option<&'static str> {
+        match self {
+            InspectFailure::Refused { precondition, .. } => Some(precondition),
+            _ => None,
+        }
+    }
+
+    /// The same failure, marked as a refusal for `precondition`. Only a
+    /// coded failure can be a refusal; a usage or internal error is
+    /// returned unchanged.
+    #[must_use]
+    pub fn refused_for(self, precondition: &'static str) -> Self {
+        match self {
+            InspectFailure::Io {
+                code,
+                message,
+                command,
             }
+            | InspectFailure::Refused {
+                code,
+                message,
+                command,
+                ..
+            } => InspectFailure::Refused {
+                code,
+                message,
+                command,
+                precondition,
+            },
+            other => other,
         }
     }
 
@@ -59,9 +102,9 @@ impl InspectFailure {
     pub fn command(&self) -> Option<&str> {
         match self {
             InspectFailure::Usage(err) => err.command.as_deref(),
-            InspectFailure::Io { command, .. } | InspectFailure::Internal { command, .. } => {
-                command.as_deref()
-            }
+            InspectFailure::Io { command, .. }
+            | InspectFailure::Internal { command, .. }
+            | InspectFailure::Refused { command, .. } => command.as_deref(),
         }
     }
 
@@ -92,6 +135,17 @@ impl InspectFailure {
             } => InspectFailure::Internal {
                 message,
                 command: existing.or_else(|| Some(command.to_string())),
+            },
+            InspectFailure::Refused {
+                code,
+                message,
+                command: existing,
+                precondition,
+            } => InspectFailure::Refused {
+                code,
+                message,
+                command: existing.or_else(|| Some(command.to_string())),
+                precondition,
             },
         }
     }
@@ -1157,13 +1211,16 @@ pub fn error_envelope(failure: &InspectFailure) -> Value {
         fields.push(("receipt_kind", s(RECEIPT_KIND)));
         fields.push(("schema", s(SCHEMA)));
     }
-    fields.push((
-        "error",
-        obj([
-            ("code", s(failure.code())),
-            ("message", s(failure.message())),
-        ]),
-    ));
+    let mut error = vec![
+        ("code", s(failure.code())),
+        ("message", s(failure.message())),
+    ];
+    // A refusal for missing evidence names the precondition it failed
+    // (C-F03), so the caller learns which evidence is missing.
+    if let Some(precondition) = failure.precondition() {
+        error.push(("precondition", s(precondition)));
+    }
+    fields.push(("error", obj(error)));
     obj(fields)
 }
 

@@ -4,6 +4,9 @@ use crate::args::{InspectArgs, ProductArgs};
 use crate::catalog::{integrations_json, FAMILIES};
 use crate::inspect::{inspect, InspectFailure};
 use crate::jsonutil::{obj, s};
+use crate::mutation_report::{
+    attach_precondition, mutation_outcome, APPLY_SATISFIED, ROLLBACK_SATISFIED,
+};
 use crate::redact::{redact_json_envelope, RedactRoots};
 use ctxpect_advisor::suggest;
 use ctxpect_diff::{diff, EquivalenceProfile};
@@ -1638,55 +1641,76 @@ fn projection_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
             ]),
         );
     }
+    // A refusal on either path names the precondition it failed (C-F03).
     if args.command == "apply" {
-        let tx = args.tx.as_deref().ok_or_else(|| {
-            fail(
-                "usage.invalid",
-                "`apply` requires `--tx <id>` from `intent preview`; it does not recompute the preview".into(),
-            )
-        })?;
-        // The lock is taken before the preview's state is read, so no other
-        // process can consume or roll back this transaction in between.
-        let _guard = store.lock_mutation().map_err(|err| fail(err.code, err.message))?;
-        let previewed = load_preview(&store, tx, &project_digest(&store, Some(project.as_path())))?;
-        target_outside_store(&root, &previewed.target_rel, store.root())
-            .map_err(|err| fail(err.code, err.message))?;
-        // Authorize before persisting. Writing the intent first leaves a
-        // record of a mutation that policy went on to refuse.
-        let _auth = authorize_store_apply(
-            &store,
-            Some(project.as_path()),
-            "apply",
-            &previewed.target_rel,
-        )?;
-        let backup = ctxpect_projection::backup_dir(store.root(), &previewed.tx_id);
-        let result = proj_apply(&root, &previewed, &backup, true)
-            .map_err(|err| fail(err.code, err.message))?;
-        // The CanonicalIntent record lands after the apply succeeded: an
-        // apply refused for a moved target leaves no record of an intent
-        // that was never realised.
-        let intent = Intent {
-            intent_id: previewed.intent_id.clone(),
-            authority: previewed.authority.clone(),
-            target_rel: previewed.target_rel.clone(),
-            desired: previewed.desired.clone(),
-        };
-        store
-            .put_named("intents", &intent.intent_id, &intent.to_value())
-            .map_err(|err| fail(err.code, err.message))?;
-        // The preview is consumed by its apply.
-        mark_preview(&store, &previewed.tx_id, PREVIEW_APPLIED)?;
-        let _ = store.audit("projection.apply", "projection", Some(&previewed.tx_id));
-        let post = post_receipt(args, &store)?;
-        return ok(
-            "apply",
-            0,
-            object([
-                ("transaction", result),
-                ("post_receipt_id", string(&post)),
-            ]),
-        );
+        return apply_tx(args, &store, &root, project).map_err(attach_precondition);
     }
+    rollback_tx(args, &store, &root, project).map_err(attach_precondition)
+}
+
+/// `apply --tx <id>`: execute a persisted preview, then observe the result.
+fn apply_tx(
+    args: &ProductArgs,
+    store: &Store,
+    root: &Root,
+    project: &Path,
+) -> Result<ProductReport, InspectFailure> {
+    let tx = args.tx.as_deref().ok_or_else(|| {
+        fail(
+            "usage.invalid",
+            "`apply` requires `--tx <id>` from `intent preview`; it does not recompute the preview".into(),
+        )
+    })?;
+    // The lock is taken before the preview's state is read, so no other
+    // process can consume or roll back this transaction in between.
+    let _guard = store.lock_mutation().map_err(|err| fail(err.code, err.message))?;
+    let previewed = load_preview(store, tx, &project_digest(store, Some(project)))?;
+    target_outside_store(root, &previewed.target_rel, store.root())
+        .map_err(|err| fail(err.code, err.message))?;
+    // Authorize before persisting. Writing the intent first leaves a
+    // record of a mutation that policy went on to refuse.
+    let _auth = authorize_store_apply(store, Some(project), "apply", &previewed.target_rel)?;
+    let backup = ctxpect_projection::backup_dir(store.root(), &previewed.tx_id);
+    let result = proj_apply(root, &previewed, &backup, true)
+        .map_err(|err| fail(err.code, err.message))?;
+    // The CanonicalIntent record lands after the apply succeeded: an
+    // apply refused for a moved target leaves no record of an intent
+    // that was never realised.
+    let intent = Intent {
+        intent_id: previewed.intent_id.clone(),
+        authority: previewed.authority.clone(),
+        target_rel: previewed.target_rel.clone(),
+        desired: previewed.desired.clone(),
+    };
+    store
+        .put_named("intents", &intent.intent_id, &intent.to_value())
+        .map_err(|err| fail(err.code, err.message))?;
+    // The preview is consumed by its apply.
+    mark_preview(store, &previewed.tx_id, PREVIEW_APPLIED)?;
+    let _ = store.audit("projection.apply", "projection", Some(&previewed.tx_id));
+    let post = post_receipt(args, store)?;
+    let operation = result
+        .get("state")
+        .and_then(Value::as_str)
+        .unwrap_or("committed")
+        .to_string();
+    ok(
+        "apply",
+        0,
+        merge(
+            object([("transaction", result), ("post_receipt_id", string(&post))]),
+            mutation_outcome(APPLY_SATISFIED, &operation, &post),
+        ),
+    )
+}
+
+/// `rollback --id <tx>`: undo a committed transaction, then observe.
+fn rollback_tx(
+    args: &ProductArgs,
+    store: &Store,
+    root: &Root,
+    project: &Path,
+) -> Result<ProductReport, InspectFailure> {
     let tx = args
         .id
         .as_deref()
@@ -1702,25 +1726,25 @@ fn projection_cmd(args: &ProductArgs) -> Result<ProductReport, InspectFailure> {
         .and_then(|meta| meta.get("target_rel").and_then(Value::as_str).map(str::to_string))
         .or_else(|| args.target.clone())
         .unwrap_or_else(|| "AGENTS.md".into());
-    let _auth = authorize_store_apply(&store, Some(project.as_path()), "rollback", &target_rel)?;
-    let result = proj_rollback(
-        &root,
-        &backup,
-        &target_rel,
-        &project_digest(&store, Some(project.as_path())),
-    )
-    .map_err(|err| fail(err.code, err.message))?;
+    let _auth = authorize_store_apply(store, Some(project), "rollback", &target_rel)?;
+    let result = proj_rollback(root, &backup, &target_rel, &project_digest(store, Some(project)))
+        .map_err(|err| fail(err.code, err.message))?;
     // A rolled-back transaction stays consumed: re-applying needs a fresh preview.
-    mark_preview(&store, tx, PREVIEW_ROLLED_BACK)?;
+    mark_preview(store, tx, PREVIEW_ROLLED_BACK)?;
     let _ = store.audit("projection.rollback", "projection", Some(tx));
     // A rollback changes the project just as an apply does, so the state
     // after it is observed rather than assumed. Without this, the only
     // recorded observation would be the one from before the rollback.
-    let post = post_receipt(args, &store)?;
+    let post = post_receipt(args, store)?;
+    // The record is closed as `rolled-back`; `action` on the result says
+    // what that took (bytes restored, created file removed, or untouched).
     ok(
         "rollback",
         0,
-        merge(result, [("post_receipt_id", string(&post))]),
+        merge(
+            merge(result, [("post_receipt_id", string(&post))]),
+            mutation_outcome(ROLLBACK_SATISFIED, "rolled-back", &post),
+        ),
     )
 }
 
