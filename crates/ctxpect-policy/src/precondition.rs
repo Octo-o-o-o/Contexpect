@@ -9,9 +9,12 @@
 //! the action on its own.
 //!
 //! Pure data and pure functions: no IO, no clock, no schema `Value`. This
-//! module is the contract anchor the execution chain (projection apply,
-//! session import, standard publish) wires against; that wiring is a
-//! separate work package.
+//! module is the contract anchor the execution chain wires against. Wired
+//! so far: Doctor treatment locks (`ctxpect-doctor`) and projection
+//! `apply` / `rollback` results and refusals (`ctxpect-cli::mutation_report`,
+//! shared by the CLI and the API). Session import (`ModelVisibleClaim`) and
+//! standard publish (`PublishOrAdoptStandard`) are not wired: their
+//! "satisfied" checks would be self-declared until a real producer exists.
 
 /// The five operation classes of the §4.3 precondition table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -4269,3 +4269,187 @@ fn codex_static_to_safe_write_loop_closes_end_to_end() {
     assert_eq!(code, 1, "{out} {json:?}");
     assert_eq!(err_code(&json), Some("projection.tx_consumed"));
 }
+
+/// C-F03 wiring: `apply` / `rollback` report which product check satisfied
+/// each precondition of a limited static fix, keep the verification axes
+/// apart ("applied, runtime not observed"), and name the missing
+/// precondition on refusal. The CLI and the API give the same answer.
+#[test]
+fn c_f03_mutation_results_report_preconditions_and_verification_axes() {
+    fn without(value: &Value, key: &str) -> Value {
+        match value {
+            Value::Object(map) => {
+                let mut map = map.clone();
+                map.remove(key);
+                Value::Object(map)
+            }
+            other => other.clone(),
+        }
+    }
+    fn keys(value: &Value) -> Vec<String> {
+        match value {
+            Value::Object(map) => map.keys().cloned().collect(),
+            _ => Vec::new(),
+        }
+    }
+    const TABLE_ORDER: [&str; 6] = [
+        "approved-plan", "fix-semantics", "original-bytes", "permission", "policy-eval", "target-identity",
+    ];
+
+    let scratch = Scratch::new("cf03");
+    scratch.write("AGENTS.md", "one\n");
+    let project = scratch.path.to_str().unwrap();
+    let store = scratch.path.join("store");
+    let store_s = store.to_str().unwrap();
+    fs::create_dir_all(&store).unwrap();
+    plant_grants(&store, Some(&scratch.path), &["apply", "rollback"]);
+
+    // 1. A completed apply: every required precondition names the check
+    //    that satisfied it; the outcome question may stay unknown; the write
+    //    is committed, statically re-observed, and runtime-unverified.
+    let (code, applied, out) = preview_then_apply(project, store_s, "AGENTS.md", "two\n");
+    assert_eq!(code, 0, "{out} {applied:?}");
+    let pre = applied.get("preconditions").expect("preconditions");
+    assert_eq!(pre.get("action_class").and_then(Value::as_str), Some("limited-static-fix"));
+    assert_eq!(pre.get("complete"), Some(&Value::Bool(true)));
+    assert_eq!(pre.get("missing").and_then(Value::as_array).map(|a| a.len()), Some(0));
+    assert_eq!(
+        pre.get("may_remain_unknown").and_then(Value::as_array).map(|a| a.len()),
+        Some(1)
+    );
+    assert_eq!(
+        pre.get("may_remain_unknown").and_then(Value::as_array).and_then(|a| a.first()).and_then(Value::as_str),
+        Some("outcome")
+    );
+    let satisfied = pre.get("satisfied").expect("satisfied");
+    assert_eq!(keys(satisfied), TABLE_ORDER.map(String::from).to_vec());
+    assert_eq!(
+        satisfied.get("original-bytes").and_then(Value::as_str),
+        Some("projection.current_digest")
+    );
+    assert_eq!(
+        satisfied.get("permission").and_then(Value::as_str),
+        Some("policy.exception_covers_scope")
+    );
+    let ver = applied.get("verification").expect("verification");
+    assert_eq!(ver.get("operation").and_then(Value::as_str), Some("committed"));
+    assert_eq!(ver.get("static_reverification").and_then(Value::as_str), Some("observed"));
+    assert_eq!(ver.get("runtime_verification").and_then(Value::as_str), Some("not-observed"));
+    assert_eq!(ver.get("effect").and_then(Value::as_str), Some("not-evaluated"));
+    assert_eq!(ver.get("trust").and_then(Value::as_str), Some("local-continuity"));
+    assert_eq!(ver.get("post_receipt_id"), applied.get("post_receipt_id"));
+    let tx1 = applied
+        .pointer(&["transaction", "tx_id"])
+        .and_then(Value::as_str)
+        .unwrap()
+        .to_string();
+
+    // 2. A consumed transaction is refused for its plan, not for its bytes.
+    let (code, json, out) = run(&["apply", "--json", "--project", project, "--store", store_s, "--tx", &tx1]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("projection.tx_consumed"));
+    assert_eq!(json.pointer(&["error", "precondition"]).and_then(Value::as_str), Some("approved-plan"));
+
+    // 3. An edit after the preview is refused for the original bytes.
+    let (code, preview, out) = run(&[
+        "intent", "preview", "--json", "--project", project, "--store", store_s, "--target", "AGENTS.md",
+        "--desired", "three\n",
+    ]);
+    assert_eq!(code, 0, "{out} {preview:?}");
+    let tx2 = preview.get("tx_id").and_then(Value::as_str).unwrap().to_string();
+    scratch.write("AGENTS.md", "edited\n");
+    let (code, json, out) = run(&["apply", "--json", "--project", project, "--store", store_s, "--tx", &tx2]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("projection.concurrent_hash"));
+    assert_eq!(json.pointer(&["error", "precondition"]).and_then(Value::as_str), Some("original-bytes"));
+    assert_eq!(fs::read_to_string(scratch.path.join("AGENTS.md")).unwrap(), "edited\n");
+
+    // 4. A rollback over a later edit is refused for the same reason; once
+    //    the applied bytes are back, the rollback completes with its own
+    //    axes and the record is closed.
+    let (code, json, out) = run(&["rollback", "--json", "--project", project, "--store", store_s, "--id", &tx1]);
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("projection.rollback_conflict"));
+    assert_eq!(json.pointer(&["error", "precondition"]).and_then(Value::as_str), Some("original-bytes"));
+    scratch.write("AGENTS.md", "two\n");
+    let (code, undone, out) = run(&["rollback", "--json", "--project", project, "--store", store_s, "--id", &tx1]);
+    assert_eq!(code, 0, "{out} {undone:?}");
+    assert_eq!(undone.get("action").and_then(Value::as_str), Some("restored-previous-bytes"));
+    assert_eq!(fs::read_to_string(scratch.path.join("AGENTS.md")).unwrap(), "one\n");
+    let undone_pre = undone.get("preconditions").expect("preconditions");
+    assert_eq!(keys(undone_pre.get("satisfied").unwrap()), TABLE_ORDER.map(String::from).to_vec());
+    assert_eq!(
+        undone_pre.pointer(&["satisfied", "original-bytes"]).and_then(Value::as_str),
+        Some("projection.after_digest")
+    );
+    assert_eq!(undone.pointer(&["verification", "operation"]).and_then(Value::as_str), Some("rolled-back"));
+    assert_eq!(
+        undone.pointer(&["verification", "runtime_verification"]).and_then(Value::as_str),
+        Some("not-observed")
+    );
+    assert_eq!(undone.pointer(&["verification", "post_receipt_id"]), undone.get("post_receipt_id"));
+
+    // 5. Without a covering exception the refusal names `permission`; with
+    //    no policy at all it names `policy-eval`.
+    let bare = scratch.path.join("store-no-grant");
+    fs::create_dir_all(bare.join("policies")).unwrap();
+    fs::write(bare.join("policies/active.json"), PASS_LAYERS).unwrap();
+    let bare_s = bare.to_str().unwrap();
+    let (code, json, out) = preview_then_apply(project, bare_s, "AGENTS.md", "nope\n");
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("policy.approval_required"));
+    assert_eq!(json.pointer(&["error", "precondition"]).and_then(Value::as_str), Some("permission"));
+    let empty = scratch.path.join("store-no-policy");
+    fs::create_dir_all(&empty).unwrap();
+    let (code, json, out) = preview_then_apply(project, empty.to_str().unwrap(), "AGENTS.md", "nope\n");
+    assert_eq!(code, 1, "{out} {json:?}");
+    assert_eq!(err_code(&json), Some("policy.unknown"));
+    assert_eq!(json.pointer(&["error", "precondition"]).and_then(Value::as_str), Some("policy-eval"));
+    assert_eq!(fs::read_to_string(scratch.path.join("AGENTS.md")).unwrap(), "one\n");
+
+    // 6. The API on the same store gives the same preconditions and the
+    //    same axes, and names the precondition on refusal too.
+    let (_daemon, listen) = start_daemon(&scratch, &store);
+    let (status, raw) = http_call(
+        &listen,
+        "POST",
+        "/api/v1/intent/preview",
+        r#"{"desired":"via-api\n","target":"AGENTS.md"}"#,
+    );
+    assert_eq!(status, 200, "{raw}");
+    let api_tx = http_json(&raw).get("tx_id").and_then(Value::as_str).unwrap().to_string();
+    let body = format!(r#"{{"tx_id":"{api_tx}"}}"#);
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/apply", &body);
+    assert_eq!(status, 200, "{raw}");
+    let api_applied = http_json(&raw);
+    assert_eq!(api_applied.get("preconditions"), Some(pre), "{raw}");
+    assert_eq!(
+        without(api_applied.get("verification").unwrap(), "post_receipt_id"),
+        without(ver, "post_receipt_id")
+    );
+    assert_eq!(
+        api_applied.pointer(&["verification", "post_receipt_id"]),
+        api_applied.get("post_receipt_id")
+    );
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/apply", &body);
+    assert_eq!(status, 400, "{raw}");
+    let refused = http_json(&raw);
+    assert_eq!(err_code(&refused), Some("projection.tx_consumed"));
+    assert_eq!(refused.pointer(&["error", "precondition"]).and_then(Value::as_str), Some("approved-plan"));
+    scratch.write("AGENTS.md", "api edit\n");
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/rollback", &body);
+    assert_eq!(status, 400, "{raw}");
+    let refused = http_json(&raw);
+    assert_eq!(err_code(&refused), Some("projection.rollback_conflict"));
+    assert_eq!(refused.pointer(&["error", "precondition"]).and_then(Value::as_str), Some("original-bytes"));
+    scratch.write("AGENTS.md", "via-api\n");
+    let (status, raw) = http_call(&listen, "POST", "/api/v1/rollback", &body);
+    assert_eq!(status, 200, "{raw}");
+    let api_undone = http_json(&raw);
+    assert_eq!(api_undone.get("preconditions"), undone.get("preconditions"));
+    assert_eq!(
+        without(api_undone.get("verification").unwrap(), "post_receipt_id"),
+        without(undone.get("verification").unwrap(), "post_receipt_id")
+    );
+    assert_eq!(fs::read_to_string(scratch.path.join("AGENTS.md")).unwrap(), "one\n");
+}

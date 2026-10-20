@@ -10,6 +10,9 @@ use crate::dispatch::{persist_inspect_in,
 };
 use crate::inspect::inspect;
 use crate::jsonutil::with_snapshot_digest;
+use crate::mutation_report::{
+    mutation_outcome, precondition_for_refusal, APPLY_SATISFIED, ROLLBACK_SATISFIED,
+};
 use ctxpect_advisor::suggest;
 use ctxpect_collect::scan;
 use ctxpect_diff::{diff, EquivalenceProfile};
@@ -463,6 +466,21 @@ fn write_response(stream: &mut TcpStream, status: u16, ctype: &str, body: &str, 
 
 fn json_ok(value: Value) -> (u16, &'static str, String) {
     (200, "application/json", canonical_json(&with_snapshot_digest(value)))
+}
+
+/// A refusal on the apply / rollback path. When the reason code stands for
+/// a missing precondition (C-F03), the error names it, exactly as the CLI
+/// envelope does.
+fn json_refused(code: &str, message: &str) -> (u16, &'static str, String) {
+    let mut error = vec![("code", string(code)), ("message", string(message))];
+    if let Some(precondition) = precondition_for_refusal(code) {
+        error.push(("precondition", string(precondition)));
+    }
+    (
+        400,
+        "application/json",
+        canonical_json(&object([("error", object(error))])),
+    )
 }
 
 fn json_err(code: &str, message: &str) -> (u16, &'static str, String) {
@@ -2166,15 +2184,20 @@ fn apply_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
     };
     let preview = match load_preview(&state.store, tx, &scope) {
         Ok(preview) => preview,
-        Err(err) => return json_err(err.code(), &err.message()),
+        Err(err) => return json_refused(err.code(), &err.message()),
     };
     if let Err(err) = target_outside_store(&root, &preview.target_rel, state.store.root()) {
-        return json_err(err.code, &err.message);
+        return json_refused(err.code, &err.message);
     }
     // Client-supplied `approved` is not authorization evidence and is ignored.
-    let _auth = match require_mutation(state, "apply", &preview.target_rel) {
+    let _auth = match authorize_store_apply(
+        &state.store,
+        state.project.as_deref(),
+        "apply",
+        &preview.target_rel,
+    ) {
         Ok(auth) => auth,
-        Err(denied) => return denied,
+        Err(err) => return json_refused(err.code(), &err.message()),
     };
     match proj_apply(
         &root,
@@ -2201,14 +2224,21 @@ fn apply_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
             }
             let _ = state.store.audit("projection.apply", "projection", Some(&preview.tx_id));
             match observe_after_mutation(state, project, None) {
-                Ok(post) => json_ok(object([
-                    ("transaction", v),
-                    ("post_receipt_id", string(&post)),
-                ])),
+                Ok(post) => {
+                    let operation = v
+                        .get("state")
+                        .and_then(Value::as_str)
+                        .unwrap_or("committed")
+                        .to_string();
+                    json_ok(merge_fields(
+                        object([("transaction", v), ("post_receipt_id", string(&post))]),
+                        mutation_outcome(APPLY_SATISFIED, &operation, &post),
+                    ))
+                }
                 Err(refusal) => refusal,
             }
         }
-        Err(err) => json_err(err.code, &err.message),
+        Err(err) => json_refused(err.code, &err.message),
     }
 }
 
@@ -2310,9 +2340,10 @@ fn rollback_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
         .and_then(|meta| meta.get("target_rel").and_then(Value::as_str).map(str::to_string))
         .or_else(|| parsed.get("target").and_then(Value::as_str).map(str::to_string))
         .unwrap_or_else(|| "AGENTS.md".to_string());
-    let _auth = match require_mutation(state, "rollback", &target) {
+    let _auth = match authorize_store_apply(&state.store, state.project.as_deref(), "rollback", &target)
+    {
         Ok(auth) => auth,
-        Err(denied) => return denied,
+        Err(err) => return json_refused(err.code(), &err.message()),
     };
     let scope = project_scope_digest(state.store.root(), Some(project.as_path()));
     match proj_rollback(&root, &backup, &target, &scope) {
@@ -2324,11 +2355,14 @@ fn rollback_api(body: &str, state: &AppState) -> (u16, &'static str, String) {
             }
             let _ = state.store.audit("projection.rollback", "projection", Some(tx));
             match observe_after_mutation(state, project, None) {
-                Ok(post) => json_ok(merge_fields(v, [("post_receipt_id", string(&post))])),
+                Ok(post) => json_ok(merge_fields(
+                    merge_fields(v, [("post_receipt_id", string(&post))]),
+                    mutation_outcome(ROLLBACK_SATISFIED, "rolled-back", &post),
+                )),
                 Err(refusal) => refusal,
             }
         }
-        Err(err) => json_err(err.code, &err.message),
+        Err(err) => json_refused(err.code, &err.message),
     }
 }
 

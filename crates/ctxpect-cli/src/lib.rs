@@ -101,6 +101,7 @@ mod dispatch;
 mod http;
 mod inspect;
 mod jsonutil;
+mod mutation_report;
 mod redact;
 mod secure_sync;
 mod effect_runner;
