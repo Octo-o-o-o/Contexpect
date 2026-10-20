@@ -199,31 +199,35 @@ impl Store {
         Ok(())
     }
 
+    /// Read an existing key without creating store state.
+    pub fn existing_continuity_key(&self) -> Result<ContinuityKey, StoreError> {
+        let path = self.root.join("keys/continuity.key");
+        let metadata = fs::symlink_metadata(&path)?;
+        if !metadata.file_type().is_file() {
+            return Err(StoreError::new("store.key_type", "continuity key must be a regular file"));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if metadata.permissions().mode() & 0o077 != 0 {
+                return Err(StoreError::new("store.key_permissions", "continuity key is readable by others"));
+            }
+        }
+        Ok(ContinuityKey::from_secret(fs::read(path)?))
+    }
+
     pub fn continuity_key(&self) -> Result<ContinuityKey, StoreError> {
         let path = self.root.join("keys/continuity.key");
-        if path.exists() {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let mode = fs::symlink_metadata(&path)?.permissions().mode();
-                if mode & 0o077 != 0 {
-                    return Err(StoreError::new(
-                        "store.key_permissions",
-                        format!(
-                            "keys/continuity.key is readable by others (mode {:o}); refusing to use a key that may have leaked",
-                            mode & 0o777
-                        ),
-                    ));
-                }
-            }
-            let secret = fs::read(&path)?;
-            return Ok(ContinuityKey::from_secret(secret));
+        match fs::symlink_metadata(&path) {
+            Ok(_) => return self.existing_continuity_key(),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {},
+            Err(err) => return Err(err.into()),
         }
         let _lock = self.lock_mutation()?;
-        if path.exists() {
-            // Minted by a concurrent opener while this one waited.
-            let secret = fs::read(&path)?;
-            return Ok(ContinuityKey::from_secret(secret));
+        match fs::symlink_metadata(&path) {
+            Ok(_) => return self.existing_continuity_key(),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {},
+            Err(err) => return Err(err.into()),
         }
         let mut secret = vec![0u8; 32];
         fill_random(&mut secret)?;

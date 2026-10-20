@@ -320,7 +320,8 @@ pub(crate) fn authorize_store_apply(
                 .pointer(&["exception", "exception_id"])
                 .and_then(Value::as_str)
                 .map(|id| format!("{action} {target} via {id}"));
-            let _ = store.audit("mutation.allowed", "mutation", detail.as_deref());
+            store.audit("mutation.allowed", "mutation", detail.as_deref())
+                .map_err(|err| fail(err.code, err.message))?;
             Ok(Authorization {
                 decision: auth,
                 _lock: lock,
@@ -460,7 +461,7 @@ pub(crate) fn verify_standard_document(
     doc: &Value,
 ) -> Result<Value, InspectFailure> {
     let key = store
-        .continuity_key()
+        .existing_continuity_key()
         .map_err(|err| fail(err.code, err.message))?;
     let sig = doc
         .pointer(&["signature", "value"])
@@ -496,6 +497,9 @@ pub(crate) fn verify_standard_document(
             "standard.signature_mismatch",
             "local-continuity MAC did not verify against the store key".into(),
         ));
+    }
+    if doc.get("manifest_digest").and_then(Value::as_str) != Some(digest.as_str()) {
+        return Err(fail("standard.manifest_mismatch", "manifest_digest does not match the signed standard".into()));
     }
     Ok(match doc.clone() {
         Value::Object(mut map) => {

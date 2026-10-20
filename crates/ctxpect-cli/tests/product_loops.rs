@@ -4453,3 +4453,50 @@ fn c_f03_mutation_results_report_preconditions_and_verification_axes() {
     );
     assert_eq!(fs::read_to_string(scratch.path.join("AGENTS.md")).unwrap(), "one\n");
 }
+
+#[test]
+fn standard_manifest_and_missing_key_fail_without_repairing_state() {
+    let scratch = Scratch::new("std-readonly");
+    let root = scratch.path.join("store");
+    plant_grants(&root, None, &["standard.publish"]);
+    let args = ["standard", "publish", "--json", "--store", root.to_str().unwrap(), "--id", "test", "--text", "hello"];
+    let (code, _, out) = run(&args);
+    assert_eq!(code, 0, "{out}");
+    let path = root.join("standards/test.json");
+    let original = fs::read_to_string(&path).unwrap();
+    let mut doc = parse(&original).unwrap();
+    if let Value::Object(map) = &mut doc { map.insert("manifest_digest".into(), Value::Str("forged".into())); }
+    fs::write(&path, canonical_json(&doc)).unwrap();
+    let status = ["standard", "status", "--json", "--store", root.to_str().unwrap(), "--id", "test"];
+    let (code, json, out) = run(&status);
+    assert_eq!(code, 1, "{out}");
+    assert_eq!(err_code(&json), Some("standard.manifest_mismatch"));
+    fs::write(&path, &original).unwrap();
+    fs::remove_file(root.join("keys/continuity.key")).unwrap();
+    let audit = fs::read(root.join("audit/events.jsonl")).unwrap();
+    for sub in ["status", "preview"] {
+        let (code, _, out) = run(&["standard", sub, "--json", "--store", root.to_str().unwrap(), "--id", "test"]);
+        assert_eq!(code, 1, "{out}");
+        assert!(!root.join("keys/continuity.key").exists());
+        assert_eq!(fs::read(&path).unwrap(), original.as_bytes());
+        assert_eq!(fs::read(root.join("audit/events.jsonl")).unwrap(), audit);
+    }
+}
+
+#[test]
+fn failed_authorization_audit_blocks_standard_write() {
+    let scratch = Scratch::new("audit-fail");
+    let root = scratch.path.join("store");
+    plant_grants(&root, None, &["standard.publish"]);
+    let store = Store::open(&root).unwrap();
+    store.audit("test", "seed", None).unwrap();
+    let log = root.join("audit/events.jsonl");
+    let mut torn = fs::read(&log).unwrap();
+    torn.extend_from_slice(b"{broken");
+    fs::write(&log, &torn).unwrap();
+    let (code, json, out) = run(&["standard", "publish", "--json", "--store", root.to_str().unwrap(), "--id", "blocked"]);
+    assert_eq!(code, 1, "{out}");
+    assert_eq!(err_code(&json), Some("store.audit_torn"));
+    assert!(!root.join("standards/blocked.json").exists());
+    assert_eq!(fs::read(log).unwrap(), torn);
+}
