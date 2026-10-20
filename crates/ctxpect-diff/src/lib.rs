@@ -119,6 +119,10 @@ pub fn diff(left: &Value, right: &Value, profile: EquivalenceProfile) -> Value {
     }
     let files_equal = digest_equal || assets_equal;
 
+    let mut protected_differences = Vec::new();
+    compare_fields(left, right, "", profile, &mut protected_differences);
+    let keyed_incomparable = left.get("local_keyed_digest") != right.get("local_keyed_digest");
+
     let mut facet_rows = Vec::new();
     let names = [
         "installed",
@@ -175,9 +179,9 @@ pub fn diff(left: &Value, right: &Value, profile: EquivalenceProfile) -> Value {
         ),
         (
             "reconciliation",
-            string(if !same_kind || !domain_equal || unknown_cells > 0 {
+            string(if !same_kind || !domain_equal || unknown_cells > 0 || keyed_incomparable {
                 "indeterminate"
-            } else if mismatches == 0 {
+            } else if mismatches == 0 && files_equal && protected_differences.is_empty() {
                 "structural-only"
             } else {
                 "failed"
@@ -191,7 +195,8 @@ pub fn diff(left: &Value, right: &Value, profile: EquivalenceProfile) -> Value {
             // Receipts from a different native target are not a baseline for
             // each other, whatever the profile decided to ignore.
             "baseline_allowed",
-            Value::Bool(unknown_cells == 0 && mismatches == 0 && same_kind && domain_equal),
+            Value::Bool(unknown_cells == 0 && mismatches == 0 && same_kind && domain_equal
+                && files_equal && protected_differences.is_empty() && !keyed_incomparable),
         ),
         (
             "note",
@@ -199,6 +204,8 @@ pub fn diff(left: &Value, right: &Value, profile: EquivalenceProfile) -> Value {
                 "files_equal records digest identity only. Unknown cells cannot create a passing baseline. Native verified requires a declared oracle, which this diff does not invent.",
             ),
         ),
+        ("protected_differences", array(protected_differences.iter().map(string))),
+        ("local_keyed_digest_incomparable", Value::Bool(keyed_incomparable)),
         ("facets", array(facet_rows)),
         ("unknown_cells", Value::Int(unknown_cells)),
         ("mismatches", Value::Int(mismatches)),
@@ -225,6 +232,34 @@ fn asset_identity(receipt: &Value) -> Vec<String> {
         .collect();
     out.sort();
     out
+}
+
+// Compare all payload fields; only explicit instance metadata and declared
+// device axes are exempt. New policy/intent fields therefore fail closed.
+fn compare_fields(left: &Value, right: &Value, path: &str, profile: EquivalenceProfile, differences: &mut Vec<String>) {
+    if matches!(path, "/receipt_id" | "/created_at" | "/snapshot_digest" | "/coordinate/snapshot"
+        | "/source_snapshot/snapshot_digest" | "/manifest/digest" | "/signature/value" | "/signature/signed_at") {
+        return;
+    }
+    if profile == EquivalenceProfile::IgnoreDeviceLocal
+        && (path.strip_prefix("/coordinate/").is_some_and(|axis| DEVICE_LOCAL_AXES.contains(&axis))
+            || path == "/coordinate/project_digest") {
+        return;
+    }
+    match (left, right) {
+        (Value::Object(l), Value::Object(r)) => {
+            let keys: std::collections::BTreeSet<_> = l.keys().chain(r.keys()).collect();
+            for key in keys {
+                let next = format!("{path}/{key}");
+                match (l.get(key), r.get(key)) {
+                    (Some(a), Some(b)) => compare_fields(a, b, &next, profile, differences),
+                    _ => differences.push(next),
+                }
+            }
+        }
+        _ if left != right => differences.push(path.to_string()),
+        _ => {}
+    }
 }
 
 fn facet_truth<'a>(receipt: &'a Value, name: &'a str) -> &'a str {
@@ -332,6 +367,7 @@ mod tests {
         }
         let relaxed = diff(&a, &b, EquivalenceProfile::IgnoreDeviceLocal);
         assert_eq!(relaxed.get("files_equal").and_then(Value::as_bool), Some(false));
+        assert_eq!(relaxed.get("baseline_allowed").and_then(Value::as_bool), Some(false));
     }
 
     #[test]
@@ -368,4 +404,22 @@ mod tests {
         assert_eq!(report.get("same_kind").and_then(Value::as_bool), Some(false));
         assert_eq!(report.get("same_domain").and_then(Value::as_bool), Some(false));
     }
+    #[test]
+    fn protected_payload_changes_never_form_a_baseline() {
+        for field in ["intent", "scope", "policy_result", "required", "native_target", "loss", "asset_identity"] {
+            for profile in [EquivalenceProfile::Strict, EquivalenceProfile::IgnoreDeviceLocal] {
+                let (a, _) = cross_device_pair();
+                let mut b = a.clone();
+                if let Value::Object(map) = &mut b { map.insert(field.into(), string("changed")); }
+                let report = diff(&a, &b, profile);
+                assert_eq!(report.get("baseline_allowed").and_then(Value::as_bool), Some(false), "{field}: {report:?}");
+            }
+        }
+        let (a, mut b) = cross_device_pair();
+        if let Value::Object(map) = &mut b { map.insert("local_keyed_digest".into(), string("other-device")); }
+        let report = diff(&a, &b, EquivalenceProfile::IgnoreDeviceLocal);
+        assert_eq!(report.get("reconciliation").and_then(Value::as_str), Some("indeterminate"));
+        assert_eq!(report.get("baseline_allowed").and_then(Value::as_bool), Some(false));
+    }
+
 }
